@@ -90,6 +90,25 @@ the prompt — do not collapse the role into the main context.
     same thing. Before granting any exemption, state which other layer still
     catches it — and if none does, it is a widening, not a clarification.
 
+15. **An invariant beats a list.** Ask the property, don't enumerate the
+    cases. Twice now a list has been the wrong answer: a money-token list
+    enforced 15 of 22 entries, and a whitespace list could never have caught
+    zero-width space or a byte-order mark, because those are *format*
+    characters rather than whitespace — they survive a strip and render as
+    nothing. The replacement asks Unicode, per character, whether anything
+    printable and non-format is present; it consults no list and can gain no
+    entries. Where an invariant genuinely cannot be expressed — SQL has no
+    portable character classes — use a list, **declare its ceiling in the same
+    place**, and point at the layer that generalises.
+
+16. **A refused operation is not evidence a guard fired for the right
+    reason.** PostgreSQL validates plpgsql syntax at creation but resolves
+    identifiers and operators at the first execution of *each branch*, so a
+    guard can be created cleanly, pass every happy path, and fail the first
+    time someone does the forbidden thing — and the worst form of that failure
+    still blocks the operation, so it looks like the guard working. Exercise
+    every refusal path and **assert the message text, not the exit status.**
+
 ## Assignment format
 
 Every assignment: **Role** (who owns the outcome) · **Context** (user,

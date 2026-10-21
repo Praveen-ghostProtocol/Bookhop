@@ -1,5 +1,29 @@
 import pytest
 from django.db import connection
+from django.db.backends.signals import connection_created
+
+
+def _declare_flush_escape(sender, connection, **kwargs):  # noqa: ARG001
+    """Declare the escape on every connection, as soon as it is opened.
+
+    **The mechanism is `connection_created`, not a one-off `SET`, and the first
+    PostgreSQL run is why.** The setting is a session GUC: it lives on a
+    *database connection*, not on a pytest session. A session-scoped fixture
+    that SET it once bound it to whichever connection happened to exist at
+    session setup, and any close reopened a connection without it — measured:
+    one test that used threads and called `connections.close_all()` was enough,
+    and the *next* transactional test then died in teardown on
+    `TRUNCATE "cities", "jobs", …` with `audit_log is append-only`.
+
+    That is the failure QA-S0 F9 and ENGINE-DIVERGENCE §7.1 exist to prevent,
+    and it would have landed on S4's `test_double_booking.py`, which needs
+    `transactional_db` **and** several real connections to race at all. The
+    tempting fix at that moment is deleting the TRUNCATE guard. A per-connection
+    setting belongs on a per-connection hook.
+    """
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SET bookhop.allow_flush = 'yes'")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -23,17 +47,21 @@ def allow_test_flush(django_db_setup, django_db_blocker):
 
     `autouse` and session-scoped because a teardown failure is not something a
     test should have to opt into avoiding, and because on Postgres the setting
-    must be live on the connection the harness flushes with.
+    must be live on **every** connection the harness might flush with — see
+    `_declare_flush_escape` for why "every" is the word that was wrong before.
     """
     if connection.vendor != "postgresql":
         yield
         return
+    connection_created.connect(_declare_flush_escape)
     with django_db_blocker.unblock():
-        with connection.cursor() as cursor:
-            # A custom GUC, so this needs no privilege and grants none: see
-            # ENGINE-DIVERGENCE §7.1 on why production cannot refuse it either.
-            cursor.execute("SET bookhop.allow_flush = 'yes'")
+        # The signal cannot fire retroactively, so the connection that already
+        # exists at session setup is declared here. A custom GUC needs no
+        # privilege and grants none: see ENGINE-DIVERGENCE §7.1 on why
+        # production cannot refuse it either.
+        _declare_flush_escape(None, connection)
     yield
+    connection_created.disconnect(_declare_flush_escape)
 
 
 @pytest.fixture

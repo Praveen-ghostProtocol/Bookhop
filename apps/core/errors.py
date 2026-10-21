@@ -59,3 +59,24 @@ class AuditChainBroken(ServiceError):
 
     code = "INTERNAL"
     http_status = 500
+
+
+class AuditAppendContention(ServiceError):
+    """`record_audit` lost its retry budget racing other appenders.
+
+    **Deliberately NOT an `AuditChainBroken` and deliberately not a subclass of
+    one.** The chain is intact in this case — every committed row still follows
+    its predecessor, and `verify_audit_chain` passes. What failed is one
+    appender's attempt to win the `prev_hash UNIQUE` race.
+
+    Until the first PostgreSQL run these were the same exception, and that was
+    wrong in the expensive direction: a load spike would have raised
+    `AuditChainBroken` and sent an operator hunting a tamper, during the one
+    incident class where a misleading diagnostic costs the most. The race
+    cannot occur on SQLite at all (one writer), so nothing had ever raised it
+    for this reason — measured at 12 concurrent appenders, where exactly one
+    lost four straight races and its audit row was dropped.
+    """
+
+    code = "INTERNAL"
+    http_status = 500

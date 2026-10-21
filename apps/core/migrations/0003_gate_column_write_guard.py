@@ -175,10 +175,12 @@ def _run(statements_pg, statements_sqlite):
     def apply(apps, schema_editor):
         vendor = schema_editor.connection.vendor
         if vendor == "postgresql":
-            schema_editor.execute(statements_pg)
+            # params=None: see the note in 0002. `% is append-only: TRUNCATE
+            # ...', TG_TABLE_NAME` needs a literal `%` to reach plpgsql.
+            schema_editor.execute(statements_pg, None)
         elif vendor == "sqlite":
             for statement in statements_sqlite:
-                schema_editor.execute(statement)
+                schema_editor.execute(statement, None)
         else:
             raise RuntimeError(
                 f"the gate write guard is not written for {vendor!r}; ADR-001 §2.2 "

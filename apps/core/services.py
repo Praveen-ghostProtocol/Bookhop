@@ -6,6 +6,8 @@ handlers. Nothing here renders, and nothing above here touches the ORM.
 
 import hashlib
 import json
+import random
+import time
 import uuid
 from datetime import timedelta
 
@@ -14,6 +16,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .errors import (
+    AuditAppendContention,
     AuditChainBroken,
     IdempotencyInProgress,
     IdempotencyKeyRequired,
@@ -46,6 +49,31 @@ __all__ = [
 #: The first row's predecessor. A constant rather than NULL so that `prev_hash`
 #: can be UNIQUE NOT NULL and the genesis row is as constrained as every other.
 GENESIS_HASH = "0" * 64
+
+#: `record_audit`'s retry budget for the `prev_hash UNIQUE` race, and the upper
+#: bound of the jittered backoff between attempts.
+#:
+#: **Chosen from measurement on the first PostgreSQL run, not guessed.** The
+#: previous value was 4, with no backoff. Measured, 12 competing appenders on
+#: real connections: one of them lost four straight races, raised what was then
+#: `AuditChainBroken`, and **its audit row was dropped** — so its mutation
+#: would have failed with a tamper-shaped error during nothing worse than a
+#: load spike. The attempts-to-win distribution's tail grows with the number of
+#: competing appenders: a winner needed 5 attempts at 8 appenders and 7 at 24,
+#: so 4 was already below the observed need at modest concurrency. This race
+#: **cannot occur on SQLite** — one database writer — which is why a value too
+#: small by a factor of two survived S0 with a green suite
+#: (ENGINE-DIVERGENCE §4.1, §4.5).
+#:
+# ponytail: a retry budget, not a queue. **Ceiling: `prev_hash UNIQUE` makes
+# every audit append serialise by construction, so no budget removes the
+# throughput limit — it only stops a loser being reported as a broken chain.**
+# At the pilot's write rate (2-3 campuses) that limit is far above load. Upgrade
+# path is a DATA-MODEL §8 change, not a constant: either a per-scope chain so
+# appends to different campuses do not compete, or periodic checkpoint anchoring
+# instead of a per-row chain. Both are cto's call — escalated, not edited.
+APPEND_MAX_ATTEMPTS = 12
+APPEND_BACKOFF_SECONDS = 0.01
 
 
 # --- Feature flags --------------------------------------------------------
@@ -144,7 +172,7 @@ def record_audit(actor, action, obj, before=None, after=None):
     )
 
     last_error = None
-    for _ in range(4):
+    for attempt in range(APPEND_MAX_ATTEMPTS):
         head = AuditLog.objects.order_by("-id").values_list("row_hash", flat=True).first()
         row = AuditLog(prev_hash=head or GENESIS_HASH, **base)
         row.row_hash = _sha256(row.prev_hash + _canonical(_row_fields(row)))
@@ -161,8 +189,15 @@ def record_audit(actor, action, obj, before=None, after=None):
             if "prev_hash" not in str(exc):
                 raise
             last_error = exc
-    raise AuditChainBroken(
-        f"could not append to the audit chain after 4 attempts: {last_error}"
+            # Decorrelate the herd. Without this every loser re-reads the same
+            # head in a tight loop and collides again, so the budget is spent
+            # on self-inflicted collisions rather than on real contention.
+            time.sleep(random.uniform(0, APPEND_BACKOFF_SECONDS) * (attempt + 1))
+    raise AuditAppendContention(
+        f"could not win the audit_log prev_hash race in {APPEND_MAX_ATTEMPTS} "
+        f"attempts. The chain is NOT broken -- every committed row still "
+        f"follows its predecessor and verify_audit_chain will pass. This is "
+        f"write contention on audit_log: {last_error}"
     ) from last_error
 
 

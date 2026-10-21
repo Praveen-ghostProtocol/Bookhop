@@ -140,3 +140,112 @@ def test_prev_hash_is_unique_so_the_chain_cannot_fork(city):
     with pytest.raises(DatabaseError):
         with transaction.atomic():
             duplicate.save()
+
+
+# --------------------------------------------------------------------------
+# The refusal MESSAGE, not just the refusal. POSTGRES-FIRST-RUN.md §1-§2.
+#
+# `check_function_bodies` validates plpgsql syntax at CREATE FUNCTION; plpgsql
+# resolves identifiers and operators at the first execution of each branch. So
+# a guard can be created cleanly, pass every happy-path test, and fail the
+# first time anyone does the forbidden thing -- and the worst shape of that
+# failure (`relation does not exist`, `record "new" is not assigned yet`) still
+# BLOCKS the operation, so it reads as the guard working while proving nothing
+# about the rule. The tests above assert that a DatabaseError was raised. These
+# assert it was raised *for the stated reason*.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("operation", ["UPDATE", "DELETE"])
+def test_the_append_only_message_names_the_operation_it_refused(city, engine, operation):
+    """The message a developer actually reads must name the operation.
+
+    **This is the regression guard for a two-layer escaping bug.** Migration
+    0002's Postgres body is `RAISE EXCEPTION '... % is not permitted', TG_OP`,
+    and psycopg parses that `%` as a parameter placeholder before Postgres ever
+    sees it: the first `migrate` from empty on a real server died with
+    `incomplete placeholder: '%'`. The fix passes `params=None` so the SQL
+    reaches the server unparsed.
+
+    The other available fix -- doubling the `%` -- also makes `migrate` pass,
+    and **getting it wrong is silent**: a mis-doubled format string produces a
+    literal `%` or `%%` in the message while the guard still refuses the
+    operation, so the refusal looks identical and only the text is broken.
+    `CLAUDE.md` rule 9 is the reason this is a test and not a comment: the
+    claim and the check are one artefact. Asserting the interpolated value is
+    present is what makes the next person's debugging session possible.
+
+    Engine-neutral by construction: SQLite's trigger bodies hardcode the
+    operation in four separate literals, Postgres interpolates `TG_OP` once.
+    Both must produce it, so one assertion covers both -- and a mismatch
+    between the engines is itself what this would catch.
+    """
+    row = record_audit(None, "test.one", city)
+    with pytest.raises(DatabaseError) as caught:
+        with transaction.atomic():
+            if operation == "UPDATE":
+                AuditLog.objects.filter(id=row.id).update(action="test.tampered")
+            else:
+                AuditLog.objects.filter(id=row.id).delete()
+
+    message = str(caught.value)
+    assert "append-only" in message, f"refused on {engine}, but not by the guard: {message!r}"
+    assert operation in message, (
+        f"the guard refused the {operation} on {engine} but its message does not "
+        f"name it, so the interpolation is broken even though the refusal works: "
+        f"{message!r}"
+    )
+    assert "%" not in message, (
+        f"an un-interpolated or double-escaped format specifier reached the "
+        f"message on {engine}: {message!r}"
+    )
+
+
+# **The TRUNCATE REFUSAL is deliberately not asserted here, and that is a
+# finding rather than a gap.** Unsetting the escape is the only way to test the
+# refusal, and naming it is the only way to unset it -- but
+# `tests/contract/test_migration_guards.py` keeps a flat inventory of every file
+# that names it, allowing exactly two plus QA's own tree by path. So this
+# assertion can only live in QA's tree, where
+# `tests/e2e/test_audit_tamper.py::test_truncate_cannot_empty_the_audit_log`
+# already reserves the name and currently skips. `CLAUDE.md` rule 13's order of
+# resort put it there: renaming ours was free, widening QA's allowlist was not,
+# and turning a red guard into an edit of a protected inventory under schedule
+# pressure is the failure mode the rule exists for.
+#
+# Verified by direct execution on PostgreSQL 16.15 instead, with the message
+# text asserted (POSTGRES-FIRST-RUN §1-§2, §7): `TRUNCATE audit_log` with the
+# escape unset raises SQLSTATE P0001 `audit_log is append-only: TRUNCATE is not
+# permitted`, `TRUNCATE gate_authorisations` names its own table, and both still
+# refuse under `session_replication_role = 'replica'`. The inverse -- that the
+# escape is an escape and not dead code -- is the test below, which needs no
+# name because the harness has already declared it.
+
+
+def test_the_declared_flush_escape_really_is_an_escape(city):
+    """The inverse of the test above, so the guard is not dead code.
+
+    ENGINE-DIVERGENCE §7.1 rests a real thing on this: with the escape
+    declared, Django's own `sql_flush` must be able to empty the table, or
+    every `transactional_db` teardown on Postgres fails and the tempting fix is
+    deleting the guard. Asserting only the refusal would leave "the escape
+    works" as reasoning; this makes it a measurement.
+    """
+    from django.db import connection
+
+    if connection.vendor != "postgresql":
+        pytest.skip(
+            f"NOT VERIFIABLE ON THIS ENGINE (vendor={connection.vendor}, slice=S0): "
+            "there is no TRUNCATE statement and no `current_setting` on SQLite, "
+            "so neither the guard nor its escape exists here "
+            "(ENGINE-DIVERGENCE §3.6, §7.1)."
+        )
+
+    record_audit(None, "test.one", city)
+    # Declared for every connection by tests/conftest.py::allow_test_flush.
+    with connection.cursor() as cursor:
+        cursor.execute("TRUNCATE audit_log")
+    assert AuditLog.objects.count() == 0, (
+        "the escape did not take effect, so the TRUNCATE guard has no way out "
+        "and transactional teardown on Postgres is impossible"
+    )

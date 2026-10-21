@@ -1,6 +1,13 @@
 # ENGINE-DIVERGENCE.md — SQLite (dev) vs PostgreSQL 16 (production)
 
-**Owner:** backend-developer · **Version:** v1.1 · **Date:** 2026-10-21
+**Owner:** backend-developer · **Version:** v1.4 · **Date:** 2026-10-21
+
+> **v1.4: a PostgreSQL 16.15 server now exists and every `UNVERIFIED` label
+> below has been executed against it.** Read §10 first — it is the result of
+> that run, including the three things this document got wrong and the two
+> defects the run found in shipped S0 code. Rows elsewhere still carry their
+> pre-run labels where §10 does not supersede them; where §10 contradicts a
+> row, **§10 is the measurement and the row is the expectation.**
 > Header corrected by ceo-planning: it read v1.0 while the changelog below
 > recorded v1.1. Flagged by code-review as R4 and worth the one line, because
 > this is the document a developer is told to trust *before* trusting a green
@@ -16,8 +23,10 @@ ADR-003 §2.2–2.3 · `DATA-MODEL.md` · `THREAT-MODEL.md` §6.
 ## 0. Why this file exists, in one paragraph
 
 **ADR-001 §2.2 is not amended. Production is PostgreSQL 16 and nothing in S0
-changes that.** But the machine S0 was built on has **Python 3.11.9 and neither
-PostgreSQL nor Docker installed**, and installing system software is the
+changes that.** But the machine S0 was built on had **Python 3.11.9 and neither
+PostgreSQL nor Docker installed** (**PostgreSQL 16.15 was installed on
+2026-10-21, with the founder's approval — see §10; this section describes the
+conditions S0 was written under, which is why the labels below exist**), and installing system software is the
 founder's decision, not an agent's. So `bookhop/settings/base.py` selects the
 engine from `BOOKHOP_DB_ENGINE` — `postgres` by default, `sqlite` in
 `settings/dev.py` — and the whole test suite runs locally on SQLite.
@@ -47,16 +56,22 @@ cannot double-book a listing in production.
 Consequences of there being no server, stated so nobody over-reads the
 evidence:
 
-- `manage.py sqlmigrate` against the Postgres backend **fails at connect**, so
-  not one line of Postgres DDL for this schema has been generated, let alone
-  executed. Measured: `OperationalError: connection to server at "127.0.0.1",
-  port 5432 failed`.
-- Every `plpgsql` body in a migration is **unexecuted text**. Its syntax has
-  never been parsed by a Postgres server.
+- ~~`manage.py sqlmigrate` against the Postgres backend **fails at connect**~~ —
+  **superseded v1.4.** A server exists. And `sqlmigrate` was never the route:
+  these are `RunPython` operations, so it prints *"THIS OPERATION CANNOT BE
+  WRITTEN AS SQL"* on both engines regardless of connectivity (measured for
+  0002, 0003, 0005). The installed DDL is read from the catalog instead —
+  `pg_get_functiondef`, `pg_trigger.tgenabled` — which is better evidence,
+  because it is what the server kept rather than what we sent. §10.6.
+- ~~Every `plpgsql` body in a migration is **unexecuted text**.~~ **Superseded
+  v1.4:** all five bodies are created, and every refusal branch inside them has
+  been executed with its message text asserted — which is the stronger claim,
+  because `check_function_bodies` only ever checked their syntax. §10.4 item 1.
 - `apps/core/migrations/0002_append_only_triggers.py` branches on
   `schema_editor.connection.vendor` and writes the same guarantee twice. The
-  SQLite half is exercised by the test suite. The Postgres half is not
-  exercised by anything.
+  SQLite half is exercised by the test suite. ~~The Postgres half is not
+  exercised by anything.~~ **Superseded v1.4** — and the Postgres half did not
+  parse at all on first contact: §10.1.
 
 `PRAGMA foreign_keys=ON` is set in `DATABASES["default"]["OPTIONS"]`, because
 SQLite's default is to not enforce foreign keys at all and a development engine
@@ -79,10 +94,10 @@ forget.
 | 2.5 | `timestamptz`, `USE_TZ=True`, stored UTC (`DATA-MODEL.md` §0) | `timestamp with time zone`, microsecond precision | declared `datetime`, stored as ISO-8601 **text with no offset**; Django attaches UTC on read (measured) | Ordering and equality work because the text is fixed-width ISO. But **SQL-level** date arithmetic (`now() - interval '90 days'`, `date_trunc`) is Postgres-only — see §6. All S0 timestamps are computed in Python, so no S0 code depends on it. | `VERIFIED HERE / ASSUMED THERE` |
 | 2.6 | `DEFAULT now()` on `created_at`/`occurred_at` etc. | a real server-side default | **no DB-side default**: every timestamp comes from Python `timezone.now()` | Deliberate, and it is *not* an engine divergence — the behaviour is identical on both — but it **is** a deviation from the DDL in `DATA-MODEL.md`. Consequence: a row inserted by raw SQL without the column would fail rather than default. Nothing does that. | **deviation, identical on both engines** |
 | 2.7 | `integer` / `smallint` with ranges | int4/int2 range enforced; out-of-range is an error | **no range check**: `99999` stored in a `smallint` column (measured) | `jobs.attempts smallint` overflowing is an error on Postgres and silent on SQLite. Low impact; `max_attempts` is 5. | `VERIFIED HERE / ASSUMED THERE` |
-| 2.8 | `integer` money, **no float money ever** (ADR-003 §2.1) | a float inserted into `integer` is rejected or rounded by the engine | **a float stays a float**: `300.75` inserted into an `integer NOT NULL` column came back as `typeof = 'real'`, value `300.75`. A string `'12abc'` came back as `typeof = 'text'` (measured) | **This one is worth reading twice.** The "integer paise, never float money" rule is enforced by the *Postgres* type system, by the Python service layer, and by ADR-003's CHECK — but **not** by the local engine. A float-money bug in S2 would pass the local suite. Mitigation in S2: the service layer must coerce and validate, and the CHECK bound (`>= 0 AND <= 10000000`) is enforced on both. | `VERIFIED HERE` (SQLite does **not** enforce it) / Postgres behaviour `UNVERIFIED` |
+| 2.8 | `integer` money, **no float money ever** (ADR-003 §2.1) | **CORRECTED v1.4 (§10.2):** measured — a float into `integer` is **silently ROUNDED**, not rejected (`300.75` → `301`, `pg_typeof = integer`). A non-numeric string *is* rejected (22P02). So the engine guarantees no float is ever *stored* and reports nothing; detection is the service layer's, not the database's — §9 item 16 | **a float stays a float**: `300.75` inserted into an `integer NOT NULL` column came back as `typeof = 'real'`, value `300.75`. A string `'12abc'` came back as `typeof = 'text'` (measured) | **This one is worth reading twice.** The "integer paise, never float money" rule is enforced by the *Postgres* type system, by the Python service layer, and by ADR-003's CHECK — but **not** by the local engine. A float-money bug in S2 would pass the local suite. Mitigation in S2: the service layer must coerce and validate, and the CHECK bound (`>= 0 AND <= 10000000`) is enforced on both. | `VERIFIED HERE` (SQLite does **not** enforce it) / Postgres behaviour `UNVERIFIED` |
 | 2.9 | `citext` (`users.email`, S1) | `citext` extension: case-insensitive uniqueness in the engine | would need `COLLATE NOCASE` or a lowercased column | **S1 blocker, flagged now.** `UNIQUE(email)` must be case-insensitive or `Student@x.edu` and `student@x.edu` become two accounts. On SQLite the plain unique index is case-**sensitive**: `'a' < 'B'` evaluated to false, i.e. BINARY collation (measured). S1 must either normalise the address in the service layer (works on both, recommended) or accept that the property is Postgres-only. | `UNVERIFIED` — not in S0 |
 | 2.10 | `bigint GENERATED BY DEFAULT AS IDENTITY` (`DATA-MODEL.md` §0) | a sequence; values are never reused | `INTEGER PRIMARY KEY` = rowid alias (measured); **max rowid can be reused after the highest row is deleted** | Matters only for a table whose rows are deleted and whose ids are referenced elsewhere. `audit_log` cannot be deleted from, so the hash chain is unaffected. Noted for S1's purge work. | `VERIFIED HERE / ASSUMED THERE` |
-| 2.11 | `boolean` | native `boolean` | integer `0`/`1` | Only bites raw SQL written as `WHERE flag = 'true'`. All S0 access is through the ORM. The CHECK probe in `tests/unit/test_seed_separation.py` uses `1`/`0` for that reason. | `VERIFIED HERE / ASSUMED THERE` |
+| 2.11 | `boolean` | native `boolean` | integer `0`/`1` | **CORRECTED v1.4 (§10.2) — this row was wrong, and it had written the wrong reason down as deliberate.** `1`/`0` in the CHECK probe did not make it portable; it made it **not reach the constraint at all** on PostgreSQL: `DatatypeMismatch: column "seller_is_seed" is of type boolean but expression is of type integer`, raised before the CHECK is evaluated. The probe passed on SQLite comparing two integers in a column SQLite was not typing. Now `true`/`false`, understood by both engines, exercising a boolean column as a boolean. The underlying divergence (raw SQL written `WHERE flag = 'true'`) still stands. | `VERIFIED ON BOTH` (v1.4) |
 
 ---
 
@@ -94,13 +109,13 @@ forget.
 | 3.2 | **`CHECK (seller_is_seed = buyer_is_seed)`** — seed and real never transact (ADR-002 §4.1(c)) | enforced | the *mechanism* is enforced on INSERT **and** UPDATE: `tests/unit/test_seed_separation.py::test_check_constraint_mechanism_is_enforced_on_this_engine` builds a two-column CHECK of this exact shape and both violations raise | mechanism `VERIFIED HERE`; **the real constraint does not exist yet — `transfers` is an S4 table.** Until S4 nothing in this repository prevents a seed/real transfer, because nothing creates transfers |
 | 3.3 | **Partial unique index** — the double-booking guard | see §5 | see §5 | see §5 |
 | 3.4 | `UNIQUE` treats NULLs as distinct (`idempotency_keys UNIQUE(user_id, key)` with a NULL user) | NULLs distinct unless `NULLS NOT DISTINCT` is asked for, which we do not | NULLs distinct | identical by the SQL standard; `VERIFIED HERE / ASSUMED THERE`. **This identical behaviour was itself the defect** QA-S0 B3 found: an anonymous POST never deduped, so a replay claimed a second row instead of replaying the first, and API-CONTRACT §5.1/§5.6 have four anonymous POSTs. Closed in migration 0004 by a second, partial unique index on `key` alone WHERE `user_id IS NULL`, which puts anonymous keys in one global namespace — sound because the key is a client UUIDv4. Rejected alternatives and why are in `services.idempotent()`'s docstring. **Then QA-S0 F10 found the fix incomplete, and the gap was a disclosure rather than a hole in a guard:** a global namespace is safe only if the key is unguessable, and nothing checked the format, so `Idempotency-Key: 1` was legal — and on a matching body the second anonymous caller received the first's stored `response_body`, measured as `{"grievance_ref": "GRV-000123"}` reaching a stranger on the endpoint a distressed non-user reaches us through. Two changes: an anonymous key **must parse as a UUID** (else `400 VALIDATION_FAILED`), which makes API-CONTRACT §4.1's own argument true instead of assumed; and **an anonymous replay returns the status, never the stored body**, so no path exists on which one anonymous caller receives another's response. An authenticated replay is unchanged. `VERIFIED HERE` |
-| 3.5 | **`audit_log` is append-only** (`DATA-MODEL.md` §8) — UPDATE and DELETE blocked | `BEFORE UPDATE OR DELETE` row trigger raising `RAISE EXCEPTION` | `BEFORE UPDATE` and `BEFORE DELETE` triggers raising `RAISE(ABORT, ...)`; six assertions in `tests/unit/test_audit_append_only.py` cover single-row update, single-row delete and whole-table delete | SQLite half `VERIFIED HERE`; **Postgres plpgsql half `UNVERIFIED` — the function body has never been parsed by a server** |
-| 3.6 | **`audit_log` cannot be emptied by `TRUNCATE`** | row triggers **do not fire on TRUNCATE**, so migration 0002 adds a separate `BEFORE TRUNCATE … FOR EACH STATEMENT` trigger. Without it the §3.5 guarantee has a hole on Postgres that does not exist on SQLite. **Migration 0003 redefines it with one declared escape** — see §7.1, which v1.0 of this document got backwards | SQLite **has no `TRUNCATE` statement** at all — measured: `OperationalError: near "TRUNCATE": syntax error` — so there is nothing to block and nothing to test | the hole was found by writing this document; the fix is `UNVERIFIED` and **is the single most important thing for a Postgres box to confirm** |
-| 3.6a | **Triggers survive `session_replication_role = 'replica'`** | migration 0003 adds `ALTER TABLE … ENABLE ALWAYS TRIGGER` to all five guards. THREAT-MODEL §4 B5/B6 already accepts direct SQL as out of scope, so this is not a new exposure, but the replication-role route is one line to close and it matters for logical replication and for a restore | no equivalent and none needed | `UNVERIFIED` (REVIEW-S0 N7) |
-| 3.6b | **`campuses.discovery_enabled_at` has a write guard** — M0, the finding that blocked integration | `BEFORE INSERT OR UPDATE` row trigger (migration 0003): an INSERT must leave the column NULL; setting it to NULL is always permitted; setting it to a timestamp requires a live `gate = 'C'`, `scope_type = 'CAMPUS'`, `scope_id = NEW.id`, `revoked_at IS NULL` authorisation **and** `active = true` | the same rule as two `WHEN`-guarded triggers, one for INSERT and one for UPDATE. A subquery in a trigger `WHEN` clause works here — **measured**, because SQLite forbids subqueries in CHECK constraints and it was not safe to assume triggers behave the same. 11 assertions in `tests/unit/test_gate.py` | SQLite half `VERIFIED HERE`; Postgres plpgsql half `UNVERIFIED` |
-| 3.6c | **A `gate='C'` authorisation must carry its whole evidence checklist** (QA-S0 F8) | `BEFORE INSERT OR UPDATE` plpgsql trigger looping the six ADR-002 §4.1(b) evidence keys, with `jsonb_typeof` separating a blank string from an empty array | two `WHEN`-guarded triggers using SQLite's JSON1 (`json_extract`, `json_type`, `json_array_length`), which Django's JSONField already relies on here. **Measured and fixed while writing it:** both engines' bare `trim()`/`btrim()` strip spaces only, so a single tab passed as a named human — both bodies now pass an explicit whitespace set. 13 assertions | SQLite half `VERIFIED HERE`; Postgres plpgsql half `UNVERIFIED`. **The floor it raises is bounded and the bound is asserted**: it checks that every box is filled, never that any box is true (`campus_mou_ref = 'TODO'` still opens the gate — QA-S0 B2, ADR-002 §4.2) |
-| 3.7 | **`gate_authorisations` permits no UPDATE except `revoked_at`/`revoked_reason`**, and no DELETE (`DATA-MODEL.md` §1) | row trigger comparing each immutable column with `IS DISTINCT FROM`, plus a `BEFORE TRUNCATE` statement trigger | `WHEN ... IS NOT ...` trigger plus a DELETE trigger; two assertions in `tests/unit/test_gate.py` (delete refused, `evidence` rewrite refused) | SQLite half `VERIFIED HERE`; Postgres half `UNVERIFIED` |
-| 3.8 | **The exception *class* a trigger raises** | `RAISE EXCEPTION` is SQLSTATE `P0001` → `psycopg.errors.RaiseException` → `django.db.utils.InternalError` | `RAISE(ABORT, ...)` → `django.db.utils.IntegrityError` (measured) | **`VERIFIED HERE` for SQLite, `UNVERIFIED` for Postgres, and this one will bite someone.** A service that catches `IntegrityError` to convert a trigger failure into a 4xx will pass locally and **swallow nothing on Postgres**. Every test in this repository catches `django.db.DatabaseError`, the common parent, on purpose. S2's price-immutability handler and S4's `accept_offer` must do the same or branch explicitly |
+| 3.5 | **`audit_log` is append-only** (`DATA-MODEL.md` §8) — UPDATE and DELETE blocked | `BEFORE UPDATE OR DELETE` row trigger raising `RAISE EXCEPTION` | `BEFORE UPDATE` and `BEFORE DELETE` triggers raising `RAISE(ABORT, ...)`; six assertions in `tests/unit/test_audit_append_only.py` cover single-row update, single-row delete and whole-table delete | **VERIFIED ON BOTH v1.4** (§10.4) — the Postgres body now executes and its message text is asserted (`UPDATE`/`DELETE` interpolated from `TG_OP`), on both engines |
+| 3.6 | **`audit_log` cannot be emptied by `TRUNCATE`** | row triggers **do not fire on TRUNCATE**, so migration 0002 adds a separate `BEFORE TRUNCATE … FOR EACH STATEMENT` trigger. Without it the §3.5 guarantee has a hole on Postgres that does not exist on SQLite. **Migration 0003 redefines it with one declared escape** — see §7.1, which v1.0 of this document got backwards | SQLite **has no `TRUNCATE` statement** at all — measured: `OperationalError: near "TRUNCATE": syntax error` — so there is nothing to block and nothing to test | **VERIFIED ON BOTH v1.4** (§10.4) — the hole was found by writing this document and **the fix is now measured**: `TRUNCATE audit_log` with the escape unset raises P0001 `audit_log is append-only: TRUNCATE is not permitted`, `TRUNCATE gate_authorisations` names its own table, and the inverse holds under the escape. §10.4 items 2 and 7 |
+| 3.6a | **Triggers survive `session_replication_role = 'replica'`** | migration 0003 adds `ALTER TABLE … ENABLE ALWAYS TRIGGER` to all five guards. THREAT-MODEL §4 B5/B6 already accepts direct SQL as out of scope, so this is not a new exposure, but the replication-role route is one line to close and it matters for logical replication and for a restore | no equivalent and none needed | **VERIFIED ON BOTH v1.4** (§10.4) — all six triggers `tgenabled='A'`, all still refuse under `session_replication_role='replica'`, **with a negative control** showing a plain-enabled trigger is bypassed. Finding: role `bookhop` cannot set the role at all (42501) — the exposure is a restore or a replication worker, so `INFRA.md` §3.3 owns it (REVIEW-S0 N7) |
+| 3.6b | **`campuses.discovery_enabled_at` has a write guard** — M0, the finding that blocked integration | `BEFORE INSERT OR UPDATE` row trigger (migration 0003): an INSERT must leave the column NULL; setting it to NULL is always permitted; setting it to a timestamp requires a live `gate = 'C'`, `scope_type = 'CAMPUS'`, `scope_id = NEW.id`, `revoked_at IS NULL` authorisation **and** `active = true` | the same rule as two `WHEN`-guarded triggers, one for INSERT and one for UPDATE. A subquery in a trigger `WHEN` clause works here — **measured**, because SQLite forbids subqueries in CHECK constraints and it was not safe to assume triggers behave the same. 11 assertions in `tests/unit/test_gate.py` | **VERIFIED ON BOTH v1.4** (§10.4) — every refusal and every permitted counterpart executed, including the inactive-campus refusal (QA-S0 B1) |
+| 3.6c | **A `gate='C'` authorisation must carry its whole evidence checklist** (QA-S0 F8) | `BEFORE INSERT OR UPDATE` plpgsql trigger looping the six ADR-002 §4.1(b) evidence keys, with `jsonb_typeof` separating a blank string from an empty array | two `WHEN`-guarded triggers using SQLite's JSON1 (`json_extract`, `json_type`, `json_array_length`), which Django's JSONField already relies on here. **Measured and fixed while writing it:** both engines' bare `trim()`/`btrim()` strip spaces only, so a single tab passed as a named human — both bodies now pass an explicit whitespace set. 13 assertions | **VERIFIED ON BOTH v1.4** (§10.4) — all six keys refused by name, the empty-array branch fires specifically, `evidence` confirmed `jsonb` not `json`, all eleven invisible codepoints refused individually, `server_encoding = UTF8` with each codepoint round-tripped, and **the declared ceiling asserted as a ceiling** (U+2060 passes). The NULL path is refused by the *trigger*, not by `NOT NULL` — the CHECK-satisfied-by-NULL trap is real and avoided. §10.4 items 4-6. **The floor it raises is bounded and the bound is asserted**: it checks that every box is filled, never that any box is true (`campus_mou_ref = 'TODO'` still opens the gate — QA-S0 B2, ADR-002 §4.2) |
+| 3.7 | **`gate_authorisations` permits no UPDATE except `revoked_at`/`revoked_reason`**, and no DELETE (`DATA-MODEL.md` §1) | row trigger comparing each immutable column with `IS DISTINCT FROM`, plus a `BEFORE TRUNCATE` statement trigger | `WHEN ... IS NOT ...` trigger plus a DELETE trigger; two assertions in `tests/unit/test_gate.py` (delete refused, `evidence` rewrite refused) | **VERIFIED ON BOTH v1.4** (§10.4) — DELETE refused, `evidence` rewrite refused, and `revoked_at`/`revoked_reason`-only UPDATE **succeeds** — the permitted counterpart, so the guard is not simply refusing everything |
+| 3.8 | **The exception *class* a trigger raises** | **CORRECTED v1.4 (§10.2):** SQLSTATE `P0001` → `psycopg.errors.RaiseException` → **`django.db.utils.ProgrammingError`**, measured. Not `InternalError` — that was psycopg **2**'s mapping; in psycopg 3 `RaiseException` subclasses `ProgrammingError`. **The hazard this row warned about was real and the class it named was wrong**, so the mitigation in the next column is the only reason it cost nothing | `RAISE(ABORT, ...)` → `django.db.utils.IntegrityError` (measured) | **`VERIFIED HERE` for SQLite, `UNVERIFIED` for Postgres, and this one will bite someone.** A service that catches `IntegrityError` to convert a trigger failure into a 4xx will pass locally and **swallow nothing on Postgres**. Every test in this repository catches `django.db.DatabaseError`, the common parent, on purpose. S2's price-immutability handler and S4's `accept_offer` must do the same or branch explicitly |
 | 3.8a | **The local engine does not type its columns** (§2.8) — so P14's one permitted money column was free to be a float | `integer` rejects or rounds a float; `real`/`numeric` are distinct declared types | nothing enforces a declared type, and a name-based control reads none: QA-S0 F1 attack 7 declared `listings.asking_price_paise` as `real` in raw DDL and the whole guard passed it | **closed, and engine-neutrally**: `tests/unit/test_forbidden_schema.py` now forbids **every** float or decimal column anywhere (except `handover_points`' public-landmark coordinates), reading types through Django model meta *and* `connection.introspection.get_field_type()`, and **failing closed** when a declared type cannot be classified — because `numeric` and `double precision` are exactly the shapes it hunts. Verified against `real` and `numeric` raw-DDL attacks: both caught. `VERIFIED HERE` |
 | 3.9 | **`listings_price_immutable`** (ADR-003 §2.2) — P14 | plpgsql `BEFORE UPDATE` trigger, given verbatim in ADR-003 | **no SQLite equivalent is written, because `listings` is an S2 table.** What is verified today is that this engine aborts an UPDATE from a `BEFORE UPDATE` trigger at all: `tests/unit/test_price_immutable.py::test_trigger_mechanism_raises_on_this_engine` builds the probe and the UPDATE raises with the `P14` marker in the message | mechanism `VERIFIED HERE`; **the real trigger does not exist and the property is NOT satisfied yet.** `tests/unit/test_price_immutable.py`'s two real assertions are **skipped**, with `listings is created in S2` as the reason, exactly as `TASKS.md` §2 S0 instructs. **S2 must write a second, SQLite trigger body or P14 becomes locally unverifiable** |
 | 3.10 | Deferrable constraints | supported | `supports_deferrable_unique_constraints = False` (measured) | not used anywhere; no impact |
@@ -118,7 +133,7 @@ forget.
 | 4.3 | `SELECT ... FOR UPDATE SKIP LOCKED` for job claiming (ADR-001 §2.4) | the ADR's mechanism | **Django reports `has_select_for_update = False` and `has_select_for_update_skip_locked = False`, and silently omits the locking clause instead of raising** (measured: the query runs and returns rows) | A silent no-op is worse than an error, because the code would look correct locally while locking nothing. `apps/core/jobs.py` therefore claims with a conditional `UPDATE ... WHERE id = ? AND locked_at IS NULL` and checks the row count. Same property, expressible on both engines, visible in the query log. **This is a deviation from ADR-001 §2.4's stated mechanism — §9 item 2.** Claim-skipping is `VERIFIED HERE` single-threaded (`tests/unit/test_jobs.py::test_a_job_locked_by_a_live_worker_is_skipped`); multi-worker claiming is `UNVERIFIED` on both |
 | 4.3a | **Lock release when a worker dies** — the half of §4.3 that v1.0 of this document missed (REVIEW-S0 M4) | `SKIP LOCKED` holds its lock inside the transaction, so the lock **is released when the connection dies** | a `locked_at` column is released by nothing. Measured before the fix: a job locked 30 days earlier by `dead-worker` was not run, not retried and not failed across three successive `run_due_jobs()` calls — which delivers the job **zero** times, permanently and silently, against the at-least-once guarantee in ADR-001 §2.4 and API-CONTRACT §4.4, in exactly the case that guarantee exists for. From S1 that job is `retention.purge`, a DPDP r.8(3) obligation that would stop running with no error | **fixed**: `settings.JOB_LOCK_TIMEOUT` (15 min) makes a stale lock claimable, in both the candidate query and the compare-and-swap. Reclaim-and-run, the timeout boundary, and no-resurrection-of-completed-or-failed are all `VERIFIED HERE`. The §4.3 deviation is acceptable only **with** this: a `locked_by` column without expiry is strictly weaker than the mechanism it replaced |
 | 4.4 | Savepoints (used by `record_audit`'s retry and `idempotent()`) | supported | supported; `VERIFIED HERE` — an inner `IntegrityError` rolls back to the savepoint and the outer transaction stays usable | `VERIFIED HERE / ASSUMED THERE` |
-| 4.5 | `audit_log.prev_hash UNIQUE` keeping the hash chain linear under concurrent appenders | the intended mechanism: the loser of a race fails the unique insert and retries against the new head | the uniqueness is enforced (`VERIFIED HERE`), but the race it exists for **cannot happen locally** because there is one writer | mechanism `VERIFIED HERE`; the concurrency property it buys is `UNVERIFIED` |
+| 4.5 | `audit_log.prev_hash UNIQUE` keeping the hash chain linear under concurrent appenders | the intended mechanism: the loser of a race fails the unique insert and retries against the new head | the uniqueness is enforced (`VERIFIED HERE`), but the race it exists for **cannot happen locally** because there is one writer | **VERIFIED ON POSTGRES v1.4, and it found a defect** (§10.3(a)): the race occurs, and the 4-attempt budget **dropped an audit row** at 12 concurrent appenders while reporting a broken chain. Budget now 12 with jittered backoff; 12/24/40 appenders all land and the chain verifies. The mechanism was right; its tuning had never met a second writer |
 | 4.6 | Advisory locks | available | none | not used; ADR-001 §2.2 and API-CONTRACT §4.3 both forbid application-level locking |
 
 ---
@@ -225,7 +240,7 @@ S7, and a reasonable one for getting it before S2.**
 
 | # | Thing | Note |
 |---|---|---|
-| 7.1 | `TransactionTestCase` / pytest-django's `transactional_db` | **Corrected 2026-10-21 (REVIEW-S0 M5). v1.0 of this row said the opposite and would have sent a future developer the wrong way.** Django flushes with `DELETE` on SQLite, which the append-only trigger correctly refuses, so those fixtures are unusable with `audit_log` rows locally — that part was right. The claim that "on Postgres, flush uses TRUNCATE, which row triggers do not see, so the same test would tear down cleanly there" **contradicted §3.6 in the same commit**: §3.6's whole purpose is that TRUNCATE no longer passes. Django 5.2's `postgresql.DatabaseOperations.sql_flush` emits `TRUNCATE "t1", "t2", …;` (read from the installed source), so with 0002 applied, **every `transactional_db` teardown on Postgres raises `audit_log is append-only`** — and §5.3 requires `tests/api/test_double_booking.py` to be transactional *and* to run on Postgres, so the collision lands exactly on the most important correctness property in the system. At that moment the tempting fix is deleting the guard §3.6 calls the most important unverified thing S0 shipped. **Resolution, chosen before a Postgres box exists rather than discovered on one:** migration 0003 redefines both TRUNCATE guards to return without raising when `current_setting('bookhop.allow_flush', true) = 'yes'`. `current_setting(..., true)` yields NULL when unset, so the default is to raise. UPDATE and DELETE get no escape — only the whole-table flush, which is what the harness needs and what an attacker does not. **The session fixture that does this is `tests/conftest.py::allow_test_flush`**, session-scoped and `autouse`, a no-op on SQLite. **Corrected again, 2026-10-21 (QA-S0 F9): v1.1 called the fixture mandatory and did not write it** — `bookhop.allow_flush` appeared in exactly one file in the repository, the migration — so the first Postgres run would have failed in teardown after all. It exists now. **And the second correction, which is a claim withdrawn rather than a bug fixed:** an earlier report of mine said a test asserts this GUC cannot be set under production settings. **No such test exists and none could.** A custom GUC is settable by any role in any session and `current_setting` reads whatever that session set; Django settings have no say in it. So the escape is gated by nobody, and the honest control is not a setting production forbids but **THREAT-MODEL §4 B5/B6's accepted scope: direct SQL is out of scope, addressed by privilege separation and `personal_data_access_log`, not by this trigger.** What the guard does buy is real and narrower than it read: it stops Django's own `sql_flush` and an accidental `TRUNCATE`. It does not stop a determined session, and §3.6 should be read with that bound. `UNVERIFIED` — no Postgres server here. Use `django_db` (transaction rollback) wherever a race is not the subject; the rule is in the docstring of `tests/unit/test_audit_append_only.py`. |
+| 7.1 | `TransactionTestCase` / pytest-django's `transactional_db` | **Corrected 2026-10-21 (REVIEW-S0 M5). v1.0 of this row said the opposite and would have sent a future developer the wrong way.** Django flushes with `DELETE` on SQLite, which the append-only trigger correctly refuses, so those fixtures are unusable with `audit_log` rows locally — that part was right. The claim that "on Postgres, flush uses TRUNCATE, which row triggers do not see, so the same test would tear down cleanly there" **contradicted §3.6 in the same commit**: §3.6's whole purpose is that TRUNCATE no longer passes. Django 5.2's `postgresql.DatabaseOperations.sql_flush` emits `TRUNCATE "t1", "t2", …;` (read from the installed source), so with 0002 applied, **every `transactional_db` teardown on Postgres raises `audit_log is append-only`** — and §5.3 requires `tests/api/test_double_booking.py` to be transactional *and* to run on Postgres, so the collision lands exactly on the most important correctness property in the system. At that moment the tempting fix is deleting the guard §3.6 calls the most important unverified thing S0 shipped. **Resolution, chosen before a Postgres box exists rather than discovered on one:** migration 0003 redefines both TRUNCATE guards to return without raising when `current_setting('bookhop.allow_flush', true) = 'yes'`. `current_setting(..., true)` yields NULL when unset, so the default is to raise. UPDATE and DELETE get no escape — only the whole-table flush, which is what the harness needs and what an attacker does not. **The session fixture that does this is `tests/conftest.py::allow_test_flush`**, session-scoped and `autouse`, a no-op on SQLite. **Corrected again, 2026-10-21 (QA-S0 F9): v1.1 called the fixture mandatory and did not write it** — `bookhop.allow_flush` appeared in exactly one file in the repository, the migration — so the first Postgres run would have failed in teardown after all. It exists now. **And the second correction, which is a claim withdrawn rather than a bug fixed:** an earlier report of mine said a test asserts this GUC cannot be set under production settings. **No such test exists and none could.** A custom GUC is settable by any role in any session and `current_setting` reads whatever that session set; Django settings have no say in it. So the escape is gated by nobody, and the honest control is not a setting production forbids but **THREAT-MODEL §4 B5/B6's accepted scope: direct SQL is out of scope, addressed by privilege separation and `personal_data_access_log`, not by this trigger.** What the guard does buy is real and narrower than it read: it stops Django's own `sql_flush` and an accidental `TRUNCATE`. It does not stop a determined session, and §3.6 should be read with that bound. **VERIFIED v1.4, after a third correction — and this one was a bug, not a wording slip.** The fixture existed and still did not work: a session GUC lives on a *connection*, not on a pytest session, so a session-scoped `SET` bound it to whichever connection existed at setup and **any close reopened one without it**. Measured: one threaded test calling `connections.close_all()` was enough, and the next transactional test died in teardown on `TRUNCATE "cities", "jobs", …`. That is precisely the S4 collision F9 was written to prevent, and S4's `test_double_booking.py` triggers both halves. Now declared on Django's `connection_created` signal, so every connection gets it as it opens (§10.3(b)). The escape and its deny-by-default are measured in §10.4 item 7, and a `transactional_db` teardown is now exercised by `tests/unit/test_transactional_teardown.py` — **there was no such test before, so the whole suite said nothing about this.** Use `django_db` (transaction rollback) wherever a race is not the subject; the rule is in the docstring of `tests/unit/test_audit_append_only.py`. |
 | 7.2 | `connection.schema_editor()` | SQLite's schema editor refuses to start inside a transaction, and pytest-django runs every test in one. `test_django_uniqueconstraint_condition_compiles_to_a_partial_index` therefore instantiates the editor without entering it and only renders SQL. On Postgres the context manager would work normally. |
 | 7.3 | `LIKE` case sensitivity | Measured: on SQLite `'Algebra' LIKE '%alge%'` is **true** — `LIKE` is case-insensitive for ASCII by default. On Postgres `LIKE` is case-sensitive and `ILIKE` is not. **So Django's `__contains` behaves like `__icontains` locally.** A search test that passes here can fail in production. Relevant from S2. |
 | 7.4 | Text collation / `ORDER BY` | Measured: `'a' < 'B'` is **false** on SQLite (BINARY). Postgres uses the database's collation, typically making it true. Any ordered list rendered to a user, and any cursor pagination keyed on a text column (`API-CONTRACT.md` §2.3), can order differently on the two engines. v1's cursors sort on `published_at`/`id`, so this is latent. |
@@ -302,8 +317,10 @@ frozen document. Each is here rather than silently in a commit.
    UPDATE (§4.3). The at-least-once and single-claim properties are unchanged.
    Asking for a one-line amendment rather than carrying an undocumented
    divergence.
-3. **To cto / founder — a local PostgreSQL 16 is needed, and the trigger is
-   earlier than it looks.** Nothing is blocked today. But:
+3. ~~**To cto / founder — a local PostgreSQL 16 is needed.**~~ **CLOSED
+   2026-10-21: PostgreSQL 16.15 installed and approved by the founder, and §10
+   is the result of the first run against it.** The original escalation, kept
+   because the three dates it named are the reason it was granted:
    - **before S2**, because P14's price-immutability trigger (ADR-003 §2.2) is
      plpgsql and §3.9 is the whole of its verification today;
    - **before S4**, because §5 is the double-booking guard and a SQLite run of
@@ -311,9 +328,12 @@ frozen document. Each is here rather than silently in a commit.
    - **before S7**, because none of `DATA-MODEL.md` §9's SQL can execute on
      SQLite (§6).
    Cost is Rs 0 — Postgres 16 runs natively on Windows without Docker — so this
-   is an installation decision, not a spend decision. **Until it happens, the
+   is an installation decision, not a spend decision. ~~**Until it happens, the
    Postgres halves of both append-only triggers (§3.5, §3.6, §3.7) are
-   unexecuted text, and that is the largest unverified thing S0 shipped.**
+   unexecuted text, and that is the largest unverified thing S0 shipped.**~~
+   **They are executed now, and the run was worth it before S2 rather than
+   after: the migrations did not even apply (§10.1), and two defects in shipped
+   code were found that no SQLite run could have reached (§10.3).**
 4. **To test-qa.** Two instructions that come out of this document:
    (a) any test whose subject is a race must skip on SQLite rather than pass
    (§5.3); (b) catch `django.db.DatabaseError`, not `IntegrityError`, when
@@ -437,12 +457,218 @@ frozen document. Each is here rather than silently in a commit.
    `pytest.raises(DatabaseError)` around the update. Its final assertion —
    that the column is still NULL and no audit row was written — holds.
 
+15. **To cto — `audit_log.prev_hash UNIQUE` serialises every audit append, and
+   that is a `DATA-MODEL.md` §8 property, not a constant I can tune.** §10.3(a)
+   raised the retry budget from 4 to 12 with backoff, which stops a loser being
+   dropped and stops it being reported as a tamper. It does not change the
+   shape: a single linear chain means **every mutation in the system competes
+   for one row**, and the loser's cost is a retry. At the pilot's write rate
+   (2–3 campuses) the limit is far above load, which is why I fixed the budget
+   and did not touch the design. Two upgrade paths, both yours: a **per-scope
+   chain** so appends to different campuses do not compete, or **periodic
+   checkpoint anchoring** instead of a per-row chain. Asking for a decision
+   before S4, because S4 is the first slice with concurrent mutations on one
+   object, not before S7.
+16. **To cto — ADR-003 §2.1 should say which layer enforces integer paise.**
+   §10.2 measured that PostgreSQL enforces it by **silently rounding** a float
+   into an `integer` column (`300.75 → 301`), not by raising. So the sentence
+   "the PostgreSQL type system enforces it" is true about *storage* and false
+   about *detection*, and the only layer that can report a float-money bug is
+   the service-layer coercion §2.8 already mandates for S2. One clause, so S2
+   does not read the ADR as meaning the database will catch it.
+17. **To test-qa — §7's nine assertions still need writing, and two of them
+   should stay in your tree.** §10.6: the "skip → run" items have no body, so
+   nothing converted. I executed §1 directly instead (§10.4). Two specifically
+   belong to you rather than to me and I have deliberately not written them:
+   `test_truncate_cannot_empty_the_audit_log` (the refusal needs the escape
+   unset, naming it is the only way to unset it, and your own
+   `test_the_flush_escape_is_declared_by_the_harness_and_nothing_else`
+   inventories every file that names it — your tree is exempt by path, mine is
+   not, and `CLAUDE.md` rule 13 says rename ours before widening yours), and
+   `test_the_postgres_guards_actually_fire`. Also: **eight of your 25
+   body-less skips now print a reason naming SQLite while running on
+   PostgreSQL**, which is a skip that no longer tells the truth. And one
+   observation on that inventory guard, offered rather than asked: its
+   docstring says the question is "whether anything *sets* it" while the test
+   is a flat substring match on the bare name in any file, including a comment
+   or a docstring — `CLAUDE.md` rule 11's shape, where the next collision is
+   resolved by editing the allowlist. A per-entry match rule (does this file
+   *execute* a `SET`?) would survive a legitimate third reader.
+
+---
+
+## 10. The first PostgreSQL run — 2026-10-21, PostgreSQL 16.15
+
+**What ran:** `POSTGRES-FIRST-RUN.md` §1 items 1–9, executed directly against
+the server, plus the whole test suite on both engines. **95 direct assertions,
+0 failures**, each asserting the SQLSTATE *and* the exception message text, not
+just that the operation was refused — because
+`check_function_bodies` validates plpgsql **syntax** at `CREATE FUNCTION` while
+plpgsql resolves identifiers and operators at the **first execution of each
+branch**, so a guard can be created cleanly and fail the first time anyone does
+the forbidden thing, and the worst shape of that failure still *blocks* the
+operation. Suite: **571 passed / 60 skipped on PostgreSQL, 573 passed / 58
+skipped on SQLite**, three consecutive runs each, no flakes.
+
+### 10.1 The blocker, and why the fix is not the obvious one
+
+`migrate` from empty died on `core.0002` with
+`psycopg.ProgrammingError: incomplete placeholder: '%'`. Four `%` characters in
+plpgsql `RAISE` format strings (0002 ×2, 0003, 0005) are parsed by psycopg as
+parameter placeholders before PostgreSQL sees them, because
+`postgresql.DatabaseSchemaEditor.execute` merges params client-side **unless
+params is None**.
+
+**Fixed by passing `params=None`, not by doubling the `%`.** Doubling also
+works — measured: `compose_sql("… %% …", ())` yields `… % …` — but it puts two
+escaping layers under one message, and **getting it wrong is silent**: a
+mis-doubled specifier leaves a literal `%` or `%%` in the message while the
+guard still refuses the operation, so the refusal is indistinguishable and only
+the text is broken. `params=None` removes the layer instead of escaping for it,
+and is Django's own documented escape hatch for exactly this.
+
+**The message text is now asserted, on both engines**
+(`tests/unit/test_audit_append_only.py::test_the_append_only_message_names_the_operation_it_refused`):
+`TG_OP` and `TG_TABLE_NAME` interpolate correctly, and no `%` survives into any
+message. Measured text, read from the server:
+`audit_log is append-only (DATA-MODEL.md section 8): UPDATE is not permitted`,
+`… DELETE is not permitted`,
+`audit_log is append-only: TRUNCATE is not permitted…`,
+`gate_authorisations is append-only: TRUNCATE…` (its own table name),
+`…missing or blank: counsel_engagement_ref` (and each of the other five keys).
+
+### 10.2 Three predictions in this document that were WRONG
+
+| # | This document said | Measured | Why it matters |
+|---|---|---|---|
+| **§3.8** | `RAISE EXCEPTION` → P0001 → `psycopg.errors.RaiseException` → **`django.db.utils.InternalError`** | **`django.db.utils.ProgrammingError`.** In psycopg **3**, `RaiseException` subclasses `ProgrammingError`; it subclassed `InternalError` in psycopg 2, which is where the prediction came from | **The hazard was real and the named class was wrong, so §3.8's own mitigation is what saved us.** Every test in the repository catches `django.db.DatabaseError`, the common parent, on purpose — so nothing broke. Had any caller been written to catch `InternalError` *on the strength of this row*, it would have swallowed nothing on PostgreSQL. **The instruction stands and is now the only correct one: catch `DatabaseError`.** `UniqueViolation` → `IntegrityError` is unchanged (23505), so §5.2 item 4 holds and `apps/core/services.py`'s two `except IntegrityError` handlers — the `prev_hash` retry and `idempotent()` — are both correct: both are unique-index paths, neither is a trigger. **No caller needed fixing** |
+| **§2.11** | boolean divergence "only bites raw SQL written as `WHERE flag = 'true'`. The CHECK probe in `tests/unit/test_seed_separation.py` uses `1`/`0` **for that reason**" | `INSERT INTO _seed_probe VALUES (1, 1, 1)` raises `DatatypeMismatch: column "seller_is_seed" is of type boolean but expression is of type integer` — **before the CHECK is ever evaluated** | **A test that was passing for the wrong reason, and this document had written the wrong reason down as deliberate.** On SQLite it compared two integers in a column SQLite was not typing; on PostgreSQL it never reached the constraint. The only suite failure of the run. Fixed to `true`/`false`, understood by both engines, and it now exercises a boolean column *as a boolean* |
+| **§2.8** | a float into an `integer` column is "rejected or rounded by the engine" | **Rounded, silently**: `300.75` into `integer` returns `301`, `pg_typeof = integer`. A non-numeric string *is* rejected (22P02) | **The direction matters for S2.** ADR-003 §2.1's "integer paise, never float money" is true in that no float is ever *stored* — but PostgreSQL enforces it by **silent rounding, not by an error**. So a float-money bug loses sub-paise precision with no signal on either engine, and §2.8's mandated service-layer coercion is the only layer that can report it. Not a relaxation of the rule; a correction to which layer enforces it |
+
+### 10.3 Two defects in shipped S0 code, both invisible to SQLite
+
+**(a) `record_audit`'s retry budget dropped audit rows.** The loop retried the
+`prev_hash UNIQUE` race **4 times with no backoff**. Measured, 12 appenders on
+12 real connections: one lost four straight races and **its audit row was
+dropped** — and because `record_audit` is called inside the mutation's
+transaction, that mutation fails. The attempts-to-win distribution's tail grows
+with contention (a winner needed 5 attempts at 8 appenders, 7 at 24), so 4 was
+already below the observed need at modest concurrency. **This race cannot occur
+on SQLite — one database writer — which is exactly §4.1's warning cashing in.**
+Fixed: budget 12, jittered backoff to decorrelate the herd (without it every
+loser re-reads the same head and spends the budget on self-inflicted
+collisions). Re-measured at 12, 24 and 40 appenders: all land, chain verifies.
+
+The second half was a **diagnostic** defect of the shape `CLAUDE.md` rule 9
+names. Exhausting the budget raised **`AuditChainBroken`** — a class whose name
+asserts tampering, during an incident that establishes only write contention
+and in which the chain is provably intact. A load spike would have sent an
+operator hunting a tamper. Now `AuditAppendContention`, deliberately **not** a
+subclass, so an alert on the broken-chain class does not fire on contention.
+Regression test: `tests/unit/test_audit_chain_race.py`.
+
+**(b) `tests/conftest.py::allow_test_flush` bound a per-connection setting to a
+pytest session.** The escape is a session **GUC**: it lives on a *database
+connection*. A session-scoped fixture that `SET` it once bound it to whichever
+connection existed at session setup, and **any close reopened a connection
+without it**. Measured: one test that used threads and called
+`connections.close_all()` was enough, and the *next* transactional test died in
+teardown on `TRUNCATE "cities", "jobs", …` with `audit_log is append-only`.
+
+**That is the failure QA-S0 F9 and §7.1 exist to prevent, and it would have
+landed on S4's `test_double_booking.py`** — which needs `transactional_db`
+*and* several real connections to race at all, i.e. it triggers both halves.
+Fixed by moving the declaration onto Django's `connection_created` signal, so
+every connection gets it the moment it opens. A per-connection setting belongs
+on a per-connection hook.
+
+### 10.4 Items that PASSED, with what makes each non-vacuous
+
+| Item | Result | The control that stops it passing vacuously |
+|---|---|---|
+| **0** · `migrate` from empty | **PASS** after 10.1. Five plpgsql bodies parse, six triggers and six `ENABLE ALWAYS` statements accepted | the failure was loud and total |
+| **1** · every refusal path, message asserted | **PASS**, 68 assertions. Each guard's forbidden operation refused with SQLSTATE **P0001** and the stated text; each paired with its permitted counterpart (`UPDATE` of only `revoked_at`/`revoked_reason` succeeds; opening *with* a live authorisation succeeds; closing always succeeds; `gate='B'` is unconstrained) | a non-P0001 SQLSTATE is treated as a FAIL even though the operation was refused — that is the whole point of item 1 |
+| **2** · `TG_OP` ordering on the statement-level TRUNCATE triggers | **PASS**. The intended message appears, **not** `record "new" is not assigned yet` | asserted as a string, so a future reorder of those two blocks turns it red instead of holding by accident |
+| **3** · `ENABLE ALWAYS` under `session_replication_role='replica'` | **PASS**. All six triggers `tgenabled='A'`; all guards still refuse under `replica` | **negative control**: downgrading one trigger to plain-enabled and retrying shows the UPDATE **does** get through, so the assertions measure `ENABLE ALWAYS` and not something else. **Finding: role `bookhop` cannot `SET session_replication_role` at all (42501)** — the bypass is unreachable by the application role, so this had to run as `postgres`. The exposure is a restore or a replication apply worker, which is what `INFRA.md` §3.3 should assert |
+| **4** · `chr()` and the database encoding | **PASS**. `server_encoding = UTF8`; all eleven codepoints round-trip (`ascii(chr(n)) = n`); the built set is exactly 11 characters | the round-trip is per codepoint, so a non-UTF8 database silently substituting one character fails on that character |
+| **5** · `btrim` behaves as `btrim` | **PASS**, all four. Set semantics (`btrim('ab','ba') = ''`), ends-only (an interior ZWSP is untouched and the name **passes** — correct, it has visible characters), and **the NULL path is refused by the TRIGGER, not by `NOT NULL`**: the BEFORE trigger fires first and its `coalesce(btrim(NULL, ws), '')` catches it. **The CHECK-constraint trap is real and avoided** — bare `btrim(NULL, ws) IS NULL` measured, and a CHECK is *satisfied* by NULL, so the trigger form is load-bearing rather than incidental | all eleven invisible forms asserted individually, and **the declared ceiling asserted as a ceiling**: U+2060 WORD JOINER is not in the eleven and **passes** the database floor, exactly as the migration declares. The ceiling has not moved, and `open_discovery.has_visible_character` is still what generalises above it |
+| **6** · `NEW.evidence -> k` against the real column type | **PASS**. `evidence` is **`jsonb`**, not `json`; the `jsonb_array_length` branch fires specifically on an empty `notice_version_ids`; an object-typed value is accepted by the `jsonb_typeof` branch | the empty-array refusal names *that key*, so the array branch is distinguished from the generic missing-key branch |
+| **7** · the escape defaults to deny | **PASS**, five cases. Unset → refused; `'no'` → refused; **`'YES'` (wrong case) → refused**; `'yes'` → `TRUNCATE` **succeeds**; and Django's own multi-table `sql_flush` shape succeeds | the inverse is asserted, so the escape is proved to be an escape rather than dead code — and §10.3(b) is the proof that the *fixture* now reaches it |
+| **8** · `idempotency_anon` under genuine concurrency | **PASS**. 12 threads, 12 real connections, barrier-released: exactly one winner for the anonymous partial index **and** for the authenticated composite index; exactly one row; no loser escaped as a raw database error. API-CONTRACT §4.1's *"the insert of the key row is the lock"* is verified under real contention for the first time | **negative control** for the Django trap: without a nested `atomic()` the transaction **is** poisoned (`TransactionManagementError`), and with `services.idempotent`'s own `atomic()` savepoint the loser's outer transaction survives — so the 409 is renderable. **This cannot happen on SQLite**, where the loser gets a lock error. `accept_offer` in S4 must keep that savepoint |
+| **9** · forward and reverse from empty | **PASS**. Reverse 0005 → 0001 leaves **zero** triggers and **zero** functions; re-apply restores all six, all `A`. Triggers are dropped before their functions | the catalog is read after the reverse, not inferred from the migration exiting 0 |
+| **§4.5** · the audit hash chain under concurrent appenders | **PASS after §10.3(a)** at 12, 24 and 40 appenders; `verify_audit_chain` confirms every row present and linear | the test asserts the **row count** as well as chain validity, because a lost row with no exception is worse than a raised one — nothing would signal it |
+
+### 10.5 §2 and §7 predictions that were RIGHT, and were invisible to the suite
+
+All four predicted behaviour changes are real at the engine level — and
+**three of them produced no test failure, because nothing in S0 exercises
+them.** That is not coverage; it is absence of subject matter.
+
+| Row | Measured on PostgreSQL | Live from |
+|---|---|---|
+| §2.3 `uuid` | a malformed `actor_pseudonym` is rejected, 22P02 | S1 (`*_pseudonym`) |
+| §2.4 `inet` | `'not-an-ip'` into `audit_log.ip` is rejected, 22P02 | S1 (`requested_ip`, `consents.ip`) |
+| §2.7 `smallint` | `jobs.attempts` **is** `smallint`; `99999` is rejected, 22003 | now, latent |
+| §7.3 `LIKE` | **case-SENSITIVE**: `__contains="likeprobe"` matches 0 rows where SQLite matched 1. `__icontains` matches | **S2** — `__contains` behaved like `__icontains` locally |
+| §7.4 collation | `'a' < 'B'` is **True** here, **False** on SQLite | latent; bites any user-visible ordering or text-keyed cursor |
+| §2.1, §2.6 | `campuses.email_domains` is `jsonb`; **zero** columns carry a `now()` default | deviations §8 items 2 and 4 confirmed identical on PostgreSQL; both still need cto |
+
+### 10.6 A finding against `QA-S0.md` §7 itself
+
+**§7's "*(skip → run)*" conversion cannot happen, for any of its items.** Those
+tests have **no body**: each is a single unconditional `pytest.skip()` whose
+reason is an f-string interpolating the live vendor into text describing SQLite.
+**25 tests in the repository are shaped this way**; 8 name SQLite as the reason
+and now print, on PostgreSQL, *"NOT VERIFIABLE ON THIS ENGINE
+(vendor=postgresql …) because SQLite has no TRUNCATE statement"* — a skip
+reason that names the wrong engine and no longer tells the truth. They are
+honest placeholders on SQLite and self-contradicting on PostgreSQL.
+
+This is `CLAUDE.md` rule 12 in a new shape, and it is why §1 of
+`POSTGRES-FIRST-RUN.md` was executed directly rather than by unskipping.
+`tests/e2e`, `tests/a11y` and `tests/contract` are test-qa's trees and were not
+touched; **the nine assertions §7 promised still need writing, by QA, now that
+the engine exists.** Two of them are reserved by name and have been executed
+here in the meantime (§10.1, §10.4 items 2 and 7).
+
+Also, and smaller: `sqlmigrate` **cannot** render any of this DDL on either
+engine. §1 records that it "has never generated this DDL" and implies a server
+would fix that; it would not. These are `RunPython` operations, so `sqlmigrate`
+prints *"THIS OPERATION CANNOT BE WRITTEN AS SQL"* — measured for 0002, 0003
+and 0005. The catalog (`pg_get_functiondef`, `pg_trigger.tgenabled`) is the
+only way to read the installed DDL, and it is better evidence anyway: it is
+what the server kept rather than what we sent.
+
+### 10.7 What this run does NOT prove
+
+`POSTGRES-FIRST-RUN.md` §2 applies in full and is not restated. The three worth
+repeating here because they are most often misread as covered:
+
+1. **Double-booking is implemented nowhere and verified nowhere.** §5 is
+   unchanged by this run. The partial unique index is on `transfers`, an S4
+   table; there is no table, no index and no `accept_offer`. §10.4 item 8 is a
+   **rehearsal** of the same mechanism on a table that exists — a pass there
+   predicts a pass there, and is not one.
+2. **Nothing about `listings`:** no price-immutability trigger (it does not
+   exist — there are **five** plpgsql bodies, not six), and no engine-level
+   rejection of a float *value* in the one money column beyond §10.2's finding
+   that the rejection is a silent rounding.
+3. **Nothing about evidence being true.** `campus_mou_ref = 'TODO'` still opens
+   the gate, and a plausible fake `authorised_by_human` still passes. Every box
+   filled is still not every box true (ADR-002 §4.2, QA-S0 B2).
+
+And one addition to §2's list, from §10.3(a): **nothing about behaviour at
+scale.** The retry budget was raised from a measurement at 40 appenders on one
+near-empty table. `prev_hash UNIQUE` makes every audit append serialise by
+construction, and no retry budget removes that — see §9 item 15.
+
 ---
 
 ## Amendment log
 
 | Date | Change | By |
 |---|---|---|
+| 2026-10-21 | **v1.4 — the first PostgreSQL run (16.15), §10.** Every `UNVERIFIED` label executed: 95 direct assertions with SQLSTATE *and* message text, 0 failures, plus the suite on both engines (571/60 PostgreSQL, 573/58 SQLite). Blocker fixed with `params=None` rather than by doubling `%`, because the doubling failure mode is silent (§10.1). **Three predictions in this document were wrong** — §3.8's exception class (psycopg 3 maps `RaiseException` to `ProgrammingError`, not `InternalError`; the "catch `DatabaseError`" mitigation is what made that cost nothing), §2.11's boolean probe (passing on SQLite for the wrong reason, with the wrong reason recorded here as deliberate), and §2.8's float rejection (a silent **rounding**, not an error) — §10.2. **Two defects found in shipped S0 code, both invisible to SQLite**: `record_audit`'s 4-attempt retry dropped an audit row under 12 concurrent appenders and reported it as a broken chain, and `allow_test_flush` bound a per-connection GUC to a pytest session, which would have failed in S4 teardown exactly as F9 predicted — §10.3. A finding against QA-S0 §7: its nine "skip → run" items have no body to run, and `sqlmigrate` cannot render `RunPython` DDL on either engine — §10.6. Escalations 15–17 added | backend-developer |
 | 2026-10-21 | v1.0 — written during S0, from measurements on SQLite 3.45.1 / Django 5.2.8 / Python 3.11.9, with no PostgreSQL server available | backend-developer |
 | 2026-10-21 | **v1.3 — closing pass, REVIEW-S0 C1.** A trim-based blank check is a whitespace deny-list, and four characters was not the list: vertical tab, form feed, **NBSP (a paste from Word)**, figure space and ogham space passed the database floor while the command above it blocked them, and **zero-width space and BOM passed both layers** — so the one field carrying "a named human signed this" could be satisfied by something that renders as nothing in the go/no-go packet. Migration 0005's set is now eleven codepoints, each with its reason, and **the invariant itself** — at least one visible character, asked of Python's Unicode database per character and therefore needing no list — is in `open_discovery.has_visible_character`, which also catches five invisibles the SQL list does not know. The asymmetry and its ceiling are declared in the migration: neither engine can express the test (SQLite has no regex, Postgres's `[[:graph:]]` is locale-dependent), so the floor enumerates and the layer above generalises. Also: `tests/unit/test_forbidden_response.py` written (P14 at the contract boundary — the compensating control for the jsonb and free-text limbs, named by ADR-003 §2.3 and ownerless for two review rounds). Escalations 12–14 added | backend-developer |
 | 2026-10-21 | **v1.2 — second S0 rework, after QA-S0 v2.0.** §7.1 **corrected a second time**: v1.1 called the flush fixture mandatory and did not write it, and a claim of mine that a test asserts the GUC cannot be set under production settings is **withdrawn — no such test exists and none could**; the honest control is THREAT-MODEL §4 B5/B6's accepted scope, and `tests/conftest.py::allow_test_flush` now exists. New row §3.6c (the gate evidence checklist moves into the database, F8); §3.4 extended again (the anonymous key format and the replayed body, F10 — a demonstrated disclosure). P14's lists move to `apps/core/p14.py` (W1d) with W1c's source grep in `tests/unit/test_forbidden_source.py`; all 22 W1b tokens enforced over **every** column in **any** type, and the exemption scoped to two columns instead of the `listings` table (F6/F7). Escalations 9–11 added | backend-developer |

@@ -2156,3 +2156,219 @@ now *every* Postgres trigger must be ALWAYS, rather than a list of five,
 
 **Open, none blocking:** F15 and F11 and F13 at S1, F12 at S2/S4, F14 record
 only, and evidence-presence-not-truth open by agreement before Gate C.
+
+---
+
+## D-034 — First PostgreSQL contact: the migrations do not apply
+**Date:** 2026-10-21 · **Decider:** ceo-planning
+**CEO-verified directly:** PostgreSQL 16.15 installed, service running, port
+5432 listening, role and database created, `.env` written and gitignored.
+
+**Item 0 of QA's checklist — `migrate` from empty — FAILS.**
+
+```
+psycopg.ProgrammingError: incomplete placeholder: '%';
+if you want to use '%' as an operator you can double it up, i.e. use '%%'
+```
+
+Four `%` characters inside plpgsql `RAISE` format strings are parsed by psycopg
+as parameter placeholders **before Postgres ever sees the statement**:
+`0002_append_only_triggers.py:23` and `:44`,
+`0003_gate_column_write_guard.py:111`, `0005_gate_evidence_complete.py:112`.
+
+### Why this entry matters more than the bug
+**This is the exact class of defect four agents predicted and none could
+find.** Three review passes, two independent agents reading the plpgsql as
+text, a conformance-test regime, and a project rule about unexecuted code —
+and the finding was still waiting at first contact with a server. **Not one of
+the six guards had ever been parsed; it turns out the migration containing
+them could not even be applied.**
+
+So the standing caveat was not conservative. It was correct, and understated:
+the position was "six controls are specified, reviewed, and unexecuted", when
+the truth was that **the schema carrying them did not install.**
+
+**Recorded as vindication of a decision, not of an agent:** the CTO, code
+review, QA and backend all independently refused to call these controls
+verified, and every one of them named execution as the only thing that would
+settle it. **Had any of them accepted text review as sufficient, this would
+have been discovered on a pilot box.**
+
+### The fix is a two-layer escaping problem and is not trivial
+plpgsql needs a single `%` to interpolate; psycopg needs it doubled to pass one
+through. So doubling is right — **but the message a developer actually reads
+must be verified by triggering each exception on Postgres**, because a guard
+with a mangled message still protects while the next person debugging it reads
+a broken string. **This project has twice been bitten by a control whose text
+said something other than what it did**, so the fix is not complete until the
+text is read off a live server.
+
+**Routed to backend**, which owns the migrations, together with QA's full §7
+checklist. **QA will re-verify independently on Postgres afterwards** — the
+author of a fix does not grade it.
+
+### Also recorded: the installer lied first
+The first `winget install` **exited 0 having installed nothing** — its source
+index could not update, so no package was found and the command returned
+success anyway. Caught only because the result was checked three ways
+(binaries, service, listening port) instead of trusting the exit code.
+**A green result that proves nothing is now the fifth distinct instance of
+this project's recurring defect, and this one came from outside the project.**
+
+---
+
+## D-035 — Postgres checklist written; a CEO miscount corrected
+**Date:** 2026-10-21 · **Decider:** ceo-planning, recording cto
+**Evidence:** `company/architecture/POSTGRES-FIRST-RUN.md`
+
+### CEO correction — I was repeating a wrong number
+**There are FIVE plpgsql bodies, not six.** CEO-verified by counting them:
+`audit_log_is_append_only`, `gate_authorisations_is_append_only`,
+`campuses_gate_is_authorised`, `bookhop_truncate_guard`,
+`gate_authorisations_evidence_complete`. **The price-immutability trigger does
+not exist** — `listings` is an S2 table.
+
+"Six" was stated to the founder repeatedly and appeared in three of the CTO's
+documents. The CTO found it by reading the migrations rather than taking the
+brief, and corrected A14, the S2 gate and the checklist. Its reason is the one
+that matters: **a checklist listing a control nobody can run is how an unrun
+control gets reported as run.**
+
+### The checklist's item 1 is a shape nobody had named, including me
+**`check_function_bodies` validates plpgsql *syntax* at creation, but plpgsql
+resolves identifiers and operators at the first execution of each branch.** So
+a guard can be created cleanly, pass every happy-path test, and fail the first
+time someone does the forbidden thing — **and the worst form of that failure
+still blocks the operation, so it looks exactly like the guard working while
+proving nothing about the guard.**
+
+Hence the instruction, forwarded to backend mid-run and promoted to
+`CLAUDE.md` rule 16: **exercise every refusal path and assert the message
+text, not the exit status.** A raised error is not evidence the guard fired for
+the reason you think. This is the same shape as the token list that enforced 15
+of 22 while reporting green — one layer deeper and considerably harder to see.
+
+### Two traps where a control could protect the wrong thing silently
+`chr(n)` above 127 requires the database encoding to be UTF8, so the
+eleven-codepoint set could be **silently protecting against the wrong
+characters**. And a bare `btrim(NULL, …)` is NULL while **a CHECK constraint is
+satisfied by NULL** — the trigger form avoids this and the CHECK form does not,
+so which one actually runs must be confirmed.
+
+**Credit recorded because it says what to preserve:** backend built the
+whitespace set as `chr(32) || chr(9) || …`, which sidesteps
+`standard_conforming_strings` entirely. A literal would have been six literal
+characters, and the guard would have stripped backslashes while letting
+zero-width space through. **That was the trap the CTO expected to find and
+backend had already avoided it.**
+
+### A Django trap that cannot exist on SQLite
+An `IntegrityError` inside `atomic()` **poisons the transaction**, so whatever
+converts it to a 409 must sit in a nested atomic or savepoint, or **the error
+response itself fails.** On SQLite the loser gets a lock error instead, so this
+has never been exercised — and it lands on offer acceptance in S4 if it is not
+designed for now.
+
+### §2 of the checklist is what the run will NOT prove
+It tests **existence and behaviour, not fitness** — a guard that faithfully
+refuses the wrong thing passes every item. Nothing about `listings` or
+`transfers`. Nothing about the two still-unwritten application-layer P14
+controls. **Nothing about evidence being true** — a placeholder reference and a
+plausible fake human still open the gate. **The reporting section requires
+`NOT APPLICABLE` with a reason and forbids recording it as PASS**, and requires
+§2 to be filed with the completed checklist, because §2 is what stops the run
+being read as more than it is. **A14 is narrowed by this run, not closed.**
+
+### Why run controls three agents have already reviewed — answered as a ratio
+Of the nine items, **text review cannot have touched seven at all** (runtime
+resolution, replica role, encoding, operator resolution against real column
+types, GUC semantics, concurrency, migrate and reverse), partially covered two,
+and meaningfully established two. **That ratio is the argument for the run**,
+and text review did earn its keep: reading caught the ordering bug that would
+have deployed a guard protecting nothing.
+
+**Promoted to `CLAUDE.md` rule 15, on its second occurrence: an invariant
+beats a list** — with the honest rider that where an invariant cannot be
+expressed, a list must **declare its ceiling in the same place** and point at
+the layer that generalises.
+
+**Also settled:** the filename stays as the repository has it, and the CTO
+found a better reason than incumbency — it is consistent with its three
+siblings, and **a guard family named by one convention is easier to notice a
+gap in.**
+
+---
+
+## D-036 — First PostgreSQL run PASSES. Two real defects found that SQLite could never reach
+**Date:** 2026-10-21 · **Decider:** ceo-planning
+**CEO-verified:** Postgres `571 passed, 60 skipped` · SQLite `573 passed,
+58 skipped` · six triggers live, every one `tgenabled='A'`
+
+**All nine checklist items PASS**, each asserting SQLSTATE **P0001** alongside
+the message text — a non-P0001 refusal was counted as a failure, which is
+`CLAUDE.md` rule 16 applied on its first outing. Each paired with a permitted
+counterpart, and **the two riskiest given negative controls**: downgrading a
+trigger off `ENABLE ALWAYS` shows the write *does* get through under the
+replica role, and removing the nested `atomic()` shows the transaction *is*
+poisoned.
+
+### The fix was better than the one I proposed
+I suggested doubling the `%`. Backend instead passed **`params=None`**, which
+**removes the escaping layer rather than escaping for it** — no SQL text was
+touched, so the plpgsql still reads exactly as it would in `psql`. Its reason
+for rejecting my suggestion is the right one: **doubling works but puts two
+layers under one message and fails silently**, because a mis-doubled specifier
+still refuses the operation, so only the text breaks.
+
+### Three predictions were WRONG — which is the point of running it
+- The exception class is **`ProgrammingError`**, not `InternalError`. psycopg 3
+  maps it differently from psycopg 2, which is where the prediction came from.
+  **The hazard was real and the named class was wrong — and "catch
+  `DatabaseError`" is the only reason it cost nothing.** No caller needed
+  fixing.
+- **A boolean CHECK probe was passing on SQLite for the wrong reason**, and
+  ENGINE-DIVERGENCE had recorded the wrong reason **as deliberate**.
+- A float into an integer column is **silently rounded**, not rejected — so
+  detection belongs to the service layer and never to the database.
+
+### Two defects in shipped S0 code, both unreachable from SQLite
+- **The audit chain dropped a row under concurrency and reported it as
+  tamper.** A four-attempt retry with no backoff lost an append at 12
+  concurrent appenders and raised `AuditChainBroken` — **a tamper-shaped
+  error during a load spike**, which is the worst possible false alarm in this
+  system. Measured tail: 5 attempts at 8 appenders, 7 at 24. Now a budget of
+  12 with jittered backoff and a distinct contention error that is deliberately
+  **not** a subclass.
+- **The flush escape bound a per-connection setting to a pytest session**, so
+  one threaded test closing connections killed the next transactional test in
+  teardown. **That is exactly the S4 collision the earlier finding was written
+  to prevent**, and the double-booking test triggers both halves. Now bound to
+  Django's `connection_created` signal.
+
+### The teardown item could not be measured, and why that is the familiar shape
+**No test in the repository used `transactional_db`. All three mentions of it
+were prose.** The fixture the architecture called mandatory was guarding
+nothing, because nothing exercised it. Backend wrote the test and a negative
+control. **This is the project's recurring defect once more: a document
+describing a mechanism that had no instance.**
+
+### Findings against the checklists themselves
+QA's "skip becomes run" **cannot happen** — those tests have no body; 25 are a
+bare skip and 8 now print a reason naming SQLite while running on Postgres.
+And **`sqlmigrate` never generates this DDL on either engine**, because the
+operations are `RunPython`; the catalog is the route, and is better evidence.
+
+**Recorded because it is rule 13 obeyed without prompting:** one of QA's guards
+fired twice on backend's new tests, and **both times backend renamed its own
+test rather than widening QA's allowlist** — rung 1 of the order of resort.
+
+### Still unverified, explicitly
+**Double-booking is implemented nowhere and verified nowhere** — the index is
+on `transfers`, which is S4; item 8 was a *rehearsal* of the same mechanism on
+the anonymous idempotency index, not the thing itself. Nothing about
+`listings`. `expected_version`'s failure mode, the reservation-expiry race, and
+multi-worker job claiming are **unverified on both engines**. **Evidence truth
+is unchanged: a placeholder reference still opens the gate.** And nothing about
+scale — the retry budget comes from 40 appenders on a near-empty table.
+
+**A14 is narrowed, not closed**, exactly as the checklist required.

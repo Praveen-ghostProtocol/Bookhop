@@ -127,10 +127,30 @@ def _run(statements_pg, statements_sqlite):
     def apply(apps, schema_editor):
         vendor = schema_editor.connection.vendor
         if vendor == "postgresql":
-            schema_editor.execute(statements_pg)
+            # params=None, not the default (), and it is load-bearing.
+            # `postgresql.DatabaseSchemaEditor.execute` merges params
+            # client-side through psycopg's placeholder parser unless params is
+            # None, and plpgsql's `RAISE ... , TG_OP` needs a literal `%` that
+            # the parser reads as an incomplete placeholder. Measured:
+            # `psycopg.ProgrammingError: incomplete placeholder: '%'`, which
+            # killed `migrate` from empty on the first Postgres box
+            # (ENGINE-DIVERGENCE §1). Doubling the `%` also works, but it puts
+            # two escaping layers under one message and leaves the migration
+            # source saying something other than the function body -- so the
+            # layer is removed instead. None is Django's own escape hatch for
+            # this (postgresql/schema.py: `if params is None: return
+            # super().execute(sql, params)`).
+            #
+            # It does NOT make `sqlmigrate` render these bodies: a RunPython
+            # operation prints "THIS OPERATION CANNOT BE WRITTEN AS SQL" on
+            # both engines, measured. Read the installed DDL back from the
+            # catalog (`pg_get_functiondef`, `pg_trigger.tgenabled`) instead --
+            # which is better evidence anyway, because it is what the server
+            # kept rather than what we sent.
+            schema_editor.execute(statements_pg, None)
         elif vendor == "sqlite":
             for statement in statements_sqlite:
-                schema_editor.execute(statement)
+                schema_editor.execute(statement, None)
         else:
             raise RuntimeError(
                 f"append-only triggers are not written for {vendor!r}; "

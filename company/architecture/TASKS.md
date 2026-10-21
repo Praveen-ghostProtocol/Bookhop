@@ -239,24 +239,34 @@ survives, is pseudonymous, and cannot be relinked.
 > complete on SQLite.
 >
 > **The gate got MORE urgent, not less, and the number moved the wrong way.**
-> **Six plpgsql bodies across migrations 0002, 0003 and 0005 have never been
-> parsed by a server, and five are the security controls three review passes
-> have been spent on** — the `audit_log` append-only and no-TRUNCATE guards,
-> the `gate_authorisations` append-only guard, the `campuses` discovery write
-> guard, the Gate C completeness guard, and the price-immutability trigger.
-> **Each rework that strengthened the controls raised this count.** Reviewed as
-> text by two agents; **verified by neither.**
+> **RESOLVED 2026-10-21: the founder approved PostgreSQL 16 and it is being
+> installed.** The constraint that has been the largest outstanding item for
+> several rounds is lifted.
 >
-> **So the first PostgreSQL run is itself a named deliverable with a
-> checklist, not a side effect of S2 starting.** It must demonstrate, by
-> execution: the price-immutability trigger raises; the `campuses` write guard
-> refuses an unauthorised open **and** refuses it from `psql`; the
-> completeness CHECK rejects an empty evidence blob; `audit_log` refuses
-> UPDATE, DELETE **and TRUNCATE**; the TRUNCATE escape works for the harness
-> and exists in exactly one body; and the double-booking partial unique index
-> yields exactly one winner under real concurrency. **Until that run, the
-> honest statement is that six security controls are specified, reviewed as
-> text, and unexecuted.**
+> **Five plpgsql bodies across migrations 0002, 0003 and 0005 have never been
+> parsed by a server, and all five are security controls.** *(Corrected from
+> "six": the price-immutability trigger does not exist, because `listings` is
+> an S2 table — see `POSTGRES-FIRST-RUN.md` §0.)* Reviewed as text by two
+> agents; **verified by neither.**
+>
+> **The first run is a deliverable with a written checklist:
+> `POSTGRES-FIRST-RUN.md`** — nine items ordered by what is most expensive to
+> discover late, each stating what a failure *means*; plus §2, what the run
+> will **not** prove; and §3, the properties deferred to S2/S4/S7 with the
+> exact shape to test when their tables arrive. **File the completed checklist
+> with §2 attached**, because §2 is what stops the run being read as more than
+> it is.
+>
+> **The first PostgreSQL run is itself a named deliverable, and its checklist
+> is now written: `POSTGRES-FIRST-RUN.md`.** This paragraph's earlier sketch of
+> what the run must demonstrate is superseded by that document, which corrects
+> two things the sketch got wrong: **the price-immutability trigger and the
+> double-booking index are on S2/S4 tables and cannot be exercised by this
+> run** (they are deferred, with their exact shapes, in §3 there).
+>
+> **Until the run, the honest statement is that five security controls are
+> specified, reviewed as text, and unexecuted** — and that of the nine
+> checklist items, text review has meaningfully touched two.
 
 **The gated default manager lands here** (ADR-002 §2.3) — recorded as a line
 item because *a deferral recorded only in a review is how an ownerless control
