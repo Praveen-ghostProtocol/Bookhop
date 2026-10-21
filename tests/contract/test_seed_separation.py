@@ -22,6 +22,8 @@ proves less than it appears to. `seed_demo` creating no users
 
 import pytest
 
+from .engine_limits import unavailable
+
 pytestmark = pytest.mark.django_db
 
 
@@ -54,15 +56,17 @@ def test_a_real_listing_is_invisible_on_a_closed_campus(engine):
     )
 
 
-def test_the_metric_views_exclude_seed_rows_and_print_the_excluded_count(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S7): PRD "
-        "AC-M6.3 requires every metric view to filter `is_seed = false` and the "
-        "weekly export to print the excluded seed count. ENGINE-DIVERGENCE §6 "
-        "records that none of `DATA-MODEL.md` §9's SQL can execute on SQLite at "
-        "all (`percentile_cont`, `date_trunc`, `interval`, `::numeric`), so S7 "
-        "cannot be verified on this machine in any form."
-    )
+def test_the_metric_views_exclude_seed_rows_and_print_the_excluded_count():
+    pytest.skip(unavailable(
+        slice_="S7", needs_tables=("users", "listings", "transfers"),
+        subject="PRD AC-M6.3 -- every metric view filters `is_seed = false` and "
+                "the weekly export prints the excluded seed count",
+        note="ENGINE-DIVERGENCE 6 said none of DATA-MODEL 9's SQL can execute "
+             "on SQLite; on PostgreSQL it can, so the engine has stopped being "
+             "the blocker and the tables are. This is the largest single block "
+             "of QA coverage the Postgres install unlocked, and it unlocks "
+             "nothing until S1-S4 create the rows.",
+    ))
 
 
 def test_seed_demo_creates_the_browsable_dataset_tasks_s0_promises(engine):

@@ -239,9 +239,22 @@ survives, is pseudonymous, and cannot be relinked.
 > complete on SQLite.
 >
 > **The gate got MORE urgent, not less, and the number moved the wrong way.**
-> **RESOLVED 2026-10-21: the founder approved PostgreSQL 16 and it is being
-> installed.** The constraint that has been the largest outstanding item for
-> several rounds is lifted.
+> **GATE OPEN — 2026-10-21. The first PostgreSQL run passed all nine items**
+> (PostgreSQL 16.15, commit `09e2323`; Postgres 571 passed, SQLite 573 passed,
+> six triggers live and all `ALWAYS`). **S2 may start.** Record:
+> `POSTGRES-FIRST-RUN.md`, findings in `ENGINE-DIVERGENCE.md` §10.
+>
+> **Two S0 defects were found that SQLite could not have shown**, and both
+> would have landed on S4: an audit row **dropped** under 12 concurrent
+> appenders and reported as `AuditChainBroken` — a tamper-shaped error raised
+> by load — and a session-scoped fixture binding a **per-connection** GUC, which
+> `test_double_booking.py` would have tripped because it needs both
+> `transactional_db` and several real connections. **That is the gate earning
+> its keep: the run's value was the two defects, not the nine passes.**
+>
+> **Still open (A14a):** four properties remain unexecuted because their tables
+> do not exist — price immutability (S2), double-booking and MVCC (S4), metric
+> SQL (S7). Their test shapes are pre-written in `POSTGRES-FIRST-RUN.md` §3.
 >
 > **Five plpgsql bodies across migrations 0002, 0003 and 0005 have never been
 > parsed by a server, and all five are security controls.** *(Corrected from
@@ -264,9 +277,12 @@ survives, is pseudonymous, and cannot be relinked.
 > double-booking index are on S2/S4 tables and cannot be exercised by this
 > run** (they are deferred, with their exact shapes, in §3 there).
 >
-> **Until the run, the honest statement is that five security controls are
-> specified, reviewed as text, and unexecuted** — and that of the nine
-> checklist items, text review has meaningfully touched two.
+> **Superseded by the run, 2026-10-21: all five are now executed.** The
+> pre-run statement was that five security controls were specified, reviewed as
+> text and unexecuted, and that text review had meaningfully touched two of
+> nine checklist items. **That ratio turned out to be the right way to have
+> framed it** — the run's value was the two defects it found, both in the seven
+> items reading could not reach.
 
 **The gated default manager lands here** (ADR-002 §2.3) — recorded as a line
 item because *a deferral recorded only in a review is how an ownerless control

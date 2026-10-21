@@ -1,8 +1,27 @@
 # POSTGRES-FIRST-RUN.md — the execution checklist for the first PostgreSQL run
 
-**Owner:** cto · **Version:** v1.0 · **Date:** 2026-10-21
-**Status:** a **deliverable**, not a formality. It gates S2 (`TASKS.md` S2).
-**Runs against:** PostgreSQL 16, installed on the founder's machine 2026-10-21.
+**Owner:** cto · **Version:** v1.1 · **Date:** 2026-10-21
+**Status: RUN AND PASSED — all nine items, PostgreSQL 16.15, commit
+`09e2323`.** Postgres 571 passed · SQLite 573 passed · six triggers live, all
+`ALWAYS`. Run record and findings: `ENGINE-DIVERGENCE.md` §10. **S2's gate is
+open.** This document is kept as the artefact for the G4 packet, **with §2
+attached** — §2 is what stops the run being read as more than it is.
+**It gates S2 (`TASKS.md` S2).**
+**Ran against:** PostgreSQL 16.15 on the founder's machine, approved 2026-10-21.
+
+> **Correction to this checklist, from the run (v1.1).** Any item here that
+> implied reading **generated** SQL is wrong: **`sqlmigrate` never emits this
+> DDL on either engine, because the operations are `RunPython`.** The route is
+> the **catalog** — `pg_trigger` (`tgname`, `tgenabled`, `tgtype`), `pg_proc`
+> (`prosrc`) and `information_schema` — and that is **better evidence anyway**:
+> it reports what the server actually installed, not what a migration intended
+> to install. Item 3's `ENABLE ALWAYS` check in particular is a
+> `pg_trigger.tgenabled = 'A'` assertion, not a reading of a migration file.
+>
+> **Three predictions this document and `ENGINE-DIVERGENCE` made were wrong**,
+> and all three were corrected **in place** rather than superseded by a header,
+> which is the right treatment for a document whose job is to say what is true.
+> See §6 for what I take from them.
 **Reads with:** `ENGINE-DIVERGENCE.md` · ADR-002 §4.1 · ADR-003 §2.2–2.3 ·
 `THREAT-MODEL.md` §6, A14 · `QA-S0.md` · `REVIEW-S0.md`.
 
@@ -303,8 +322,53 @@ project before that point.)*
 
 ---
 
+## 6. What the three wrong predictions teach — and the one cheap rule that follows
+
+All three were mine or this project's, all three were **wrong in an instructive
+way**, and the common shape is worth more than the individual corrections.
+
+**1 · `ProgrammingError`, not `InternalError`.** psycopg 3 maps
+`RaiseException` under `ProgrammingError`; psycopg 2 put it under
+`InternalError`, which is where the prediction came from. **The hazard was real
+and the named class was wrong — and nothing broke, because the mitigation did
+not depend on the prediction being right.** Every test catches
+`django.db.DatabaseError`, the common parent, on purpose. Had one caller been
+written to catch `InternalError` *on the strength of that row*, it would have
+swallowed nothing on PostgreSQL.
+**The generalisable rule: when a document predicts a specific identifier across
+an engine or library boundary, mitigate at the PARENT, not at the prediction.**
+Defending against a *class* of error costs the same as defending against a
+guessed one and survives being wrong.
+
+**2 · The boolean CHECK probe was passing on SQLite for the wrong reason, and
+`ENGINE-DIVERGENCE` had recorded that wrong reason as deliberate.** This is the
+worst of the three. The test used `1`/`0` and the document said it did so *for
+that reason*; on SQLite it compared two integers in a column SQLite was not
+typing, and on PostgreSQL it never reached the constraint at all
+(`DatatypeMismatch` fires first). **A green test on both engines meant "passes
+for two different wrong reasons."**
+**The lesson: a test's stated reason for passing is itself a claim, and
+`CLAUDE.md` rule 9's conformance regime does not check it.** Rule 9 asks
+whether a control *exists*. It does not ask whether the document's
+*explanation* of that control is true — and three of my predictions were wrong
+inside documents that had conformance tests.
+
+**3 · Float money is rounded, not rejected.** ADR-003 §2.1 now names the layer.
+
+**The cheap rule that closes the gap**, and it is one backend already invented:
+**`ENGINE-DIVERGENCE`'s `VERIFIED HERE / ASSUMED THERE` column should be
+mandatory for any cross-engine or cross-library claim in ANY architecture
+document, not just in that one.** An unverified claim about engine or library
+behaviour is a *prediction*, and it should be labelled as one until something
+executes it. That is not a new rule — it is rule 9 extended from "does the
+control exist" to "is this claim about the platform measured or guessed", and
+it costs a two-word tag.
+
+---
+
 ## Amendment log
 
 | Date | Change | Approved by |
 |---|---|---|
 | 2026-10-21 | v1.0. **Corrects the "six plpgsql bodies" figure to five** across A14 and the S2 gate: the price-immutability trigger does not exist until S2 | cto |
+| 2026-10-21 | **v1.1 — RUN AND PASSED**, all nine items, PostgreSQL 16.15, commit `09e2323`. Corrects the `sqlmigrate` route to the **catalog** (`RunPython` emits no generated DDL). Adds §6 on the three wrong predictions and the `VERIFIED HERE / ASSUMED THERE` rule that follows | cto |

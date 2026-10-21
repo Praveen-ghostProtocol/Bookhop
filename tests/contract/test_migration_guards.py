@@ -247,23 +247,33 @@ def test_the_flush_escape_is_declared_by_the_harness_and_nothing_else():
     it does not stop a determined session, and the document now says so.
     """
     repo = Path(__file__).resolve().parents[2]
-    hits = sorted(
+
+    # QA's own trees name the setting in order to *assert on* it — withdrawing
+    # it is how tests/e2e/test_audit_tamper.py sees the guard at all. The
+    # property that matters is narrower and is the one asserted: no
+    # **application** file may touch the escape except the migration that
+    # defines it. A declarer in `apps/**` would be a second hatch, reachable in
+    # production rather than only in a test session.
+    app_hits = sorted(
         path.relative_to(repo).as_posix()
-        for path in repo.rglob("*.py")
+        for tree in ("apps", "bookhop")
+        for path in (repo / tree).rglob("*.py")
+        if "allow_flush" in path.read_text(encoding="utf-8", errors="ignore")
+    )
+    assert app_hits == ["apps/core/migrations/0003_gate_column_write_guard.py"], (
+        "an application file other than the defining migration names the flush "
+        f"escape; that is a second way to turn the TRUNCATE guard off: {app_hits}"
+    )
+
+    # And exactly one harness file declares it, so a stray `SET` in a second
+    # conftest cannot quietly widen when the first one is fixed.
+    declarers = sorted(
+        path.relative_to(repo).as_posix()
+        for path in repo.rglob("conftest.py")
         if ".venv" not in path.parts
-        # QA's own tree names the setting in order to assert on it; the question
-        # is whether anything *sets* it.
-        and "tests/contract" not in path.relative_to(repo).as_posix()
         and "allow_flush" in path.read_text(encoding="utf-8", errors="ignore")
     )
-    assert hits == [
-        "apps/core/migrations/0003_gate_column_write_guard.py",
-        "tests/conftest.py",
-    ], (
-        "the flush escape must be named by exactly two files: the migration "
-        "that defines it and the harness fixture that declares it. Anything "
-        f"else is a second way to turn the TRUNCATE guard off: {hits}"
-    )
+    assert declarers == ["tests/conftest.py"], declarers
 
 
 # --------------------------------------------------------------------------
@@ -411,13 +421,8 @@ def test_the_postgres_guards_actually_fire(engine):
     )
 
 
-def test_the_flush_escape_permits_a_transactional_teardown(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S4): the escape "
-        "exists so Django's `sql_flush` TRUNCATE can run in a test session "
-        "(ENGINE-DIVERGENCE §7.1). SQLite has no TRUNCATE and no "
-        "`current_setting`, so neither the escape nor the collision it resolves "
-        "can be reproduced here. The first real exercise is S4's "
-        "`test_double_booking.py` on a Postgres box, and per F9 the session "
-        "fixture it needs does not exist yet."
-    )
+# `test_the_flush_escape_permits_a_transactional_teardown` lived here as a bare `pytest.skip()` until PostgreSQL 16
+# arrived. ENGINE-DIVERGENCE 10.6 is right that a skip reason naming
+# SQLite while running on PostgreSQL is self-contradicting, so the
+# placeholder is gone and the assertion is written:
+#   tests/e2e/test_postgres_concurrency.py::test_the_flush_escape_survives_connections_being_closed_mid_test

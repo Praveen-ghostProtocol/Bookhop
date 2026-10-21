@@ -19,6 +19,8 @@ import uuid
 from datetime import timedelta
 
 import pytest
+
+from .engine_limits import unavailable
 from django.conf import settings
 from django.utils import timezone
 
@@ -374,24 +376,12 @@ def test_expected_version_rejects_a_stale_write(engine):
     )
 
 
-def test_expected_version_under_a_real_read_modify_write_race(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S4): the "
-        "optimistic lock's failure mode is a race that PostgreSQL's READ "
-        "COMMITTED permits and SQLite's single-writer lock prevents, so it "
-        "cannot be reproduced here even in principle "
-        "(ENGINE-DIVERGENCE §4.1, §4.2). Simulating it by bumping the version "
-        "first tests the WHERE clause, not the race."
-    )
-
-
-def test_two_simultaneous_retries_cannot_both_execute(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S0): "
-        "API-CONTRACT §4.1's claim that 'the insert of the key row is the lock' "
-        "is a concurrency claim. On SQLite the second writer is serialised by the "
-        "database-level write lock and typically fails with "
-        "'database is locked' rather than with the unique violation the "
-        "mechanism relies on, so a green test would pass for the wrong reason "
-        "(ENGINE-DIVERGENCE §4.1, §5.3's instruction to test-qa)."
-    )
+def test_expected_version_under_a_real_read_modify_write_race():
+    pytest.skip(unavailable(
+        slice_="S4", needs_tables=("transfers",),
+        subject="API-CONTRACT 4.2's optimistic lock in its failure mode -- "
+                "`UPDATE ... WHERE version = :expected` returning zero rows "
+                "because another request won",
+        note="PostgreSQL's READ COMMITTED permits this race, so the engine has "
+             "stopped being the limit; there is no versioned row to race on.",
+    ))

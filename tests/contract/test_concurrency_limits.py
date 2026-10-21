@@ -13,24 +13,25 @@ ENGINE-DIVERGENCE §5.3 states and this suite must not quietly contradict.
 
 import pytest
 
+from .engine_limits import unavailable
+
 pytestmark = pytest.mark.django_db
 
 
-def test_n_concurrent_accepts_yield_exactly_one_success(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S4): the "
-        "double-booking guard is a partial unique index on `transfers "
-        "(listing_id)` over the four active states, and the claim is that a "
-        "concurrent second accept violates it and returns "
-        "`409 LISTING_ALREADY_RESERVED` (DATA-MODEL §5, API-CONTRACT §4.3). "
-        "SQLite has one database writer, so the N-1 losers would be serialised "
-        "by the database write lock and typically fail with 'database is locked' "
-        "rather than with the integrity error the service converts to a 409 — a "
-        "green run would show 'exactly one success' without once exercising the "
-        "guard (ENGINE-DIVERGENCE §5.2 item 3). `transfers` does not exist "
-        "either: there is no table, no index and no `accept_offer` at the end of "
-        "S0."
-    )
+def test_n_concurrent_accepts_yield_exactly_one_success():
+    pytest.skip(unavailable(
+        slice_="S4", needs_tables=("transfers",),
+        subject="the double-booking guard -- a partial unique index on "
+                "`transfers (listing_id)` over the four active states, where a "
+                "concurrent second accept must return 409 "
+                "LISTING_ALREADY_RESERVED (DATA-MODEL 5, API-CONTRACT 4.3)",
+        note="PostgreSQL has stopped being the limit: the table, the index and "
+             "`accept_offer` do not exist. The same mechanism -- a unique index "
+             "under real contention from 12 connections -- is now exercised on "
+             "a table that does exist, in tests/e2e/test_postgres_concurrency.py"
+             "::test_the_idempotency_insert_is_the_lock. A pass there predicts "
+             "a pass here and is not one.",
+    ))
 
 
 def test_the_partial_unique_index_exists_on_transfers(engine):
@@ -43,24 +44,19 @@ def test_the_partial_unique_index_exists_on_transfers(engine):
     )
 
 
-def test_two_job_workers_cannot_claim_the_same_job(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S0): job "
-        "claiming is a compare-and-swap `UPDATE ... WHERE id = ? AND locked_at "
-        "IS NULL` because `SELECT ... FOR UPDATE SKIP LOCKED` is a silent no-op "
-        "on SQLite (ENGINE-DIVERGENCE §4.3). The single-threaded claim-skipping "
-        "property is covered by the backend's unit test; multi-worker claiming "
-        "is UNVERIFIED on both engines and needs two processes against one "
-        "PostgreSQL server."
-    )
+# `test_two_job_workers_cannot_claim_the_same_job` lived here as a bare `pytest.skip()` until PostgreSQL 16
+# arrived. ENGINE-DIVERGENCE 10.6 is right that a skip reason naming
+# SQLite while running on PostgreSQL is self-contradicting, so the
+# placeholder is gone and the assertion is written:
+#   tests/e2e/test_postgres_concurrency.py::test_two_job_workers_cannot_claim_the_same_job
 
 
-def test_a_reservation_expiring_during_an_accept_resolves_one_way(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE ON THIS ENGINE (vendor={engine}, slice=S4/S5): the "
-        "unhappy path the charter puts first — the `reservation.expire` job "
-        "firing while a student taps Accept — is a read-modify-write race "
-        "between a job and a request. PostgreSQL's READ COMMITTED permits it; "
-        "SQLite's single writer prevents it (ENGINE-DIVERGENCE §4.1, §4.2). "
-        "Recorded now so S4 does not discover the gap mid-slice."
-    )
+def test_a_reservation_expiring_during_an_accept_resolves_one_way():
+    pytest.skip(unavailable(
+        slice_="S4/S5", needs_tables=("transfers",),
+        subject="the unhappy path the charter puts first -- the "
+                "`reservation.expire` job firing while a student taps Accept, a "
+                "read-modify-write race between a job and a request",
+        note="PostgreSQL can host this race now; nothing creates a transfer to "
+             "race over. Recorded so S4 does not discover the gap mid-slice.",
+    ))

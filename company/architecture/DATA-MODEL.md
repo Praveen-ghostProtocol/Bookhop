@@ -1090,6 +1090,78 @@ Ceiling: assumes one appender and does not prove the chain head was not
 rewritten. Upgrade path: write the daily chain head to a second place —
 printing it in the daily digest email is enough and costs nothing.`
 
+#### DECISION · the chain stays GLOBAL · cto, 2026-10-21 (ENGINE-DIVERGENCE §9.15)
+
+The first PostgreSQL run established that **`prev_hash UNIQUE` serialises every
+audit append by construction.** Backend correctly fixed the retry budget and
+left the design to me. Three options were on the table: stay global with a
+retry budget, split into **per-scope chains**, or move to **periodic checkpoint
+anchoring**.
+
+**Ruling: the chain stays global. Do not build per-scope chains or checkpoint
+anchoring for the pilot.** Three reasons, and the second is the one that makes
+this more than a cost decision:
+
+1. **The measured headroom is not a close call.** 40 concurrent appenders all
+   land and the chain verifies. The pilot — one campus, a few hundred accounts
+   — writes single-digit audit rows per minute at peak. That is orders of
+   magnitude of margin, not a tight fit.
+2. **Per-scope chains would weaken the exact property the chain exists for.**
+   A single global chain means the whole audit log is **one** tamper-evident
+   sequence: no row anywhere can be removed without breaking it. **Split it per
+   campus and an insider can delete one campus's entire audit history while
+   every other chain still verifies clean** — a gap that is invisible because
+   there is no longer anything linking the scopes. That is a direct regression
+   against §5.8 and accepted risk A1, which is the whole reason the chain is
+   here. **Per-scope is not a free performance win; it is a trade against the
+   threat model, and at pilot write rates we would be paying it for nothing.**
+3. **Checkpoint anchoring is the right upgrade when one is needed, and it does
+   not have that weakness** — it keeps a single sequence and removes the
+   per-row serialisation point by hashing batches and chaining the checkpoints.
+   Its cost is **coarser localisation**: you learn that something in a batch
+   changed, and need the batch to say what. Acceptable at scale, and it buys
+   nothing now.
+
+**The engineering standard also points here:** no scaffolding for a future that
+may not arrive, on a pilot that may be killed by its own data (R-21, D-009).
+
+**Re-measure trigger — an observable, not a feeling.** Any one of:
+- **p99 attempts-to-win exceeds 6** (half the budget of 12) over a rolling
+  day — a *leading* indicator, with headroom before anything fails;
+- **any `AuditAppendContention` at all** in a day — the budget was exhausted,
+  which is already a failed mutation;
+- **the first month of real traffic on a real table size**, unconditionally.
+
+**And the honest limit of the measurement the budget rests on: 40 appenders on
+a near-empty table establishes that the mechanism survives contention. It does
+not establish a throughput ceiling at scale.** The head read is trivial on an
+empty table; with a year of retained rows the insert contends on a hot
+rightmost index page, and the nightly retention purge runs against the same
+table. **The budget is sized from data, and the data is about the mechanism,
+not about a campus under load.**
+
+#### The operational signal — because splitting the error class is only half the fix
+
+Backend split budget-exhaustion out of `AuditChainBroken` into
+`AuditAppendContention`, deliberately **not** a subclass, so a load spike no
+longer fires a tamper alert. That is right: the old behaviour reported **write
+contention as tampering**, which would have sent an operator hunting a breach
+during a traffic peak.
+
+**But splitting an error class without adding a watcher converts a false alarm
+into a silent failure.** So both branches are watched, and the contention
+branch is watched by a leading indicator rather than a lagging one:
+
+| Signal | Where | Severity |
+|---|---|---|
+| **Attempts-to-win per append, p50 and p99** | counter → daily digest (`INFRA.md` §5) | informational; **p99 > 6 is the re-measure trigger above** |
+| **`AuditAppendContention` count** | alert | **pages on-call if > 0 in an hour.** The budget was exhausted and a mutation failed |
+| **`AuditChainBroken`** | alert | **founder escalation.** It asserts tampering and must keep meaning that |
+
+**Recording the attempts, not only the exhaustions, is the part that matters.**
+Without it we learn about contention only when it has already broken something
+— which is the same silent-until-it-breaks shape the split was meant to fix.
+
 ### `personal_data_access_log` — S1
 `(id, staff_id FK, subject_pseudonym uuid, fields_accessed text[], purpose,
 request_id, occurred_at)` · §7 row 16.
@@ -1544,6 +1616,7 @@ Nothing before that.
 | **A-16** | 2026-10-21 | `campuses.email_domains`: `text[]` → **`jsonb`** — one migration serves both engines, and membership is the only operation | ENGINE-DIVERGENCE §9.1, accepted | cto |
 | **A-17** | 2026-10-21 | `idempotency_keys`: **second partial unique index on `key` WHERE `user_id IS NULL`.** My `user_id = 0` sentinel correction was itself wrong — it breaks the S1 FK. **Consequence recorded: anonymous keys share one global namespace, so a stored response is returned to anyone presenting that key — S6 must confirm no anonymous endpoint stores more than its `ticket_ref` already reveals** | ENGINE-DIVERGENCE §9.6a — backend's rejection upheld · REVIEW-S0 **R3** | cto |
 | **A-18** | 2026-10-21 | **W1b's money-token exemption rescoped from the `listings` TABLE to the two permitted COLUMNS** — a table-wide exemption let a *second* money column onto `listings` (`paise_count`, `rupees_count`, `cash_total_count`, …) pass every layer, contradicting ADR-003 §2.1. Lands with S2 | REVIEW-S0 **R1** | cto |
+| **A-24** | 2026-10-21 | **§8 DECISION: the audit chain stays GLOBAL.** Per-scope chains rejected — they would let an insider delete one campus's entire history while other chains verify clean (a §5.8/A1 regression), so this is a threat-model trade and not only a cost question. Checkpoint anchoring recorded as the upgrade with a measurable trigger (p99 attempts > 6, any `AuditAppendContention`, or the first month of real traffic). **Operational signal specified: attempts-to-win p50/p99 in the digest and contention paging on-call — splitting the error class off the tamper class is only safe with a watcher** | ENGINE-DIVERGENCE **§9.15**, first PostgreSQL run | cto |
 | **A-23** | 2026-10-21 | `idempotency_keys.key`: **UUID required when `user_id IS NULL`**, unconstrained otherwise; anonymous replay returns a **NULL body**. The partial index from migration 0004 and this format rule now both have their line here | REVIEW-S0 **§21** | cto |
 | **A-22** | 2026-10-21 | **`MONEY_TOKEN_SHAPE_EXEMPTIONS` ratified**: `due_at`, `overdue`, `consume` — a deadline, a state and a verb, none of which can denote a consideration, and **all three rejected as numeric columns by W1a regardless**. Renaming our own colliding names is the preferred first resort | ENGINE-DIVERGENCE §9.9 — allowance, escalated and **ratified** | cto |
 | **A-20** | 2026-10-21 | **W1b's 22 tokens gain a per-token match rule**: substring for 21, **prefix for `rs_`** (which collides with `members_count` as a substring). The shipped guard enforced 15 and **`amt`, `paid`, `payment`, `due` were caught by nothing** — a flat list that could not express its own exception got edited instead of extended | QA-S0 **F6** | cto |

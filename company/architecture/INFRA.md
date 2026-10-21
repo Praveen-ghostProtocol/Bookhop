@@ -220,7 +220,10 @@ history and in `audit_log` (ADR-001 §6).
 | Errors | 5xx count per hour from the access log; the daily digest lists every 5xx with its `request_id` | > 10/hour → alert |
 | Latency | p50/p95 per route from the access log, in the digest | p95 search > 1 s → investigate (a `METRICS.md` metric) |
 | Disk | nightly check | 70% warn, 90% `readyz` fails |
-| **Daily digest email, 07:00 IST** | one job | 5xx list, p95 per route, job failures, queue depth, pending moderation count, **open SLA items with time remaining**, new reports, **the `audit_log` chain head**, backup result, disk, cert expiry |
+| **Daily digest email, 07:00 IST** | one job | 5xx list, p95 per route, job failures, queue depth, pending moderation count, **open SLA items with time remaining**, new reports, **the `audit_log` chain head**, **audit-append attempts-to-win p50/p99** (see below), backup result, disk, cert expiry |
+| **`AuditAppendContention`** | alert | **> 0 in an hour pages on-call.** The `prev_hash` retry budget was exhausted and a mutation failed. **Distinct from the tamper class on purpose** (`DATA-MODEL.md` §8) — and that split is only safe because this row exists: **splitting an error class without adding a watcher converts a false alarm into a silent failure** |
+| **`AuditChainBroken`** | alert | **founder escalation.** It asserts tampering and must keep meaning that. It no longer fires on load |
+| **Audit-append attempts-to-win, p99** | digest counter | Informational, but **p99 > 6** (half the budget of 12) over a rolling day is the trigger to revisit the global-chain decision (`DATA-MODEL.md` §8). **A leading indicator — contention is visible here before it exhausts the budget and breaks a mutation** |
 | Backup | nightly job result in the digest | a missing or failed backup is an alert, not a digest line |
 | Monthly | restore test (§3.3) + `pip-audit` + `verify_audit_chain` | failures are alerts |
 

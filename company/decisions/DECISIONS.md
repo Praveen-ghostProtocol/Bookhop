@@ -2372,3 +2372,178 @@ is unchanged: a placeholder reference still opens the gate.** And nothing about
 scale — the retry budget comes from 40 appenders on a near-empty table.
 
 **A14 is narrowed, not closed**, exactly as the checklist required.
+
+---
+
+## D-037 — Audit chain stays global on a threat-model argument; two rules promoted
+**Date:** 2026-10-21 · **Decider:** ceo-planning, recording cto
+
+### The chain stays GLOBAL, and the argument inverts the obvious answer
+Per-scope chains look like a free throughput win. They are not. **A single
+global chain makes the whole audit log one tamper-evident sequence, so no row
+anywhere can be removed without breaking it. Split it per campus and an
+insider can delete one campus's entire audit history while every other chain
+still verifies clean** — an invisible gap, because nothing links the scopes any
+more.
+
+That is a direct regression against the insider risk the chain exists to
+address. **At pilot write rates we would be paying a threat-model cost for a
+throughput problem we do not have:** 40 concurrent appenders measured against
+single-digit appends per minute at peak. Checkpoint anchoring is the right
+upgrade when one is needed and **does not carry that weakness**; it buys
+nothing now.
+
+### The watcher, because splitting an error class without one just moves the silence
+**The CEO agent's objection was accepted:** splitting contention out of the
+tamper error converts a false alarm into a silent failure unless something
+watches it. Specified: `AuditChainBroken` stays a founder escalation and must
+keep meaning tampering; `AuditAppendContention` **pages on-call if greater
+than zero in an hour**; and — the part that matters — **attempts-to-win p50/p99
+goes into the daily digest as a counter, so contention is visible as a
+*leading* indicator** rather than only once it has broken something.
+
+**The honest limit is written down:** the budget is sized from data, but **the
+data is about the mechanism, not a campus under load.** 40 appenders on a
+near-empty table establishes that contention is survivable, not where the
+ceiling is — the head read is trivial on an empty table, while a year of
+retained rows contends on a hot rightmost index page with the nightly purge
+running against the same table. **So re-measurement is triggered
+unconditionally by the first month of real traffic**, not only by thresholds.
+
+### Escalation 16 was sharper than a wording fix
+PostgreSQL enforces integer storage **by silently rounding, not by raising**.
+So the claim splits: *no float is ever stored* is the database's guarantee;
+*a float being passed is detected and reported* belongs to the service layer
+**and nothing else.** **A silent round is worse than a rejection, because a
+rounded money value is a wrong value that looks right.** The service must
+reject a non-integer, never round it.
+
+**And the required test is not the obvious one:** "the column is of integer
+type" passes while the bug ships. The assertion that matters is that creating a
+listing with a fractional price is **refused.**
+
+### Two rules promoted to `CLAUDE.md`
+**Rule 17, which the CTO proposed and which closes a real gap in rule 9:**
+label every cross-engine or cross-library claim `VERIFIED HERE` or
+`ASSUMED THERE`. **Rule 9 asks whether a control exists; it does not ask
+whether a document's explanation of that control is true** — and three
+predictions were wrong inside documents that had passing conformance tests.
+The worst was **green on both engines for two different wrong reasons**: on one
+it compared untyped integers, on the other it never reached the constraint,
+and the document recorded the wrong reason as deliberate.
+
+**Rule 18, the third instance of a pattern the CTO named: a control that
+guarantees a state does not thereby detect a bad input.** The gate's
+constraint proves every box is filled, not that any is true; the guard proves
+a column cannot hold a float, not that none was passed; the database proves no
+float is stored, not that none was sent. **In all three the schema is the
+floor, detection lives above it, and the obvious test passes while the defect
+ships.**
+
+**Generalised from the wrong exception class:** when a document predicts a
+specific identifier across an engine or library boundary, **mitigate at the
+parent, not at the prediction** — defending against a class costs the same as
+defending against a guess and survives being wrong.
+
+### Status
+`POSTGRES-FIRST-RUN.md` marked **RUN AND PASSED** and retained as the G4
+artefact **with its "what this does not prove" section attached**. A14 is
+**narrowed by execution, not closed**, with the residue split out: four
+properties remain unexecuted because their tables do not exist — price
+immutability at S2, double-booking and MVCC at S4, metric SQL at S7 — **each
+with its test shape pre-written so none is re-derived.** The S2 gate reads
+**OPEN**.
+
+### What the run was actually worth, in the CTO's words and the CEO agent's view
+**It passed nine of nine, and that is not where the value was. The value was
+the two defects SQLite could not have shown** — an audit row dropped under
+contention and reported as tamper, and a session-scoped fixture binding a
+per-connection setting — **and both would have landed on S4's double-booking
+test, which needs transactional mode *and* multiple real connections, so it
+would have tripped both at once.** Both sat in the seven of nine items text
+review could not reach. **The pre-run framing — that review had meaningfully
+touched two of nine — turned out to be the right way to describe the risk.**
+
+---
+
+## D-038 — S0 CLEARS on both engines. A CEO-repeated claim corrected
+**Date:** 2026-10-21 · **Decider:** ceo-planning
+**CEO-verified:** PostgreSQL 16.15 `617 passed, 49 skipped` · SQLite
+`579 passed, 87 skipped` · three consecutive Postgres runs, no flakes
+
+**QA passes on both engines. S0 is verified, not merely integrated.** 371 QA
+tests, zero failures on either engine. **The install converted 35 skips into
+assertions.**
+
+### CEO correction — I repeated a claim that did not land in the repository
+I told the founder backend had asserted the SQL error code alongside every
+message. **QA measured it: `P0001` appears in backend's trees exactly once, in
+a comment.** CEO-verified. The message half is enforced and is a good
+engine-neutral test; **the SQLSTATE half was in the report and not in the
+code**, so a guard that began refusing via a CHECK constraint while keeping its
+text would pass tomorrow. QA has now encoded it for all five bodies in its own
+trees. Severity low — the hazard rule 16 names changes the text too — but
+**this is rule 17 on its first day: a claim about a control that was true of
+the run and false of the repository.**
+
+### The assertion nobody's checklist asked for, and it mattered most
+**QA's five tamper-DETECTION tests were skipping off SQLite**, because the
+helper used a SQLite-only catalog table. So backend's run verified
+**prevention** on Postgres while **detection — QA's actual charter question —
+had only ever run on the dev engine.** Two different claims. The helper now
+branches, and asserts afterwards that no guard was left enabled, **or the
+tamper is blocked and the detection assertions pass for the wrong reason.**
+All five now run on both engines.
+
+### Both defects verified, including the direction that would have been worse
+Contention raises the contention error and the chain still verifies — **and a
+real tamper still raises the tamper error, naming the row id.** QA tested that
+explicitly, because **a fix that made a real tamper look like contention is the
+obvious way to get this wrong.** It also checked the property an on-call rota
+depends on: the two classes share a parent and neither is in the other's MRO,
+so a monitor on tamper is not woken by a load spike. The flush escape was
+verified by running the exact sequence that broke it, and in four threads.
+
+### Negative controls: one verified, one honestly out of reach
+The nested-`atomic()` control **genuinely fails** without the savepoint. The
+replica-role control **needs a superuser**, so QA verified its *premise* (the
+app role is refused that setting, SQLSTATE 42501), its *state* (all six
+triggers `ALWAYS` from the catalog), and that the test role is not a superuser
+**so the finding is what it appears to be.** The control itself rests on
+backend's run and belongs in S8's restore rehearsal — **which is also where
+`ENABLE ALWAYS` earns its place, since the bypass is unreachable from the
+application.**
+
+### Sibling hunt: four unmeasured claims found, none a defect
+Including one where **QA's own P14 attacks depend on an unmeasured premise** —
+every attack creates a real table with raw DDL and relies on DDL rollback. And
+one where **the reasoning was the risky part**, not the claim. QA's framing:
+**unmeasured is not the same as wrong, and the difference is only visible once
+someone runs them.** It added the regression for the probe that had been green
+for two wrong reasons.
+
+### Weaker than it looks, in QA's own section
+The anonymous-index contention test is a **rehearsal** of double-booking, not a
+proof — *a pass there predicts a pass there.* Three correct predictions
+produced no failure only because S0 has no subject matter for them. **The one
+that will bite is `LIKE` becoming case-sensitive: every S2 search test written
+on SQLite can pass locally and fail here**, so the standing S2 rule is **run on
+PostgreSQL before asking for review.** And the metric views unlock nothing
+until S1–S4 create rows — **the engine stopped being the blocker and the
+tables became it**, which is what that skip now says.
+
+**F16 — what the retry budget does not cover**, and it is sharper than the
+threshold: production appenders are **asymmetric**. One long mutation holding
+its transaction open races many short ones, **and the long one can least afford
+to lose.** The bench had no such profile. Exhaustion is at least diagnosable
+now, so whatever the right budget is, exceeding it is not misreported.
+
+### The process note, recorded because it is the most useful thing in the report
+**Three of QA's five passes found a defect in something QA itself had
+written** — the P14 transcription, a contract misreading, and now its own
+bodyless skips. **Each was caught by someone reading its output against
+theirs.** QA's conclusion, which the CEO agent adopts: **keep both reports side
+by side at every gate rather than treating either as settled.**
+
+**Seven open items, all owned, none blocking.** Double-booking remains out of
+scope and implemented nowhere.

@@ -109,6 +109,31 @@ the prompt — do not collapse the role into the main context.
     still blocks the operation, so it looks like the guard working. Exercise
     every refusal path and **assert the message text, not the exit status.**
 
+17. **Label every cross-engine or cross-library claim `VERIFIED HERE` or
+    `ASSUMED THERE`.** An unverified claim about platform behaviour is a
+    prediction and must be written as one, in any architecture document, not
+    just the one about engine differences.
+
+    *Why:* rule 9 asks whether a control exists. It does not ask whether a
+    document's *explanation* of that control is true — and three predictions
+    turned out wrong inside documents that had passing conformance tests. The
+    worst was a probe that was green on both engines **for two different wrong
+    reasons**: on one it compared untyped integers, on the other it never
+    reached the constraint at all, and the document recorded the wrong reason
+    as deliberate.
+
+18. **A control that guarantees a *state* does not thereby detect a *bad
+    input*.** Seen three times. A constraint proving every box is filled does
+    not prove any is true. A guard proving a column cannot hold a float does
+    not prove none was passed. A database proving no float is stored does not
+    prove none was sent — PostgreSQL rounds `300.75` to `301` silently, and
+    **a rounded money value is a wrong value that looks right.**
+
+    In each case the schema is the floor, **detection lives above it**, and
+    the obvious test passes while the defect ships. So the test that matters
+    is never "the column is of integer type" — it is "passing a non-integer
+    is refused."
+
 ## Assignment format
 
 Every assignment: **Role** (who owns the outcome) · **Context** (user,

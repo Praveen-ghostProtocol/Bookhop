@@ -83,7 +83,42 @@ listings.asking_price_paise  integer  NOT NULL  CHECK (asking_price_paise >= 0
 listings.price_fixed_at      timestamptz NOT NULL
 ```
 
-- Integer paise. No floats for money, ever.
+- **Integer paise. No floats for money, ever — and the layer that enforces
+  that is the SERVICE, not the database.** Amendment 2026-10-21
+  (ENGINE-DIVERGENCE §9.16, measured on the first PostgreSQL run):
+
+  > **PostgreSQL enforces integer storage by SILENTLY ROUNDING, not by
+  > raising.** `300.75` into an `integer` column returns **`301`**, with
+  > `pg_typeof = integer`. A non-numeric *string* is rejected (22P02); a float
+  > is not.
+
+  So the claim splits in two, and only the first half was ever true of the
+  database:
+
+  | Claim | Layer that holds it |
+  |---|---|
+  | No float is ever **stored** | the database — guaranteed |
+  | A float being **passed** is **detected and reported** | **the service layer, and nothing else** |
+
+  **A silent round is worse than a rejection here**, because a rounded money
+  value is a *wrong* value that looks right: sub-paise precision is lost with
+  no signal on either engine. **The service layer must therefore reject a
+  non-integer asking price rather than coerce it** — `Decimal`/`int` validation
+  at the boundary, raising `400 VALIDATION_FAILED`, never `int(round(x))`.
+
+  **And the test that matters is not the obvious one.** "The column is of
+  integer type" passes while the bug ships. The required assertion is
+  **`create_listing(asking_price_paise=300.75)` is REFUSED** — behaviour at the
+  service boundary, not a property of the schema. S2 owns it.
+
+  **This is the third instance of a pattern now worth naming explicitly: a
+  control that guarantees a *state* does not thereby detect a *bad input*.**
+  The gate's evidence CHECK proves every box is filled, not that any box is
+  true (ADR-002 §4.1(b)); W1a proves the column cannot hold a float, not that
+  no float was passed (§2.3 W1a); and here the database proves no float is
+  stored, not that none was sent. **In all three the schema is the floor and
+  the detection lives above it — and in all three the obvious test passes
+  while the defect ships.**
 - `0` is legal and means a giveaway (`intent = 'GIVE'`).
 - The ceiling of 1,00,000 paise ×100 = Rs 1,00,000 is a sanity bound, not a
   policy.
@@ -244,6 +279,12 @@ permitted money column must be an **integer** type — `IntegerField` /
 `BigIntegerField` in model meta, `integer`/`bigint` in introspection. A float
 or `numeric` declaration fails. §2.1 already says "integer paise, no floats for
 money, ever"; **until this amendment that sentence was prose.**
+
+**The limit of this assertion, measured 2026-10-21:** it proves the column
+**cannot hold** a float. It does **not** prove a float was never **passed** —
+PostgreSQL silently rounds `300.75` to `301` in an integer column. **Detection
+belongs to the service layer; see §2.1.** Two different claims, and W1a makes
+only the first.
 
 > **Amendment 2026-10-21 on REVIEW-S0 R2 — the two routes compose differently
 > for names than for types, and conflating them inverted W1c's whole purpose.**
