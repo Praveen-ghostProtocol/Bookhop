@@ -1,0 +1,18 @@
+# Runtime dependencies. ADR-001 §2.8 is the whole allowed list; adding to it
+# needs Code Review sign-off, and a package that processes personal data needs
+# a founder-signed DPA (Gate B15).
+#
+# Only the packages S0 actually needs are uncommented. The rest are listed with
+# the slice that turns them on, so nobody has to guess what the approved set is.
+
+django==5.2.8
+psycopg[binary]==3.2.3
+# ^ production database driver (ADR-001 §2.2). Installed and importable on the
+#   development machine, so bookhop/settings/prod.py loads and `check` passes
+#   there. There is no Postgres *server* on that machine, so nothing has been
+#   executed against one: see company/architecture/ENGINE-DIVERGENCE.md.
+# gunicorn==23.0.0           # S8, platform-sre
+# pillow==11.0.0             # S2, listing photo resize + EXIF strip
+# argon2-cffi==23.1.0        # S1, staff password hashing
+# django-otp==1.5.4          # S1, staff TOTP
+# pywebpush==2.0.0           # S7, VAPID web push

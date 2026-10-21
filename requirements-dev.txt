@@ -1,0 +1,7 @@
+-r requirements.txt
+
+pytest==8.3.4
+pytest-django==4.9.0
+# ruff==0.8.4            # lint; not installed on this machine (no network policy
+# mypy==1.13.0           # for new dev tooling yet) — run in CI, S8
+# playwright==1.49.0     # test-qa owns tests/e2e and tests/a11y

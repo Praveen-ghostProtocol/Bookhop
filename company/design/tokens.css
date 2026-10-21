@@ -1,0 +1,171 @@
+/* ============================================================================
+   BookHop — design tokens
+   Direction: A, "Catalogue Card" (see design/DIRECTIONS.md §4 for the choice)
+   Owner: design-director · v1.0 · 2026-10-21
+   Consumer: frontend-developer. This file replaces the provisional token file
+   named in ADR-001 §2.3 and §7.3.
+
+   RULES THIS FILE ENFORCES BY OMISSION
+   - There is no gradient token. There is no shadow token above `--elev-1`.
+   - There is no `--c-success-light-hover-subtle`. If a token is not here, the
+     component does not need it.
+   - There is no dark theme in v1. SYSTEM.md §3.6 states why and names the
+     trigger that adds one.
+   - Every colour pair used by a component is listed with its computed
+     contrast ratio in SYSTEM.md §3.3–3.5. Ratios were computed with the
+     WCAG 2.x relative-luminance formula, not estimated.
+   - No webfont is loaded. See §2 below — this is a 3G decision, not taste.
+   ========================================================================== */
+
+:root {
+  /* ------------------------------------------------------------------ 1. COLOUR
+     Names describe role, not hue, except where the hue IS the role (stamp).
+     Contrast ratios in comments are against --c-paper unless stated.         */
+
+  --c-paper:        #FAF7F0;  /* page ground. warm, not white: less glare on a cheap LCD in daylight */
+  --c-card:         #FFFFFF;  /* catalogue card ground. 1.06:1 vs paper — boundary comes from --c-rule, never from fill alone */
+
+  --c-ink:          #1B1A14;  /* body text.      16.30:1 on paper · 17.44:1 on card */
+  --c-ink-2:        #55524A;  /* secondary text.  7.29:1 on paper ·  7.80:1 on card */
+  --c-ink-3:        #6B675C;  /* meta / timestamp. 5.28:1 on paper. FLOOR — nothing lighter carries text */
+
+  --c-rule:         #D9D3C4;  /* hairline. 1.40:1 — DECORATIVE ONLY. Never the sole indicator of a control */
+  --c-rule-strong:  #8A8274;  /* input + control borders. 3.55:1 on paper · 3.80:1 on card (1.4.11 bar is 3:1) */
+
+  --c-stamp:        #2B3A8F;  /* links, primary action fill, the one accent. 9.33:1 on paper · 9.98:1 on card */
+  --c-stamp-deep:   #1E2A6B;  /* :active / pressed. white on it = 13.14:1 */
+  --c-on-stamp:     #FFFFFF;  /* 9.98:1 on --c-stamp */
+
+  --c-alert:        #96241B;  /* error text. 7.65:1 on paper · 7.23:1 on --c-alert-bg · white on it = 8.19:1 */
+  --c-alert-bg:     #FBEEEC;  /* error panel fill. ink on it = 15.40:1 */
+
+  --c-live:         #1E6136;  /* "available", "sent", confirmed. 6.96:1 on paper · 6.57:1 on --c-live-bg */
+  --c-live-bg:      #EAF3EC;  /* ink on it = 15.38:1 */
+
+  --c-wait:         #6F4504;  /* pending, reserved, stale, offline. 7.76:1 on paper · 7.41:1 on --c-wait-bg */
+  --c-wait-bg:      #FBF1DF;  /* ink on it = 15.57:1 */
+
+  --c-focus:        #0B2E8A;  /* focus ring. 11.08:1 on paper · 11.85:1 on card — far above the 3:1 bar */
+  --c-focus-inner:  #FFFFFF;  /* inner halo so the ring survives on a stamp-coloured button. 11.85:1 vs ring */
+
+  /* ------------------------------------------------------------------ 2. TYPE
+     NO WEBFONT IS LOADED. On a mid-range Android over 3G a Tamil webfont is
+     40–90 KB that buys nothing: the device already ships a well-hinted Tamil
+     face (Noto Sans Tamil in AOSP). We use the system stack for both scripts,
+     so Tamil and English each render in the face their platform tuned for
+     small sizes, at zero bytes, with no FOIT and no layout shift.
+     DIRECTIONS.md §2.1 covers the optional subset display face and the
+     `font-display: optional` rule that would govern it.                      */
+
+  --f-text: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans",
+            "Noto Sans Tamil", "Latha", sans-serif;
+
+  /* Bibliographic line — title, author, edition, publisher. A serif here is
+     the whole visual argument of Direction A (DIRECTIONS.md §2.2). Serif
+     Tamil is NOT universally present on Android, so the Tamil leg falls back
+     to the sans by design: a Tamil title set in Noto Sans Tamil is correct,
+     a Tamil title set in a substituted serif is not.                         */
+  --f-biblio: ui-serif, Georgia, "Noto Serif", "Noto Serif Tamil",
+              "Noto Sans Tamil", "Latha", serif;
+
+  /* Monospace: ISBN, ticket numbers, handover windows. Tabular by nature. */
+  --f-mono: ui-monospace, "Cascadia Mono", "Roboto Mono", "Noto Sans Mono",
+            monospace;
+
+  /* Scale. 1rem = 17px because html{font-size:106.25%} in SYSTEM.md §3.2 —
+     a percentage, so the user's own Android font-size setting still wins.    */
+  --t-xs:   0.875rem;   /* ~14.9px. field labels, timestamps. NOTHING SMALLER SHIPS */
+  --t-sm:   0.9375rem;  /* ~15.9px. dense meta inside a card */
+  --t-base: 1rem;       /* ~17px.   body. the default */
+  --t-md:   1.125rem;   /* ~19.1px. card title, question text */
+  --t-lg:   1.3125rem;  /* ~22.3px. page h2 */
+  --t-xl:   1.5rem;     /* ~25.5px. page h1 */
+  --t-2xl:  1.875rem;   /* ~31.9px. the asking price, and nothing else */
+
+  --lh-tight: 1.25;     /* headings, Latin only */
+  --lh-text:  1.45;     /* Latin body */
+  --lh-tamil: 1.70;     /* Tamil body — see §2.3 below, this is not optional */
+  --lh-flat:  1.1;      /* the price, numerals only */
+
+  --w-reg: 400;
+  --w-med: 500;
+  --w-bold: 700;        /* 600 is skipped: the system Tamil face often has no
+                           600 and Android synthesises it badly. 400/700 only. */
+
+  /* ------------------------------------------------------------------ 3. SPACE
+     4px base. Ten steps, no more. A gap that is not on this scale is a bug.  */
+  --s-1:  0.25rem;  /*  4px */
+  --s-2:  0.5rem;   /*  8px — minimum gap between two adjacent touch targets */
+  --s-3:  0.75rem;  /* 12px */
+  --s-4:  1rem;     /* 16px — the page gutter. Never less, at any width */
+  --s-5:  1.25rem;  /* 20px */
+  --s-6:  1.5rem;   /* 24px */
+  --s-8:  2rem;     /* 32px — between sections */
+  --s-10: 2.5rem;   /* 40px */
+  --s-14: 3.5rem;   /* 56px */
+  --s-18: 4.5rem;   /* 72px — bottom scroll padding so a sticky bar never
+                       obscures a focused field (WCAG 2.2 SC 2.4.11) */
+
+  /* ------------------------------------------------------- 4. TOUCH & CONTROL
+     --tap-min is the floor the charter sets (>=44px) and is 20px above the
+     WCAG 2.2 SC 2.5.8 minimum of 24px. Nothing tappable is smaller. Ever.    */
+  --tap-min:    44px;
+  --tap-action: 48px;  /* any button that submits */
+  --tap-commit: 56px;  /* the single irreversible action on a page: offer,
+                          agree handover, confirm, report */
+  --tap-gap:    var(--s-2);
+
+  --r-sm: 2px;   /* inputs, chips */
+  --r-md: 4px;   /* cards, buttons */
+  --r-none: 0;   /* the catalogue card's top rule and the stamp block */
+
+  --bw-hair:  1px;
+  --bw-ctrl:  1.5px;  /* input + button borders, so 3:1 is actually visible */
+  --bw-focus: 3px;    /* focus ring */
+  --bw-rail:  4px;    /* the left rail that colour-codes a state banner */
+
+  --elev-1: 0 1px 0 0 var(--c-rule);  /* the only elevation. It is a rule, not
+                                         a shadow. There is no --elev-2. */
+
+  /* --------------------------------------------------------------- 5. MOTION
+     Charter bans decorative motion that delays a transaction. These exist
+     only for the two legitimate cases: the loading indicator's appearance
+     delay, and a state change that must be noticed to be understood.         */
+  --m-none: 0ms;
+  --m-fast: 120ms;      /* state-change tint on a status chip */
+  --m-indicator: 400ms; /* how long htmx waits before showing "Sending…" —
+                           under this, the request usually already finished and
+                           a flashed spinner reads as a fault */
+  --m-ease: linear;     /* no easing curves. A curve is a decoration here. */
+}
+
+/* Tamil is not a translation layer. It changes the metrics. */
+:root:lang(ta),
+[lang="ta"] {
+  /* The system Tamil face has a smaller optical size at the same em than
+     Roboto, and Tamil carries stacked vowel signs above and below the
+     baseline (ெ ொ ௌ) plus deep descenders. Both need room. */
+  font-size: 1.06em;
+  line-height: var(--lh-tamil);
+  letter-spacing: normal;  /* tracking breaks Tamil ligature rendering */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --m-fast: var(--m-none);
+    --m-indicator: 0ms;  /* show the indicator immediately instead of fading */
+  }
+}
+
+/* A forced-colours pass is required, not optional: Android's high-contrast
+   modes and Windows HCM both drop our colours, and the status system above is
+   the one place where colour carries meaning. Every state therefore also
+   carries a text label and a border — never colour alone (SC 1.4.1). */
+@media (forced-colors: active) {
+  :root {
+    --c-rule: CanvasText;
+    --c-rule-strong: CanvasText;
+    --c-focus: Highlight;
+    --elev-1: 0 1px 0 0 CanvasText;
+  }
+}
