@@ -49,6 +49,20 @@ def m0003():
     return _text("0003_gate_column_write_guard.py")
 
 
+@pytest.fixture(scope="module")
+def all_migrations():
+    """Every migration's text, concatenated.
+
+    The audit originally spanned 0002 and 0003 because those were the only
+    migrations with vendor SQL. Migration 0005 added a sixth guard, and a
+    per-file fixture would not have looked at it — which is how a guard escapes
+    a text audit. Discovered by listing the directory, not by naming files.
+    """
+    paths = sorted(MIGRATIONS.glob("0*.py"))
+    assert len(paths) >= 5, f"expected at least five migrations, found {paths}"
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths)
+
+
 # --------------------------------------------------------------------------
 # 1. the TRUNCATE escape defaults to deny
 # --------------------------------------------------------------------------
@@ -269,19 +283,47 @@ def test_every_enable_always_names_a_trigger_the_migrations_create(m0002, m0003)
     )
 
 
-def test_all_five_postgres_guards_are_enable_always(m0003):
-    """ENGINE-DIVERGENCE §3.6a: all five, because `session_replication_role =
-    'replica'` is also what a logical-replication apply worker and some restore
-    paths use — so a guard that is not ALWAYS is a guard a restore silently
-    bypasses."""
-    enabled = set(re.findall(r"ENABLE ALWAYS TRIGGER\s+(\w+)", m0003))
-    assert enabled == {
-        "campuses_gate_authorised",
-        "audit_log_append_only",
-        "gate_authorisations_append_only",
-        "audit_log_no_truncate",
-        "gate_authorisations_no_truncate",
-    }, sorted(enabled)
+def test_every_postgres_guard_is_enable_always(all_migrations):
+    """ENGINE-DIVERGENCE §3.6a, across every migration.
+
+    `session_replication_role = 'replica'` is what a logical-replication apply
+    worker and some restore paths use, so a guard that is not `ENABLE ALWAYS` is
+    a guard a restore silently bypasses. Asserted as a *property* — every
+    PostgreSQL trigger the migrations create is enabled ALWAYS — rather than
+    against a fixed list of five, because migration 0005 added a sixth and a
+    fixed list is what stops noticing the seventh.
+    """
+    enabled = set(re.findall(r"ENABLE ALWAYS TRIGGER\s+(\w+)", all_migrations))
+    assert len(enabled) >= 6, sorted(enabled)
+
+    # Every PG trigger (the ones attached with EXECUTE FUNCTION) must be in it.
+    pg_triggers = set(re.findall(
+        r"CREATE TRIGGER\s+(\w+)[^;]*?EXECUTE FUNCTION", all_migrations, re.S
+    ))
+    missing = sorted(pg_triggers - enabled)
+    assert missing == [], (
+        "these PostgreSQL triggers are not ENABLE ALWAYS, so "
+        f"session_replication_role='replica' or a restore bypasses them: {missing}"
+    )
+
+
+def test_every_enable_always_across_all_migrations_names_a_real_trigger(all_migrations):
+    """The same name check, spanning every migration rather than two."""
+    created = set(re.findall(r"CREATE TRIGGER\s+(\w+)", all_migrations))
+    enabled = set(re.findall(r"ENABLE ALWAYS TRIGGER\s+(\w+)", all_migrations))
+    assert enabled <= created, sorted(enabled - created)
+
+
+def test_the_newest_guard_is_written_for_both_engines(all_migrations):
+    """Every guard must have both halves, or the property QA verifies locally is
+    not the property production enforces. Migration 0005 is the newest and its
+    SQLite half is two `WHEN`-guarded triggers to the PostgreSQL half's one
+    function; both must be present, and the vendor fallback must refuse a third
+    engine rather than silently creating a database with no guards."""
+    assert "gate_authorisations_evidence_complete" in all_migrations
+    assert "gate_authorisations_evidence_complete_insert" in all_migrations
+    assert "gate_authorisations_evidence_complete_update" in all_migrations
+    assert all_migrations.count("not written for") >= 2
 
 
 def test_the_reverse_migration_restores_a_guard_rather_than_leaving_none(m0003):

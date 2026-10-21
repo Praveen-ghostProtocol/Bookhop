@@ -2040,3 +2040,119 @@ since that regression is invisible in a green suite.
 
 **Unchanged: every Postgres-side body is still unexecuted text**, now
 including migration 0005's codepoint set and evidence loop.
+
+---
+
+## D-032 — Founder authorises local tooling; version control exists at last
+**Date:** 2026-10-21 · **Decider:** HUMAN FOUNDER
+
+**Approved:** `git init` locally and a native PostgreSQL 16 install on Windows.
+No third-party remote.
+
+**Version control is in place.** Initial commit `fd57a07` — 130 files, 37,531
+lines, suite green at 481 passed / 54 skipped / 0 failed. **For this entire
+project until now, an agent overwriting a file was unrecoverable.** The risk
+the CEO agent raised in D-013 and repeated at every checkpoint is closed.
+
+**PostgreSQL install — reported honestly, because the first attempt lied.**
+The first `winget install` **exited 0 without installing anything**: its source
+index could not update, so no package was found and the command still returned
+success. No binaries, no service, nothing listening on 5432 — verified three
+ways rather than trusted. **This is the same defect class the project has now
+hit repeatedly: a green result that proves nothing.** After a source update the
+package resolved and the install is running.
+
+**Local superuser password generated, not chosen** — 24 random characters,
+written outside the repository, never stated in conversation. `.env` is
+gitignored and `.env.example` carries a placeholder only.
+
+### What this unblocks, and it is the largest item on the board
+**Six plpgsql function bodies across migrations 0002, 0003 and 0005 have never
+been parsed by a server** — both `audit_log` guards, the `gate_authorisations`
+append-only guard, the `campuses` discovery write guard, the Gate C
+completeness guard, and the price-immutability trigger. **Five are the security
+controls three review passes have been spent on, and each rework that
+strengthened them raised that count.**
+
+They were reviewed as text by two agents and verified by neither. The CTO is
+writing the first-run execution checklist as a named deliverable, ordered by
+what would be most expensive to discover late, and required to state **what the
+run would not prove** — since that is the half a go/no-go packet gets wrong.
+
+**Also recorded: text review is not worthless and not sufficient.** It caught a
+real ordering bug — `TG_OP` tested before `NEW`/`OLD` are touched, which would
+have deployed a guard that silently protected nothing. The checklist must treat
+text review as having **reduced** the risk, not eliminated it, and name the
+items it cannot have covered at all.
+
+**Both agents stopped mid-task when the previous session ended** — the CTO on
+three amendments, QA before its S0 verdict. Both resumed with their context
+intact. **The thirteen charters are now registered as real agent types**, so
+the D-005 fallback is retired and agents are invoked by charter name.
+
+---
+
+## D-033 — S0 INTEGRATES. Both gates pass
+**Date:** 2026-10-21 · **Decider:** ceo-planning
+**Evidence:** REVIEW-S0.md (APPROVED, Part Three) + QA-S0.md v4.0 (PASS)
+**CEO-verified:** `570 passed, 55 skipped, 0 failed`
+
+**Code review approved and QA passes. Per the CTO charter and `CLAUDE.md`
+rule 5, S0 is integrated.** QA's tree across four passes: 169 → 182 → 246 →
+336 tests, 3 → 10 → 0 → 0 failures.
+
+**QA verified the twelve conversions rather than assuming them, and
+strengthened them.** The eight gate tests now assert a `DatabaseError`
+**carrying "4.1(b)"** rather than merely that something raised — an unrelated
+error would have satisfied the weaker form. Each conversion gained a
+**positive counterpart, so a guard cannot have replaced a hole with an
+outage**: a complete authorisation still saves and still opens the gate, the
+other gate letters stay unconstrained, authenticated replay still returns its
+body. It also closed a launder route — save as one gate letter, update to
+another.
+
+**The Unicode invariant is genuinely a property, not a list in disguise.** QA
+derived 26 invisible forms **independently** rather than re-running backend's
+list; all 26 refused, **including six no list in this repository has ever
+named** — NUL, DEL, soft hyphen, word joiner, Mongolian vowel separator, ogham
+space mark. And the other half holds: a real name *containing* a zero-width
+space still passes, so **"at least one visible character" has not become "no
+invisible characters anywhere"**, which would have refused anything pasted out
+of a document.
+
+**The two layers are independently verified as independent.** U+200C is not on
+the database's eleven-codepoint list, the database accepts it, and the command
+refuses it — **two different mechanisms, not two copies of one list.** And
+checked in the direction that can hurt an operator: for all 26 forms the
+command refuses, so **there is no value an operator is told is complete that
+the database then rejects.**
+
+### F15 — the control written to close a gap does not cover the gap
+`test_forbidden_response.py` **matches forbidden keys but not values.**
+`{"handover_note": "Paid Rs 300"}` passes. A phone number in a message passes.
+A double-encoded JSON string passes.
+
+**This is the limb that matters: ADR-003 §5.3 names this control as the
+compensating control for the free-text residual, and the free-text residual is
+a value, not a key.** Assigned to S1, where §5.3.1 already places it.
+
+**And the conformance mechanism caught it.** QA wrote the third detector: a
+test now asserts §5.3.1's table cannot claim this control implemented while
+two limbs are absent, **so the stronger launch-packet sentence cannot be
+quoted and a test says so rather than a person remembering.** This is D-026
+working on the control that was itself written to close a documented gap.
+
+**F14, recorded not fixed:** three blank-rendering **printable** codepoints
+pass the invariant — braille blank and two Hangul fillers — because Unicode
+calls them printable. Closing it needs a list, which is what the invariant was
+adopted to avoid. Exposure requires someone with write access obscuring their
+own name in an append-only audited row.
+
+**Two audits widened from lists to properties**, which is rule 11 applied
+without being asked: the migration text audit now spans **every** migration —
+it covered two, so the sixth guard was escaping it — and the trigger check is
+now *every* Postgres trigger must be ALWAYS, rather than a list of five,
+**because a fixed list is how the seventh goes unnoticed.**
+
+**Open, none blocking:** F15 and F11 and F13 at S1, F12 at S2/S4, F14 record
+only, and evidence-presence-not-truth open by agreement before Gate C.

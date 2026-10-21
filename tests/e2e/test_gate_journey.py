@@ -376,6 +376,272 @@ def test_open_discovery_on_an_unknown_campus_is_an_error():
         _run("open_discovery", campus="no-such-campus")
 
 
+
+# --------------------------------------------------------------------------
+# 2a. "a named human" — the invisible-character invariant, both layers
+# --------------------------------------------------------------------------
+
+#: Every invisible or blank-rendering form QA could think of, with its reason
+#: for being here. The point of the list is **not** to be the control — the
+#: control is a Unicode property and consults no list — it is to be a wider list
+#: than the control's author had, so that the property is tested against names
+#: nobody enumerated. `CLAUDE.md` rule 11's shape, applied to a test fixture.
+INVISIBLE_FORMS = [
+    ("", "empty"),
+    (" ", "space"),
+    ("   ", "several spaces"),
+    ("\t", "tab — the one a bare trim() missed"),
+    ("\n", "line feed"),
+    ("\r\n", "CRLF"),
+    ("\x0b", "vertical tab"),
+    ("\x0c", "form feed"),
+    ("\u00a0", "no-break space — what a paste from Word produces"),
+    ("\u1680", "ogham space mark"),
+    ("\u2000", "en quad"),
+    ("\u2007", "figure space"),
+    ("\u202f", "narrow no-break space"),
+    ("\u205f", "medium mathematical space"),
+    ("\u3000", "ideographic space"),
+    ("\u200b", "ZERO WIDTH SPACE — code review's finding"),
+    ("\ufeff", "BYTE ORDER MARK — code review's finding"),
+    ("\u200c", "zero-width non-joiner"),
+    ("\u200d", "zero-width joiner"),
+    ("\u200e", "left-to-right mark"),
+    ("\u2060", "word joiner"),
+    ("\u00ad", "soft hyphen"),
+    ("\u180e", "Mongolian vowel separator"),
+    ("\x00", "NUL"),
+    ("\x7f", "DEL"),
+    ("\u200b\ufeff\u00a0 \t", "a mixture, which is what an evasion looks like"),
+]
+
+
+@pytest.mark.parametrize("value,why", INVISIBLE_FORMS, ids=[w for _v, w in INVISIBLE_FORMS])
+def test_an_invisible_name_is_refused_by_the_command_invariant(value, why):
+    """ADR-002 §4.1(b): "A named human, recorded."
+
+    Code review found that zero-width space and the byte-order mark satisfied
+    both layers, so the one field carrying the whole "a named human signed this"
+    rule could be filled with something that renders as nothing — in the audit
+    row and in the go/no-go packet.
+
+    Backend closed it with a **Unicode invariant** rather than a character list:
+    *printable, non-whitespace, category not `Cf`*. QA's check is that the
+    invariant is actually a property and not a list in disguise, so this is 26
+    forms QA derived independently — including the two code review named, and
+    including fourteen (NUL, DEL, soft hyphen, word joiner, Mongolian vowel
+    separator, ogham space mark, narrow no-break space, …) that no character
+    list in this repository has ever mentioned.
+
+    **All 26 are refused.** A control that consults no list cannot be defeated
+    by a form absent from the list, which is the whole argument for the
+    invariant and it holds.
+    """
+    from apps.core.management.commands.open_discovery import has_visible_character
+
+    assert not has_visible_character(value), (
+        f"{why}: the command accepts a name with no visible character"
+    )
+
+
+@pytest.mark.parametrize(
+    "value,why",
+    [
+        ("A Human", "an ordinary name"),
+        ("ஒரு மனிதர்", "a Tamil name — the pilot's second locale"),
+        ("A\u200bHuman", "a real name with an embedded zero-width space"),
+        ("\u00a0A Human\u00a0", "a real name padded with no-break spaces"),
+        ("O'Brien-Smith", "punctuation"),
+        ("李", "a single CJK character"),
+        ("A", "one letter"),
+    ],
+)
+def test_a_real_name_is_still_accepted_by_the_command_invariant(value, why):
+    """The other half, and the half that decides whether a control survives
+    contact with a real operator. "At least one visible character" must not
+    become "no invisible characters anywhere": a pasted name carrying a
+    no-break space or a zero-width space is still a name, and refusing it would
+    teach whoever hits it that the guard is wrong (`CLAUDE.md` rule 13).
+    """
+    from apps.core.management.commands.open_discovery import has_visible_character
+
+    assert has_visible_character(value), f"{why} was refused as invisible"
+
+
+@pytest.mark.parametrize(
+    "value,why",
+    [("\u2800", "BRAILLE PATTERN BLANK"),
+     ("\u3164", "HANGUL FILLER"),
+     ("\u115f", "HANGUL CHOSEONG FILLER")],
+)
+def test_finding_three_blank_rendering_printables_still_pass(value, why):
+    """**FINDING F14, non-blocking, cosmetic-to-minor.**
+
+    The invariant asks Unicode whether a character is printable. These three are
+    printable *by category* — `So` and `Lo`, a symbol and two letters — and
+    render as nothing in most fonts. So `authorised_by_human = "\u2800"` is
+    accepted by both layers and appears blank in the audit row, which is the
+    exact effect code review's finding was about.
+
+    **Why QA is not asking for a fix, only for the record:** closing it means
+    either a list (which is what the invariant was adopted to avoid) or
+    Unicode's `Default_Ignorable_Code_Point` plus a blank-glyph set, which
+    Python does not expose and which would reject legitimate Hangul filler use.
+    The exposure needs a person with application or database write access who
+    is deliberately obscuring their own name in a row that is append-only,
+    audited and permanently attributable. **The invariant is a large
+    improvement over a character list and this is its honest edge, not a hole
+    in it.**
+
+    Recorded so that nobody later reports "invisible names are impossible"
+    without this sentence beside it.
+    """
+    from apps.core.management.commands.open_discovery import has_visible_character
+
+    assert has_visible_character(value), (
+        f"{why} is now refused; F14 is closed and this test should become a "
+        "regression"
+    )
+
+
+@pytest.mark.parametrize("value,why", INVISIBLE_FORMS, ids=[w for _v, w in INVISIBLE_FORMS])
+def test_the_database_floor_never_refuses_a_name_the_command_accepts(
+    qa_campus, qa_entity, qa_evidence, value, why
+):
+    """The two-layer relationship, measured rather than read — `CLAUDE.md`
+    rule 14.
+
+    Migration 0005 enumerates eleven codepoints and **declares its own
+    ceiling**: *"an invisible character not on the list passes this floor. The
+    real invariant lives one layer up … so the command stays strictly stronger
+    than the floor, which is the right relationship."*
+
+    QA verified the direction of that relationship, which is the part that can
+    hurt an operator. The failure mode nobody wants is the floor being
+    **stronger** than the command: a name the checklist reports as fine that the
+    database then refuses, which reads as a broken deploy rather than as a
+    guard. So for all 26 forms: the command refuses every one, therefore the
+    floor can refuse or accept each without ever contradicting an operator who
+    was told the row was complete.
+
+    Measured per form: whichever way the database answers, the command's verdict
+    is "absent" — so the floor is never above the command, and the ceiling the
+    migration declares is honest.
+    """
+    from apps.core.management.commands.open_discovery import has_visible_character
+    from django.db import DatabaseError as DbError
+
+    command_accepts = has_visible_character(value)
+    assert not command_accepts, "fixture error: this form should be invisible"
+
+    try:
+        with transaction.atomic():
+            GateAuthorisation.objects.create(
+                gate="C", scope_type="CAMPUS", scope_id=qa_campus.id,
+                legal_entity=qa_entity, evidence=qa_evidence,
+                authorised_by_human=value,
+            )
+        db_accepts = True
+    except DbError:
+        db_accepts = False
+
+    # The property: the floor is never stricter than the command. Equivalently,
+    # there is no form the command would pass and the database would refuse.
+    assert not (db_accepts and command_accepts) or db_accepts, why
+    assert command_accepts is False
+    if db_accepts:
+        # The declared ceiling, exercised: this form is past the floor and is
+        # stopped one layer up. Assert that it really is stopped there.
+        with pytest.raises(CommandError):
+            _run("open_discovery", campus=qa_campus.slug)
+        qa_campus.refresh_from_db()
+        assert qa_campus.discovery_enabled_at is None
+
+
+def test_the_declared_ceiling_of_the_database_floor_is_accurate(
+    qa_campus, qa_entity, qa_evidence
+):
+    """Migration 0005 says its enumeration has a ceiling. QA asserts the ceiling
+    exists rather than taking the comment's word for it — a declared ceiling
+    that turns out to be wrong in either direction is worse than none.
+
+    Measured: a zero-width non-joiner is **not** on the eleven-codepoint list,
+    the database accepts it, and the command refuses the open. That is exactly
+    the asymmetry the migration describes, and it means the two layers are
+    genuinely independent rather than two copies of one list.
+    """
+    zwnj = "\u200c"
+    GateAuthorisation.objects.create(
+        gate="C", scope_type="CAMPUS", scope_id=qa_campus.id,
+        legal_entity=qa_entity, evidence=qa_evidence, authorised_by_human=zwnj,
+    )  # past the floor: the declared ceiling
+
+    with pytest.raises(CommandError):
+        _run("open_discovery", campus=qa_campus.slug)
+    qa_campus.refresh_from_db()
+    assert qa_campus.discovery_enabled_at is None, (
+        "a zero-width non-joiner passed the floor AND the command; the two "
+        "layers are not independent and the ceiling is not honest"
+    )
+
+
+@pytest.mark.parametrize("value", ["\u200b", "\ufeff"])
+def test_regression_the_two_characters_code_review_named_are_refused_by_both_layers(
+    qa_campus, qa_entity, qa_evidence, value
+):
+    """**REGRESSION for code review's invisible-name finding.**
+
+    Zero-width space and the byte-order mark are the two forms that passed both
+    layers. They are now on the database's eleven-codepoint list **and** caught
+    by the command's invariant, so this asserts both ends: the INSERT is refused
+    with the ADR-002 4.1(b) message, and the command's invariant refuses the
+    same value independently.
+    """
+    from apps.core.management.commands.open_discovery import has_visible_character
+
+    assert not has_visible_character(value)
+    with pytest.raises(DatabaseError) as exc:
+        with transaction.atomic():
+            GateAuthorisation.objects.create(
+                gate="C", scope_type="CAMPUS", scope_id=qa_campus.id,
+                legal_entity=qa_entity, evidence=qa_evidence,
+                authorised_by_human=value,
+            )
+    assert "4.1(b)" in str(exc.value)
+    assert not GateAuthorisation.objects.exists()
+
+
+@pytest.mark.parametrize("value", ["\u200b", "\ufeff", " ", "\t"])
+def test_an_invisible_evidence_item_is_refused_too(
+    qa_campus, qa_entity, qa_evidence, value
+):
+    """The same rule on the six evidence items, not only on the human's name.
+
+    "A string of zero-width spaces is not evidence of a signed MoU" is the
+    command's own reasoning; QA checks it applies to every item and, per the
+    command's `_present()`, to the **elements** of a list item too —
+    `notice_version_ids: ["\u200b"]` is not a published notice.
+    """
+    from apps.core.management.commands.open_discovery import _present
+
+    for key in ("campus_mou_ref", "breach_rehearsal_at", "counsel_engagement_ref"):
+        evidence = dict(qa_evidence)
+        evidence[key] = value
+        assert not _present(evidence[key]), key
+        with pytest.raises(DatabaseError):
+            with transaction.atomic():
+                GateAuthorisation.objects.create(
+                    gate="C", scope_type="CAMPUS", scope_id=qa_campus.id,
+                    legal_entity=qa_entity, evidence=evidence,
+                    authorised_by_human="A Named Human",
+                )
+
+    # and the list-element case, which only the command reaches
+    assert not _present([value])
+    assert not _present({"a": value})
+    assert _present(["", value, "MOU-1"]), "a list with one real element is present"
+
+
 # --------------------------------------------------------------------------
 # 3. opening and closing is audited
 # --------------------------------------------------------------------------

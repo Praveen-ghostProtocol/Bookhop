@@ -1,36 +1,40 @@
 # QA-S0.md — independent QA pass on slice S0
 
-**Owner:** test-qa · **Version:** v3.0 · **Date:** 2026-10-21
-**Slice:** S0 (skeleton, tenancy, gate, audit, jobs), after the second rework
+**Owner:** test-qa · **Version:** v4.0 · **Date:** 2026-10-21
+**Slice:** S0 (skeleton, tenancy, gate, audit, jobs) — closing pass
 
 # VERDICT: **PASS.** S0 is QA-green and clears for integration.
 
-Every finding QA raised across three passes — F1–F3, F4–F10, B1–B3, and the
-M3 misreading QA itself had asserted into the baseline — is fixed, and each is
-now a regression test named for the finding it came from, so the history is
-traceable from the suite rather than from this document.
+Four passes, 17 findings raised (F1–F15, B1–B3), all fixed or accepted. Every
+one is now a regression test named for the finding it came from, so the history
+is readable from the suite and not only from this document.
 
-**Nothing blocks integration.** Four items remain open; each is real, each is
-non-blocking, and each is named with the slice it belongs to in §5. One of them
-(B2) is open by agreement rather than by oversight.
+**Nothing blocks integration.** Five items remain open; each is real, each is
+non-blocking, and each is named with the slice that owns it in §6. One (B2) is
+open by agreement; one (F14) QA recommends recording rather than fixing.
 
-**The standing qualification, unchanged and more load-bearing than before:**
-nothing has run on PostgreSQL, and the Postgres-only surface grew again this
-round. §6.
+**The one qualification on this PASS, and it is about to lift:** every number
+below was measured on SQLite. **Five plpgsql function bodies, attached by six
+triggers with six `ENABLE ALWAYS` statements, have never been parsed by a
+PostgreSQL server.** PostgreSQL 16 is being installed; §7 is the execution
+checklist for that server, in priority order, with what each test would prove.
 
-**v3.0 supersedes v2.0.** v2.0's §3 — QA's own correction, that v1.0's P14
-attack measured QA's transcription rather than the shipped control — stands and
-is not restated. v2.0's findings F4–F10 are closed below.
+**v4.0 supersedes v3.0**, which was written but not delivered before the session
+ended. v2.0's correction of v1.0 — QA's P14 attack had measured QA's own
+transcription rather than the shipped control — stands and is not restated.
 
-**Written from:** `ADR-002` §2, §4 · `ADR-003` §2.1–2.3 as amended (W1–W5) ·
-`API-CONTRACT.md` §2.2, §2.5, §4, §5.8 · `DATA-MODEL.md` §1, §8 ·
-`ENGINE-DIVERGENCE.md` v1.2 §3.4, §3.6–§3.6c, §3.8a, §4.3a, §7.1, §9 items 9–11
-· `TASKS.md` §1–§4 · `PRD.md` AC-M6.1/AC-M6.3/EX-18 · `.claude/agents/test-qa.md`.
+**Written from:** `ADR-002` §2, §4 · `ADR-003` §2.1–2.3 (W1–W5), §5.3, §5.3.1 ·
+`API-CONTRACT.md` §2.2, §2.5, §4, §5.8 · `DATA-MODEL.md` §1, §5, §8 ·
+`THREAT-MODEL.md` §4 B5/B6, §6, A12 · `ENGINE-DIVERGENCE.md` v1.2 §3.4,
+§3.6–§3.6c, §3.8a, §4.3a, §7.1, §9 · `CLAUDE.md` rules 9–14 ·
+`.claude/agents/test-qa.md`.
 
 **Method.** Tests only in `tests/e2e/**`, `tests/a11y/**`, `tests/contract/**`.
 No file under `bookhop/**`, `apps/**`, `tests/unit/**`, `tests/api/**` or
-`tests/conftest.py` was modified in any of the three passes. Nothing QA found
-was fixed by QA.
+`tests/conftest.py` was modified in any of the four passes. Nothing QA found was
+fixed by QA. Specification first, implementation second — and v1.0's error is
+this project's best evidence for why, so the method is kept rather than
+softened.
 
 ---
 
@@ -40,373 +44,399 @@ was fixed by QA.
 $ cd C:\CodingSpace\BookHop
 $ .venv/Scripts/python.exe -m pytest
 ...
-======================= 481 passed, 54 skipped in 8.11s =======================
+======================= 570 passed, 55 skipped in 11.82s ======================
 ```
 
-Split by owner, same run:
+Run immediately again, identical: `570 passed, 55 skipped in 12.30s`.
+
+Split by owner, same state:
 
 ```
 $ .venv/Scripts/python.exe -m pytest tests/unit tests/api -q
-261 passed, 28 skipped in 1.01s
+261 passed, 28 skipped in 1.12s
 
 $ .venv/Scripts/python.exe -m pytest tests/e2e tests/a11y tests/contract -q
-220 passed, 26 skipped in 7.55s
+309 passed, 27 skipped in 10.60s
 ```
 
-**Zero failures.** QA's tree is 246 tests: 220 pass, 26 skip with an
-engine-and-slice reason, none fails. Across the three passes QA's tree went
-169 → 182 → 246 tests and 3 → 10 → 0 failures.
+**Zero failures.** QA's tree is 336 tests: 309 pass, 27 skip with an
+engine-and-slice reason, none fails. Across four passes QA's tree went
+169 → 182 → 246 → 336 tests, and 3 → 10 → 0 → 0 failures.
 
-Engine: **SQLite 3.45.1**, Python 3.11.9, Django 5.2.8, no PostgreSQL server,
-no Docker.
+Engine: **SQLite 3.45.1**, Python 3.11.9, Django 5.2.8, no PostgreSQL server
+yet, no Docker.
 
-**One caveat on the measurement, stated because it would otherwise look like
-flakiness.** Backend was still editing while this pass ran: an intermediate run
-showed 12 failures that an immediate repeat did not, and the cause was QA's
-tests reading backend's files mid-write —
-`apps/core/migrations/0005_gate_evidence_complete.py` at 20:52 and
-`tests/unit/test_forbidden_source.py` at 20:54. **The numbers above are from two
-consecutive identical runs at 20:55 and are stable.** Four of QA's tests read
-backend-owned source as data — the P14 conformance tests, the source-grep
-coverage tests, the flush-escape inventory and the migration text audit — which
-is deliberate, and is what caught F4 and F9. It does mean a QA run during an
-active edit can report a failure that is neither a defect nor a flake. **This
-verdict is against the tree as it stood at 20:55**; if further changes have
-landed since, the conformance tests are the ones to re-run first, and they name
-the list or the file that moved.
+> **A note on reading a QA run during an active edit.** In the previous pass an
+> intermediate run showed 12 failures that an immediate repeat did not; the
+> cause was QA's tests reading backend's files mid-write. Four of QA's tests
+> read backend-owned source as data — the P14 conformance tests, the source-grep
+> coverage tests, the flush-escape inventory and the migration text audit. That
+> is deliberate, and it is what caught F4, F9 and F15. It also means a run taken
+> during an edit can report a failure that is neither a defect nor a flake. The
+> numbers above are two consecutive identical runs on a quiet tree.
 
 ---
 
-## 2. The twelve failures: classification verified, then converted
+## 2. The twelve conversions — verified correct, not assumed
 
-Backend's classification was that each failing test's *setup* is now refused by
-a new control, or that it characterises behaviour that is now fixed. **QA
-verified the classification rather than accepting it, and it is correct in all
-twelve cases.** What verification added, in each group:
+The coordinator is right that a test converted to assert the *wrong* fixed
+behaviour is worse than one left red, because nothing then draws attention to
+it. So each conversion was re-checked against the specification, and each was
+given a **positive counterpart** — a control that fails if the new guard has
+replaced a hole with an outage.
 
-### 2.1 Eight in `test_gate_journey.py` — verified, and widened
+| Group | Conversion | Positive counterpart that makes it honest |
+|---|---|---|
+| **8 gate tests** | Each created an incomplete `gate='C'` row and asserted the *command* refused. Migration 0005 refuses the **INSERT**, so each now asserts `DatabaseError` **carrying "4.1(b)"** — not merely that something raised, which an unrelated `IntegrityError` would have satisfied | `test_a_complete_authorisation_is_still_accepted` — the legitimate row still saves **and still opens the gate**; and `test_an_incomplete_authorisation_for_another_gate_is_still_permitted`, because migration 0005 constrains Gate C only and says so |
+| | The six evidence items are now attacked in **three shapes each** — absent, whitespace-blank, empty list — 18 cases, because "missing" has three spellings | `test_the_printed_checklist_still_names_each_missing_item` — the command's per-item branch is unreachable from the database now (ENGINE-DIVERGENCE §9 item 11), so it is asserted directly on an unsaved row via `checklist(campus, auth=…)`. Six dead branches would otherwise go unnoticed |
+| | `authorised_by_human` attacked with five whitespace strings **and** 26 invisible forms (§3.1) | `test_a_real_name_is_still_accepted_by_the_command_invariant` — seven real names including Tamil, CJK, punctuation, and names *containing* a zero-width space |
+| **3 idempotency tests** | Anonymous keys must be UUIDs and an anonymous replay returns the status with **no body** | `test_the_f10_narrowing_did_not_break_authenticated_replay` and `test_an_authenticated_key_is_not_required_to_be_a_uuid` — the mechanism the fix exists to protect, asserted separately |
+| **1 flush-escape test** | Asserted the fixture's **absence**; now asserts what the fixture **does** — session-scoped, autouse, `django_db_blocker`, a deliberate no-op off PostgreSQL, and `DISABLE TRIGGER`/`DROP TRIGGER`/`ALTER TABLE` each asserted **absent** from it | The inventory test: the string must appear in exactly two files, the migration and the fixture. A third declarer is a third hatch |
 
-Each created an incomplete `gate='C'` authorisation. Migration 0005 refuses it
-at INSERT. QA checked the refusal is **the ADR-002 4.1(b) guard** and not an
-unrelated error landing in the same place: the assertion now requires
-`"4.1(b)"` in the exception text, so a future unrelated `IntegrityError` here
-would fail rather than read as the control working.
-
-Converted and widened, because a rising floor is a chance to test more of it:
-
-* each of the six evidence items is attacked **in three shapes** — key absent,
-  key present but whitespace-blank, key present but an empty list. "Missing" has
-  three spellings and a guard that knew one would have had two holes. 18 cases,
-  all refused.
-* `authorised_by_human` is attacked with five whitespace strings including a
-  bare tab, because `trim()`/`btrim()` strip spaces only on both engines and the
-  migration says it named the characters explicitly for that reason. Verified,
-  not read.
-* the **printed** checklist is now unreachable from the database, which
-  ENGINE-DIVERGENCE §9 item 11 flags. QA agrees it is not pointless — it is what
-  tells an operator which item to fetch, with its Gate number — so it is
-  asserted directly on an unsaved row through `checklist(campus, auth=...)`, one
-  item at a time. Without that, six branches would be dead code nothing noticed.
-* **the launder route is closed, and QA checked both braces**: saving an
-  unconstrained `gate='B'` row and updating it to `'C'` is refused by migration
-  0005's UPDATE trigger *and* by 0002's append-only trigger. Belt and braces
-  only counts if both exist.
-* the positive cases are asserted too — a complete authorisation still saves and
-  still opens the gate, and `gate='B'`/`'D'` rows remain unconstrained as the
-  migration intends — because a control that replaces a hole with an outage is
-  not an improvement.
-
-### 2.2 Three in `test_idempotency_contract.py` — verified; see §3.1
-
-### 2.3 One in `test_migration_guards.py` — verified, and inverted
-
-`test_no_test_in_the_repository_sets_the_flush_escape` asserted the absence of
-the fixture ENGINE-DIVERGENCE §7.1 called mandatory. `tests/conftest.py::
-allow_test_flush` now exists. QA asserted **what it does**, not that it exists:
-session-scoped and autouse, so a teardown failure is not something a test opts
-out of; depends on `django_db_blocker`, so the setting lands on the connection
-the harness flushes with; a deliberate no-op off PostgreSQL; and it sets the
-escape and nothing else — no `DISABLE TRIGGER`, no `DROP`, no `ALTER TABLE`,
-each asserted absent. The inventory test now requires the string to appear in
-exactly two files, the migration and the fixture, because an escape hatch with
-three declarers is three hatches.
+**One conversion is a correction to QA, kept visible on purpose.** v1.0 asserted
+that a key replayed across two endpoints returning the first endpoint's response
+was deliberate contract semantics. It was a bug (REVIEW-S0 M3); code review was
+right. The regression test carries that history in its docstring, because a
+characterisation test is only as good as the contract reading behind it and this
+one asserted a bug into the baseline.
 
 ---
 
-## 3. The three claims verified hardest
+## 3. The three claims verified hardest this pass
 
-### 3.1 F10 — no path leaks a body, and authenticated replay is intact
+### 3.1 The invisible-name invariant — **it catches ZWSP and BOM, and twenty-four more**
 
-Backend made two changes rather than one, and QA tested them as two.
+Code review found that zero-width space and the byte-order mark satisfied both
+layers, so the one field carrying the whole "a named human signed this" rule
+could be filled with something that renders as nothing — in the audit row and in
+the go/no-go packet. Backend closed it with a **Unicode invariant** rather than a
+character list: *printable, non-whitespace, category not `Cf`*.
 
-**The UUID requirement.** Seven non-UUID anonymous keys — `1`, `abc`, `null`,
-`4`, `-`, `retry-1` and a truncated UUID — are all refused with
-`VALIDATION_FAILED` / 400, and no row is written. A conforming UUID still works.
+QA's test is whether that is genuinely a property and not a list in disguise, so
+QA derived **26 invisible forms independently** and ran all of them:
 
-**No body on an anonymous replay.** QA walked **every** path on which an
-anonymous second caller gets an answer about a key a first caller claimed, and
-asserted none carries content:
-
-| Path | Result |
+| Measured | Result |
 |---|---|
-| `Replay`, same endpoint and body — the exact path that leaked `{"grievance_ref": "GRV-000123"}` in F10 | status `201`, **body `None`** |
-| `IdempotencyInProgress` | no body attribute |
-| `IdempotencyKeyReused`, different body | no body attribute |
-| `IdempotencyKeyReused`, different endpoint | no body attribute |
+| **U+200B ZERO WIDTH SPACE** — code review's finding | refused (`Cf`, not printable) |
+| **U+FEFF BYTE ORDER MARK** — code review's finding | refused (`Cf`, not printable) |
+| U+200C ZWNJ, U+200D ZWJ, U+200E LRM, U+2060 word joiner, U+00AD soft hyphen, U+180E Mongolian vowel separator | refused — six forms **no list in this repository has ever named** |
+| U+00A0 NBSP, U+1680 ogham space mark, U+2000 en quad, U+2007 figure space, U+202F narrow NBSP, U+205F medium mathematical space, U+3000 ideographic space | refused |
+| NUL, DEL, tab, LF, CRLF, VT, FF, space, empty, and a mixture of five | refused |
 
-**There is no remaining path on which one anonymous caller receives another's
-response.** The surviving channel is the **status code**, which a colliding
-caller does learn. That is precisely what API-CONTRACT §4.1 now promises — "the
-consequence of a collision is a 409" — it requires guessing a UUID to reach, and
-it carries no content. QA records it as the accepted residual rather than
-leaving "never" unqualified.
+**All 26 refused.** A control that consults no list cannot be defeated by a form
+absent from the list, and that is the whole argument for the invariant. It holds,
+and it is the right shape — it is `CLAUDE.md` rule 11's principle reached by a
+better route than a per-entry list: a property that needs no entries.
 
-**The narrowing did not break the mechanism it exists to protect.** Asserted
-separately, because dropping the body for everyone would have traded a narrow
-disclosure for a broken retry on every transition endpoint from S4: an
-**authenticated** replay still returns the stored body. The first caller's own
-row still holds the body, so their retry is unaffected. And the UUID requirement
-is scoped to the anonymous namespace — an authenticated `tap-1` is still legal,
-which it must be, since `(user_id, key)` collides with nobody.
+The other half matters as much (`CLAUDE.md` rule 13 — a guard that fires on
+legitimate input gets edited, not obeyed). Seven real names pass, including a
+Tamil name, a single CJK character, and **a real name with an embedded
+zero-width space**: "at least one visible character" has not become "no
+invisible characters anywhere", which would have refused anything pasted out of
+a document.
 
-Residual: **F11**, §5.
+**The database floor, and its declared ceiling — verified honest.** Migration
+0005 keeps an explicit eleven-codepoint set and declares its own ceiling in the
+migration: *"an invisible character not on the list passes this floor. The real
+invariant lives one layer up … so the command stays strictly stronger than the
+floor, which is the right relationship."* The reasoning for the asymmetry is
+sound and QA agrees with it — SQLite has no regex, and Postgres's `[[:graph:]]`
+is libc- and locale-dependent, so a category test in SQL would be *less*
+predictable than an enumeration, not more.
 
-### 3.2 The rebuilt P14 control — full attack list re-run, and the new allowance attacked
+QA verified the ceiling in the direction that can hurt an operator:
 
-The control now reads **every column in any type** rather than only numeric
-ones, which is what let a text column through, with the exemption scoped to two
-named columns and `MONEY_WORDS_EXEMPT_TABLE` set to `None`.
+* **the floor is never stronger than the command.** For all 26 forms, the
+  command refuses — so there is no value an operator is told is complete that
+  the database then rejects. That failure mode reads as a broken deploy rather
+  than as a guard, and it does not exist here.
+* **the ceiling is real, and therefore the two layers are independent.**
+  Measured: U+200C zero-width non-joiner is **not** on the eleven-codepoint
+  list, the database accepts it, and the command refuses the open. Exactly what
+  the migration describes. Two genuinely different mechanisms, which is
+  `CLAUDE.md` rule 14's "two independent layers" rather than two copies of one
+  list.
+* **the rule applies to the six evidence items too**, not only to the human's
+  name — including to the *elements* of a list item, so
+  `notice_version_ids: ["\u200b"]` is not a published notice.
 
-**QA's full 21-shape attack list was re-run against the shipped control** (raw
-DDL, one transaction each, each column confirmed present in the schema the guard
-reads before the verdict is taken). **All six shapes that escaped in v2.0 are
-now caught:**
+Residual: **F14**, §6 — three blank-rendering *printable* codepoints.
 
-| v2.0 escape | Now |
-|---|---|
-| `receipts.amt text` | **CAUGHT** |
-| `receipts.paid text` | **CAUGHT** |
-| `handover_log.payment_received text` | **CAUGHT** |
-| `receipts.due_inr text` | **CAUGHT** |
-| `listings.cash_received text` | **CAUGHT** |
-| `listings.settlement text` | **CAUGHT** |
+### 3.2 The rebuilt P14 control — full attack list re-run, allowance attacked
 
-The two ADR-003 §2.3 W5 residuals — a number in a jsonb document, a number in
-free text — still escape, and the suite asserts they **must**, so that W5 and
-the control cannot silently disagree. The third residual, a Python `@property`,
-is still invisible to every schema assertion; that is W1c's job, §3.3.
+Carried forward from v3.0 and re-run green this pass. The control reads **every
+column in any type** rather than only numeric ones, with the exemption scoped to
+two named columns and `MONEY_WORDS_EXEMPT_TABLE` set to `None`.
 
-**And QA attacked the new allowance.** `MONEY_TOKEN_SHAPE_EXEMPTIONS` —
-`due_at`, `overdue`, `consume` — is an *allowance*, escalated as one in
-ENGINE-DIVERGENCE §9 item 9, and an exemption is a hole until someone tries to
-climb through it. QA re-derived 21 cases from the contract rather than re-running
-backend's six, choosing the ones where stripping an exempted shape could destroy
-evidence. Every contract-mandated name passes (`purge_due_at`, `act_due_at`,
-`sla_due_at`, `disposal_due_at`, `jobs_overdue`, `consume_magic_link`) and
-**every one carrying an amount still fails** — `amount_due_at`, `due_at_paise`,
+All six shapes that escaped in v2.0 are **caught**: `receipts.amt text`,
+`receipts.paid text`, `handover_log.payment_received text`,
+`receipts.due_inr text`, `listings.cash_received text`,
+`listings.settlement text`. The 21-shape attack list runs against the **shipped**
+control via `tests/contract/shipped_control.py`, so "caught" means the build
+would go red. The two ADR-003 §2.3 W5 residuals still escape and the suite
+asserts they **must**, so W5 and the control cannot silently disagree.
+
+**The new allowance was attacked, not accepted.**
+`MONEY_TOKEN_SHAPE_EXEMPTIONS` — `due_at`, `overdue`, `consume` — is escalated
+as an allowance in ENGINE-DIVERGENCE §9 item 9. QA derived 21 cases rather than
+re-running backend's six, choosing the ones where stripping an exempted shape
+could destroy evidence. Every contract-mandated name passes; **every name
+carrying an amount still fails** — `amount_due_at`, `due_at_paise`,
 `cash_due_at`, `settlement_due_at`, `overdue_amount`, `cash_overdue`,
 `overdue_balance`, `consume_price`, `consumed_total`, `consume_amount_paise`,
 `due_inr`, `amount_due`, `due_paise`, `sum_paise`, `cash_sum`. **The allowance
-cannot hide an amount.** QA supports the three shapes being stated in ADR-003
-§2.3 W1b as §9 item 9 asks: each answers the ADR's own discriminating question,
-and the counterfactual — a P14 guard red on fifteen contract-mandated SLA
-columns, with the tempting fix being an edit to a founder-escalating file — is
-REVIEW-S0 M2 again.
+cannot hide an amount.** QA supports stating the three shapes in ADR-003 §2.3
+W1b as §9 item 9 asks.
 
-Residual: **F12**, §5.
-
-### 3.3 `apps/core/p14.py` — the three-copies problem, and QA's own copy
-
-**The structural fix is real.** The module exists, and QA asserted more than its
-existence: every shared list the guard uses is **the object `apps/core/p14.py`
-exports**, by identity, not an equal copy — because an equal copy is exactly
-what drifted last time. Nine lists checked.
+`apps/core/p14.py` exists and the guard imports from it; QA asserts the nine
+shared lists are **the same objects**, by identity, not equal copies — because an
+equal copy is what drifted. The fourth copy (an inline boolean in the guard's own
+attack test) is gone.
 
 **QA's decision on `tests/contract/denylist.py`: it stays independent and does
-not import.** The reasoning, recorded in the module and here because the
-opposite choice is defensible:
+not import.** Recorded in the module and here, because the opposite choice is
+defensible. Importing would make the conformance tests tautologies and delete the
+only check that the **specification** and the **enforcement** still agree:
+`apps/core/p14.py` removes drift between the guard and the module, but it cannot
+remove drift between the module and the ADR, because the ADR is prose no test can
+read. The condition — and the real lesson of F1 — is that an independent
+re-derivation is only a check if the comparison is **deliberate**. v1.0 compared
+the two *by accident*, through a human reading two reports, which is how QA's own
+error survived a round. The comparison is now explicit, named and automatic:
+`test_conformance_*` asserts `apps/core/p14.py` against QA's ADR transcription
+one list at a time and names the list that moved. **Three copies became two by
+design, and the two are compared on every run.**
 
-* importing would make the conformance tests tautologies (`assert p14.TOKENS ==
-  p14.TOKENS`) and delete the only check that the **specification** and the
-  **enforcement** still agree;
-* `apps/core/p14.py` removes the drift between the guard and the module. It
-  cannot remove the drift between the module and the ADR, because the ADR is
-  prose in a document no test can read. Something must hold the ADR's text in a
-  comparable form, and that something must not be the thing it is comparing to;
-* **the condition, which is the real lesson of F1:** an independent
-  re-derivation is only a check if the comparison is deliberate. v1.0 held this
-  file beside the guard and compared them *by accident*, through a human reading
-  two reports — which is how QA's own error survived a round. The comparison is
-  now explicit, named and automatic: `test_conformance_*` asserts
-  `apps/core/p14.py` against QA's ADR transcription one list at a time, and a
-  divergence fails naming the list. This file is a reference, never a judge:
-  every attack verdict comes from running the shipped control.
+### 3.3 `test_forbidden_response.py` — the recursion claim holds; two of four limbs are missing
 
-**Three copies became two by design, and the two are compared on every run.**
-The fourth copy — the inline boolean inside the guard's own attack test, which
-v2.0 flagged — is gone; that test now imports the module's matchers.
+**The recursion reasoning is correct and QA verified it twice.** Backend's stated
+reason — *"the jsonb limb of P14 is a nested document, so a walker that only
+inspected top-level keys would miss the one shape this control exists for"* — is
+right: ADR-003 §2.3 W5's residual is a value inside `jobs.payload` or
+`notifications.payload`, which reaches a response as a nested object.
 
-### 3.4 W1c's source grep, and its own guard
+* **In behaviour:** seven container shapes QA derived from the API's own
+  envelopes — a jsonb payload, `{"items": [...]}`, a list inside a list,
+  alternating lists and dicts, and depth 6, two levels deeper than the control's
+  own guard — all caught.
+* **In the code:** `forbidden_keys_in` recurses in two places, for dict values
+  **and** for list elements. A dict-only or list-only recursion would leave the
+  other container unwalked and happen to pass several of the behavioural cases,
+  so the structural check is the one that rules it out.
+* It stays quiet on six shapes the contracts mandate, including the SLA-clock
+  names and both permitted money names, and its permitted set is **derived from
+  `apps/core/p14.py`** rather than retyped (`CLAUDE.md` rule 10).
 
-The guard exists (`test_the_grep_actually_sees_each_declaration_shape`), and
-**backend's reasoning for it is right**: a grep that silently matches nothing is
-this project's recurring defect, so the detector needs a detector. QA verified
-it two ways rather than re-running its cases:
+**And attacked the way the schema guard was attacked, it covers two of the four
+limbs the specification names.** THREAT-MODEL §6: *"No response anywhere carries
+a forbidden key, a money-shaped key, **a contact detail** or **an amount**."*
 
-* **derived the shapes from the ADR, not from the guard.** All five declaration
-  kinds W1c names — model field, `@property`, `@cached_property`, serialiser key,
-  API response key — plus a plain method, are each proved visible to at least one
-  regex and recognised as money-shaped.
-* **asserted the grep is actually reading the tree**: it finds more than 100
-  declarations in `apps/**`, carries its own "would pass vacuously" assertion,
-  and its exclusion list is exactly `{"apps/core/p14.py"}` with no wildcard — so
-  the exclusion cannot widen into the file that has the property in it.
+| Limb | Status |
+|---|---|
+| a forbidden response key name (`price`, `amount`, `total`, `value`) | **implemented** |
+| a money-shaped key at any depth | **implemented** |
+| **an amount as a *value*** — `{"handover_note": "Paid Rs 300"}` passes | **not implemented** |
+| **a contact detail** — `{"message": "call me on +91 90000 00001"}` passes | **not implemented** |
 
-Residual: **F13**, §5 — three declaration shapes the grep does not see.
+A third, smaller gap: a **double-encoded** payload, `{"payload": "{\"paid\":
+30000}"}` — JSON inside a string — is one harmless key to the walker, and
+`jobs.payload` is a real jsonb column.
+
+**The value limb is the one that matters, and it is the reason this is a finding
+rather than a note:** ADR-003 §5.3 names this control as the compensating control
+for the free-text residual, and **the free-text residual is a value.** As
+implemented, the compensating control does not reach the thing it compensates
+for. Finding **F15**, §6, slice **S1** — where ADR-003 §5.3.1 already assigns it.
+
+**ADR-003 §5.3.1 adopted QA's conformance detectors as the gate on its own
+prose** (*"the packet sentence may only name a control that a test proves
+exists"*). QA has written the third detector that implies:
+`test_finding_the_control_covers_two_of_the_four_limbs_the_spec_names` measures
+the limbs, and `test_the_control_is_not_claimed_complete_anywhere_qa_can_read`
+asserts §5.3.1's status table does not claim this control is "implemented and
+verified" while two limbs are absent. **So §5.3's stronger G4 sentence cannot be
+quoted yet, and now a test says so rather than a person remembering.** That is
+`CLAUDE.md` rule 9 working as intended.
 
 ---
 
-## 4. Everything QA has now verified about S0
+## 4. Everything QA has verified about S0
 
-Collected because this is the closing pass and "what was verified" is the
-deliverable.
+**The discovery gate.** Closed by default; the refusal is `403 GATE_CLOSED` with
+a reason code; a `None` campus is closed; an inactive campus is closed on **both**
+the read and the write path; `seed_demo` opens nothing. The command refuses on a
+missing authorisation, each of five legal-entity facts, a wrong gate letter, a
+GLOBAL scope, another campus's authorisation, a revoked authorisation, a campus
+with no legal entity, and an unknown slug. The **database** refuses: an INSERT
+that arrives open, an opening with no live Gate C row for that campus, an
+opening of an inactive campus, a reopen after close with no new authorisation, an
+authorisation incomplete in any of three shapes on any of six items, an unnamed
+human in any of 26 invisible forms, and the launder route (save `gate='B'`, update
+to `'C'`) — refused by migration 0005's UPDATE trigger **and** by 0002's
+append-only trigger, both checked. Closing is always permitted, including with
+the authorisation already revoked. An unrelated UPDATE on an open campus still
+works. The whole HTTP surface is `/healthz` and `/readyz`, neither leaks tenant
+data, no admin is installed, and only `open_discovery`/`close_discovery` write
+the gate column.
 
-**The discovery gate** (ADR-002 §4, PRD AC-M6.1). Closed by default; the refusal
-is `403 GATE_CLOSED` with a reason code; a `None` campus is closed; an inactive
-campus is closed on **both** the read and the write path; `seed_demo` opens
-nothing. The command refuses on a missing authorisation, each of five
-legal-entity facts, a wrong gate letter, a GLOBAL scope, another campus's
-authorisation, a revoked authorisation, a campus with no legal entity and an
-unknown slug. The **database** refuses: an INSERT that arrives open, an opening
-without a live Gate C row for that campus, an opening of an inactive campus, a
-reopen after close with no new authorisation, and now an authorisation that is
-incomplete in any of three shapes or unnamed in any of five. Closing is always
-permitted, including with the authorisation already revoked; an unrelated UPDATE
-on an open campus still works. The whole HTTP surface is `/healthz` and
-`/readyz`, neither leaks tenant data, no admin is installed, and only
-`open_discovery`/`close_discovery` write the gate column.
-
-**The audit trail.** UPDATE, single-row DELETE and whole-table DELETE refused;
-the triggers proved to exist by querying the live schema rather than trusting the
-migration. With them dropped — a tamperer's first move — the chain detects a
-rewritten row **by id**, a deleted middle row, a forged append and a half-fixed
-hash. An audit row rolls back with the transaction that wrote it. The two
-ceilings `DATA-MODEL.md` §8 admits — tail truncation and a full rewrite by an
-attacker holding the hashing code — are measured and asserted so they stay
-admitted.
+**The audit trail.** UPDATE, single-row DELETE and whole-table DELETE refused,
+with the triggers proved to exist by querying the live schema rather than
+trusting the migration. With them dropped — a tamperer's first move — the chain
+detects a rewritten row **by id**, a deleted middle row, a forged append and a
+half-fixed hash. An audit row rolls back with its transaction. The two ceilings
+`DATA-MODEL.md` §8 admits — tail truncation, and a full rewrite by an attacker
+holding the hashing code — are measured and asserted so they stay admitted.
 
 **Idempotency.** All four branches for authenticated and anonymous callers,
 key-order insensitivity, value sensitivity, per-user scoping, endpoint binding,
-the 24-hour retention asserted against the contract's number, the two namespaces
-proved not to collide in either order, and §3.1's disclosure walk.
+24-hour retention asserted against the contract's number, the two namespaces
+proved not to collide in either order, and the disclosure walk in §3 of v3.0:
+every path on which an anonymous second caller gets an answer carries no body.
 
-**P14.** §3.2, plus: the deny-list rows the amendment added (items 4–7), the four
-frozen tables, both `transfer_followups` enum value sets by value, and the
-response-boundary check on S0's two responses.
+**P14.** §3.2, plus the deny-list rows the amendment added (items 4–7), the four
+frozen tables, both `transfer_followups` enum value sets by value, W1c's source
+grep proved to see all five declaration shapes the ADR names and proved to be
+reading the tree, and the response boundary in §3.3.
 
-**The PostgreSQL-only guards, as far as text allows** (§6).
+**The PostgreSQL-only guards, as far as text allows.** The TRUNCATE escape
+**defaults to deny** — two-argument `current_setting(name, true)`, an `= 'yes'`
+equality test, and none of `IS DISTINCT FROM`, `<>`, `!=`, `IS NULL` or
+`COALESCE` anywhere in the guard body, each of which would have inverted it. The
+escape appears in exactly one plpgsql body across all migrations, so UPDATE and
+DELETE have none. Both triggers running it are `BEFORE TRUNCATE`. **Every**
+PostgreSQL trigger the migrations create is `ENABLE ALWAYS` — asserted as a
+property across all migrations, not against a list of five, because 0005 added a
+sixth and a fixed list is how the seventh goes unnoticed. Both engine halves of
+the gate guard check the same five conjuncts; the INSERT half exists on both; the
+reverse migration restores a guard rather than leaving none; and every vendor
+branch refuses a third engine rather than creating a database with no guards.
 
-**Accessibility.** Unchanged: 15 self-check tests prove every harness rule fires,
-and the page runner still skips because no HTML page exists. Still not a WCAG
-2.2 AA pass, and the eight criteria no HTML-level harness can decide — including
-**3.3.8 accessible authentication**, which lands directly on S1's magic-link
-flow — remain unverified.
+**Accessibility.** 15 self-check tests prove every harness rule fires; the page
+runner still skips because no HTML page exists. Not a WCAG 2.2 AA pass, and the
+eight criteria no HTML-level harness can decide — including **3.3.8 accessible
+authentication**, which lands on S1's magic-link flow — remain unverified.
 
 ---
 
-## 5. What remains open — four items, none blocking
+## 5. What S0 is not
+
+Unchanged and stated for the integration record: double-booking is implemented
+nowhere and verified nowhere (S4, correctly). The gate journey is verified at the
+level of the guard, the trigger and the predicate, not as a journey, because
+there is no `users` (S1) and no `listings` (S2). Deletion, retention, SLA clocks,
+the age gate, metrics and performance are S1–S7. `TASKS.md` S0's "done when
+`seed_demo` produces a browsable-by-staff dataset" is **not met and cannot be**
+before S1/S2; the command prints that it created no users, which is the honest
+behaviour.
+
+---
+
+## 6. What remains open — five items, none blocking
 
 | # | Item | Why not blocking | Slice |
 |---|---|---|---|
-| **F11** | `uuid.UUID(key)` accepts any version and variant, and 32 bare hex digits, so API-CONTRACT §4.1's "UUIDv4" is enforced as "UUID-shaped". `00000000-0000-0000-0000-000000000001` is a legal anonymous key | **It no longer costs a disclosure** — the body is never returned — so the consequence of a deliberate collision is exactly the `409` the contract claims. What remains is a bounded availability edge against a client that generates low-entropy UUIDs, and §4.1 has L3 forms carry a server-generated key. Fix is `uuid.UUID(key).version == 4` | **S1**, with `/auth/magic-link`, the first anonymous endpoint |
-| **F12** | W1b's 22nd token `rs_` is now enforced and matches any plural-plus-underscore: `offers_count`, `members_count`, `users_seen`, `followers_count`, `authors_count` each carry `rs_` and nothing else | No such column exists today, so the guard is green. It becomes live at the first one, and `offers_count` on a listing is plausible. Backend rejected `rs_` for this exact reason a round ago and then enforced all 22 to close F6 — the right trade, but it reinstates the collision. The mechanism to fix it already exists (`MONEY_TOKEN_SHAPE_EXEMPTIONS`) and deciding it now is cheaper than deciding it in a slice with a red founder-escalating file | **S2/S4** |
-| **F13** | W1c's grep misses three money-shaped declaration shapes: a property *assigned* rather than decorated (`settled_price_paise = property(lambda self: 30000)` — the exact shape QA used to demonstrate the residual), a bare class constant, and an annotation with no assignment | The schema control catches any of these that reaches a column, and two require an unusual spelling. But W1c is the **only** control for a computed money value, so a gap in it is a gap in the whole of that control. Nothing in `apps/**` uses any of the three today, asserted. Fix is two regexes; QA explicitly does **not** recommend a blanket `^\s*(\w+)\s*=`, which would match local variables and teach a developer the guard is wrong | **S1** |
-| **B2** | The gate floor requires every evidence item present and non-blank; it cannot check whether any is **true**. `campus_mou_ref="TODO"`, `breach_rehearsal_at="not yet"`, `authorised_by_human="agent"` all save and open the gate | **Open by agreement, not oversight.** ADR-002 §4.2 already says the design makes the position auditable rather than correct, and the migration says so too. QA keeps the test so the go/no-go packet is never read as stronger evidence than it is: the gate records a claim by a named human, it does not verify one. Two items are cheaply checkable and are not — `breach_rehearsal_at` is specified as a date, and `authorised_by_human` is the field "no agent writes this row" rests on | cto / ceo-planning, before Gate C |
-
-**Also carried, unchanged:** `tests/unit/test_forbidden_response.py` is named by
-ADR-003 §2.3 and THREAT-MODEL §6, is the compensating control W5 leans on for
-the jsonb and free-text residuals, and **still has no owning slice**
-(ENGINE-DIVERGENCE §9 item 7). QA cannot write it — it is backend-developer's
-tree — and there is no response payload in S0 to run it against. A named control
-with no owner is never written.
+| **F15** | `test_forbidden_response.py` implements two of the four limbs THREAT-MODEL §6 names. **An amount as a value** and **a contact detail** are unchecked, and the value limb is the one ADR-003 §5.3 relies on for the free-text residual. Double-encoded JSON is a third, smaller gap | ADR-003 §5.3.1 assigns this control to **backend, S1**; it has landed early with half its scope, which is better than not landing. S0 serves two responses, neither with a free-text field or a nested payload. What it does block is a **sentence** — §5.3's stronger G4 wording — and a test now enforces that | **S1** |
+| **F11** | `uuid.UUID(key)` accepts any version and variant, and 32 bare hex digits, so §4.1's "UUIDv4" is enforced as "UUID-shaped" | **No longer costs a disclosure** — the body is never returned — so a deliberate collision yields exactly the `409` the contract claims. What remains is a bounded availability edge against a client that generates low-entropy UUIDs, and §4.1 has L3 forms carry a server-generated key. Fix is `uuid.UUID(key).version == 4` | **S1**, with `/auth/magic-link` |
+| **F12** | W1b's token `rs_` matches any plural-plus-underscore: `offers_count`, `members_count`, `users_seen`, `followers_count`, `authors_count` each carry `rs_` and nothing else | No such column exists today, so the guard is green; QA asserts that too, which is what makes this a prediction and not a bug. It goes live at the first one, and `offers_count` is plausible in S4. The mechanism to fix it exists (`MONEY_TOKEN_SHAPE_EXEMPTIONS`), and `CLAUDE.md` rule 13's order of resort applies — rename ours first | **S2/S4** |
+| **F13** | W1c's grep misses three money-shaped declaration shapes: a property *assigned* rather than decorated (`settled_price_paise = property(...)` — the exact shape QA used to demonstrate the residual), a bare class constant, and an annotation with no assignment | The schema control catches any that reaches a column, and two need an unusual spelling. But W1c is the only control for a computed money value. Nothing in `apps/**` uses any of the three, asserted. Fix is two regexes; QA explicitly does **not** recommend a blanket `^\s*(\w+)\s*=`, which would match local variables and teach a developer the guard is wrong | **S1** |
+| **F14** | Three blank-rendering **printable** codepoints pass the invisible-name invariant: U+2800 BRAILLE PATTERN BLANK, U+3164 HANGUL FILLER, U+115F HANGUL CHOSEONG FILLER | **QA recommends recording, not fixing.** Closing it needs either a list — which is what the invariant was adopted to avoid — or Unicode's `Default_Ignorable_Code_Point` plus a blank-glyph set, which Python does not expose and which would reject legitimate Hangul filler. The exposure needs someone with write access deliberately obscuring their own name in a row that is append-only, audited and permanently attributable. Recorded so nobody reports "invisible names are impossible" without this sentence beside it | record only |
+| **B2** | The gate floor requires every evidence item present and non-blank; it cannot check whether any is **true**. `campus_mou_ref="TODO"`, `breach_rehearsal_at="not yet"`, `authorised_by_human="agent"` all save and open the gate | **Open by agreement.** ADR-002 §4.2 says the design makes the position auditable rather than correct, and the migration says so too. QA keeps the test so the packet is never read as stronger evidence than it is: the gate records a claim by a named human, it does not verify one. Two items are cheaply checkable and are not — `breach_rehearsal_at` is specified as a date, and `authorised_by_human` is the field "no agent writes this row" rests on | cto / ceo-planning, before Gate C |
 
 ---
 
-## 6. The engine limits — the one qualification on this PASS
+## 7. The PostgreSQL execution checklist
 
-26 skips in QA's tree, every one naming the engine and the slice. Unchanged: the
-double-booking race, `expected_version`'s failure mode, two simultaneous
-retries, concurrent chain appenders, multi-worker job claiming, a reservation
-expiring during an accept; the plpgsql append-only body, the TRUNCATE guard's
-behaviour, the P14 price trigger, the engine's rejection of float money;
-`is_seed`, the seed/real CHECK, the metric views, the real-student journey; the
-keyboard walkthrough and p75 LCP.
+**Five plpgsql function bodies, six triggers, six `ENABLE ALWAYS` statements,
+never parsed by any server:**
 
-**What QA could do instead, and did.** `tests/contract/test_migration_guards.py`
-audits the Postgres-only guards as text, which is `VERIFIED` about the text and
-`UNVERIFIED` about the behaviour — a distinction the file states in its own
-skips. Verified this round:
+| Function | Migration | Attached as |
+|---|---|---|
+| `audit_log_is_append_only()` | 0002 | `audit_log_append_only` (BEFORE UPDATE OR DELETE) |
+| `gate_authorisations_is_append_only()` | 0002 | `gate_authorisations_append_only` (BEFORE UPDATE OR DELETE) |
+| `campuses_gate_is_authorised()` | 0003 | `campuses_gate_authorised` (BEFORE INSERT OR UPDATE) |
+| `bookhop_truncate_guard()` | 0003 | `audit_log_no_truncate` + `gate_authorisations_no_truncate` (BEFORE TRUNCATE, FOR EACH STATEMENT) |
+| `gate_authorisations_evidence_complete()` | 0005 | `gate_authorisations_evidence_complete` (BEFORE INSERT OR UPDATE) |
 
-* the TRUNCATE escape **defaults to deny**: the two-argument
-  `current_setting('bookhop.allow_flush', true)` so an unset GUC yields NULL
-  rather than raising, an `= 'yes'` equality test so NULL is not a match, and
-  none of `IS DISTINCT FROM`, `<>`, `!=`, `IS NULL` or `COALESCE` anywhere in
-  the guard body — each of which would have inverted it. **A guard whose escape
-  hatch defaults open is worse than no guard, and this one defaults closed.**
-* the escape appears in **exactly one** plpgsql function body across all
-  migrations — the TRUNCATE guard. UPDATE and DELETE have none, so the
-  append-only guarantee is not one `SET` away from nothing.
-* both triggers running it are `BEFORE TRUNCATE`.
-* all `ENABLE ALWAYS` statements name triggers the migrations actually create —
-  a typo there would fail the first PostgreSQL migration after sign-off.
-* both engine halves of the gate guard check the same five conjuncts, and the
-  INSERT half exists on both. Only the SQLite half is ever executed here, so a
-  divergence would mean the property QA verified is not the one production
-  enforces.
-* the reverse migration restores a guard rather than leaving none.
+**Do this before anything else, and in this order.** The first item is not a test
+— it is the thing that decides whether the rest can run at all.
 
-**The qualification, stated plainly for the integration decision: this PASS is a
-pass on SQLite.** The rework added a third Postgres-only guard
-(migration 0005's plpgsql half), so the unexecuted security-relevant SQL went up
-again. ENGINE-DIVERGENCE §9 item 3 asks for a local PostgreSQL 16 before S2;
-**QA's position is that it should land before S1 merges**, because it costs Rs 0,
-it runs natively on Windows without Docker, and five guards now rest on text
-nobody has executed. That is not a blocker on S0 — S0's own correctness does not
-depend on it — but it is the next thing this project should buy, and it is free.
+| # | Run | What it proves | Blocks |
+|---|---|---|---|
+| **0** | `BOOKHOP_DB_ENGINE=postgres manage.py migrate` **from empty** | That all five bodies parse and all six triggers and six `ENABLE ALWAYS` statements are accepted. **Nothing below can run until this does**, and ENGINE-DIVERGENCE §1 records that `sqlmigrate` has never even generated this DDL. A syntax error here is a one-line fix found at the cheapest possible moment; found later it is found in production | everything |
+| **1** | `tests/e2e/test_audit_tamper.py::test_the_plpgsql_append_only_trigger_body_is_valid` *(skip → run)* | That `audit_log` is append-only **on the engine that stores it**. The SQLite half is verified; this is the half that matters. Also confirms ENGINE-DIVERGENCE §3.8's prediction that the exception arrives as `InternalError`, not `IntegrityError` — which S2's price handler and S4's `accept_offer` must branch on | `COMPLIANCE.md` §8.5's audit claim |
+| **2** | `tests/e2e/test_audit_tamper.py::test_truncate_cannot_empty_the_audit_log` *(skip → run)* | That `TRUNCATE audit_log` is refused. §3.6 calls this **"the single most important thing for a Postgres box to confirm"**, because row triggers do not fire on TRUNCATE and the hole exists on Postgres and not on SQLite. Pair it with the inverse: `SET bookhop.allow_flush='yes'` then TRUNCATE **succeeds**, which proves the escape is an escape and not dead code | the append-only guarantee |
+| **3** | `tests/contract/test_migration_guards.py::test_the_flush_escape_permits_a_transactional_teardown` *(skip → run)* | That `tests/conftest.py::allow_test_flush` actually lets a `transactional_db` test tear down. If it does not, **every transactional test on Postgres fails in teardown** and the tempting fix is deleting the guard from item 2. This is the single highest-value skip to run early, because it is the one whose failure would be misdiagnosed | **S4 entirely** |
+| **4** | `tests/contract/test_migration_guards.py::test_the_postgres_guards_actually_fire` *(skip → run)* | The umbrella for items 0–3 plus the two guards with no SQLite equivalent to compare against: `campuses_gate_is_authorised` and `gate_authorisations_evidence_complete`. QA has asserted both halves agree **as text**; this is the first time the Postgres half executes | the gate's database floor |
+| **5** | Re-run **all** of `tests/e2e`, `tests/a11y`, `tests/contract` on Postgres | That the 309 assertions that pass on SQLite also pass where the types are real. ENGINE-DIVERGENCE §2 predicts four behaviour changes QA's tests will meet: `uuid` and `inet` columns validate (§2.3, §2.4), `smallint` range is enforced (§2.7), and `LIKE` becomes case-**sensitive** (§7.3), which `__contains` relies on from S2. Expect failures here and treat them as information, not regression | nothing — this is the measurement |
+| **6** | `tests/e2e/test_audit_tamper.py::test_concurrent_appenders_cannot_fork_the_chain` *(skip → run)* | That `prev_hash UNIQUE` does the job it was added for: two appenders racing, the loser retrying against the new head. SQLite has one writer, so this property has never been exercised anywhere | the audit chain under load |
+| **7** | `tests/contract/test_idempotency_contract.py::test_two_simultaneous_retries_cannot_both_execute` *(skip → run)* | API-CONTRACT §4.1's claim that **"the insert of the key row is the lock"** — a concurrency claim that SQLite's write lock satisfies for the wrong reason | every retry path from S1 |
+| **8** | `tests/contract/test_concurrency_limits.py::test_two_job_workers_cannot_claim_the_same_job` *(skip → run)* | That the compare-and-swap claim is single-claim with two real workers. ENGINE-DIVERGENCE §4.3 records this as `UNVERIFIED` **on both engines** — it is the only item on this list that is unverified everywhere | `retention.purge`, a DPDP r.8(3) obligation from S1 |
+
+**Needs Postgres *and* a later slice's tables — schedule with the slice, not with
+the server:** the double-booking race and the partial unique index (S4);
+`expected_version`'s failure mode (S4); a reservation expiring during an accept
+(S4/S5); the price-immutability trigger and the engine's rejection of float money
+(S2); `is_seed` and the seed/real CHECK (S1/S2/S4); the metric views, which cannot
+run on SQLite at all (S7); `citext` for case-insensitive email (S1); trigram
+ranking (S2/S3).
+
+**What a green Postgres run would and would not change in this report.** It would
+retire the qualification in the header and convert roughly nine skips into
+assertions. It would not change any finding in §6, all five of which are
+engine-independent. **And it would not make §5 untrue:** double-booking would
+still be implemented nowhere.
 
 ---
 
-## 7. Escalations
+## 8. Escalations
 
 **To cto, none blocking:**
 1. **ENGINE-DIVERGENCE §9 item 9 — grant it.** State `due_at`, `overdue` and
    `consume` in ADR-003 §2.3 W1b. QA attacked the allowance with 21 derived
-   cases and it cannot hide an amount; the alternative is REVIEW-S0 M2 again on
-   fifteen contract-mandated columns.
-2. **F12 — decide `rs_` now**, before the first `*rs_count` column makes it a
-   schedule problem.
-3. **F11, F13** — one line and two regexes respectively, both S1.
-4. **B2** — two of the six evidence items are cheaply validatable
-   (`breach_rehearsal_at` as a date, `authorised_by_human` as a non-agent); the
-   rest cannot be, and the packet should say so.
-5. **ADR-003 §2.3 rows 5 and 8 still lag the code** in the code's favour
+   cases and it cannot hide an amount.
+2. **F15 — the value and contact-detail limbs**, in S1, where ADR-003 §5.3.1
+   already assigns them. Until then §5.3's stronger G4 sentence stays unquoted,
+   and a test now enforces that rather than a person remembering.
+3. **F12 — decide `rs_` now**, before the first `*rs_count` column makes it a
+   schedule problem under a red founder-escalating file.
+4. **F11, F13** — one line and two regexes, both S1.
+5. **F14** — QA recommends recording the three blank-rendering printables in
+   ADR-002 §4.1(b) or the migration, and **not** fixing them.
+6. **B2** — two of the six evidence items are cheaply validatable; the rest are
+   not, and the packet should say which.
+7. **ADR-003 §5.3.1's status table is now stale** in the safe direction: W1c,
+   W1d and `test_forbidden_response.py` all exist. Updating it is the moment to
+   record F15, so the table says "partially implemented" rather than flipping to
+   "implemented".
+8. **ADR-003 §2.3 rows 5 and 8 still lag the code** in the code's favour
    (`%ledger%`, `users.address`). Amend the rows.
-6. **`test_forbidden_response.py` needs an owning slice.**
 
-**To backend-developer:** F11, F12, F13. Nothing else; the rework answered every
-other QA finding, and it answered several more thoroughly than QA asked — the
-`reason` code on the gate refusal, the whitespace-character enumeration in the
-evidence guard and the `auth` injection point for the printed checklist were all
-unasked-for and all correct.
+**To backend-developer:** F11, F12, F13, F15. Nothing else. The rework answered
+every other QA finding, and several more thoroughly than QA asked — the `reason`
+code on the gate refusal, the eleven-codepoint set with a declared ceiling, the
+`auth` injection point for the printed checklist, and deriving the response
+guard's permitted set from `p14.py` rather than retyping it were all unasked-for
+and all correct.
 
-**To ceo-planning:** B2, and §6's PostgreSQL ask, which is a decision rather
-than a spend.
+**To platform-sre, for S8 and dormant until then:** item 2 of §7 is also a
+restore-path test. `ENABLE ALWAYS` exists because
+`session_replication_role = 'replica'` is what some restore paths use; the
+restore rehearsal (`INFRA.md` §3.3) should assert the triggers still fire after a
+restore, not only that the data came back.
 
 **To red-team:** ADR-003 §2.3 W5's sentence — *"P14 is enforced, not
-guaranteed"* — is now accurate rather than optimistic, and QA has measured both
-halves of it. The two residuals are a number in a jsonb document and a number in
-free text; the compensating controls are PRD EX-18's product rule, W2's frozen
-column lists, and a response-schema test that does not exist yet.
+guaranteed"* — is accurate rather than optimistic, and QA has measured both
+halves. The two residuals are a number in a jsonb document and a number in free
+text; their compensating controls are PRD EX-18's product rule, W2's frozen
+column lists, and a response-schema test that **covers keys and not yet values**
+(F15). That last clause is the one worth challenging.
+
+**Verdict, restated for the integration decision: PASS on SQLite, with five
+non-blocking items owned by named slices and one engine qualification that §7
+exists to lift.** S0's gate is a database constraint, its audit chain is
+tamper-evident and honest about its ceilings, its idempotency mechanism works for
+authenticated and anonymous callers without leaking a body, and its P14 control
+now says what ADR-003 says and is compared to it on every run. Slice 0 can close.
 
 ---
 
@@ -416,4 +446,5 @@ column lists, and a response-schema test that does not exist yet.
 |---|---|---|
 | 2026-10-21 | v1.0 — first independent QA pass. 169 tests; 3 fail as findings F1–F3 | test-qa |
 | 2026-10-21 | v2.0 — re-pass after the M0–M5 rework. §3 corrected v1.0's P14 measurement **against QA**: it measured QA's own transcription, not the shipped control. Five findings converted to regressions; new findings F4–F10; 182 tests, 10 fail | test-qa |
-| 2026-10-21 | **v3.0 — closing pass. VERDICT: PASS.** All twelve newly-failing tests verified against backend's classification (correct in all twelve) and converted, with the evidence-item cases widened from 6 to 18 and the whitespace and launder routes added. F10 verified by walking every anonymous-response path and by asserting authenticated replay intact; the rebuilt P14 control re-attacked with the full 21-shape list (all six v2.0 escapes now caught) plus 21 derived cases against the new token-shape allowance; `apps/core/p14.py` asserted shared by identity, not by equality. QA's `denylist.py` **stays independent by decision**, with the comparison made explicit. New non-blocking findings F11–F13. 246 QA tests: 220 pass, 26 skip, **0 fail** | test-qa |
+| 2026-10-21 | v3.0 — written but not delivered; superseded by v4.0 | test-qa |
+| 2026-10-21 | **v4.0 — closing pass. VERDICT: PASS.** All twelve conversions verified against the specification and each paired with a positive counterpart. The invisible-name invariant attacked with 26 independently derived forms — ZWSP and BOM both refused, plus six forms no list here has named — and the database floor's declared ceiling verified honest and genuinely independent. `test_forbidden_response.py` attacked: its recursion reasoning holds, in behaviour and in code, and it covers **two of the four limbs** THREAT-MODEL §6 names (F15). The migration text audit widened to span every migration, so 0005's sixth guard is covered. New findings F14, F15. §7 is the PostgreSQL execution checklist for five never-parsed plpgsql bodies. 336 QA tests: 309 pass, 27 skip, **0 fail** | test-qa |
