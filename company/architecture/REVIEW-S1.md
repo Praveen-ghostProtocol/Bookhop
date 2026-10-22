@@ -973,3 +973,589 @@ I have **not** re-run anything against the moved tree, and this review's
 verdict is about `a8bde62`. The counts in *Reproduction* were taken before
 these files appeared; the untracked probe files named in B2 were present
 throughout and are counted there.
+
+---
+---
+
+# RE-REVIEW — commit `2540d0e`, 2026-10-22
+
+**Scope:** B1–B6 from the review above, the three items the coordinator asked
+me to look at hardest, and the forward-dated placement pattern that arrived
+mid-pass.
+
+# VERDICT
+
+# CHANGES REQUIRED — one blocker, three characters
+
+**All six blockers are closed and I verified each by measurement, not by
+reading the hand-back.** The slice is materially better than `a8bde62` and the
+quality of the closures is high: four of the six fixes correct the *mechanism*
+rather than the symptom, and two of them (B1, B4) found a cause different from
+and better than the one I named.
+
+The single blocker is three characters in a test written during this round. It
+is blocking only because of what it guards — the recurrence of B3, the
+authorization bypass — and because it is **already concealing a live mismatch
+today**.
+
+## Ten runs, zero spread
+
+Taken on `2540d0e` with a clean tree, `-p no:randomly`, five runs per engine:
+
+```
+PostgreSQL 16   1144 passed, 57 skipped, 2 xfailed   x5, identical
+SQLite          1079 passed, 123 skipped, 1 xfailed  x5, identical
+```
+
+Both match the coordinator's independently-taken numbers exactly. Against the
+first review's 911 / 922 / 924 / 927 / 927, **the variance is gone.**
+
+I also withdraw a near-finding: I measured a gap between `--collect-only`
+(1216) and the run totals (1203) and chased it. It is my extraction, not the
+suite — node ids containing spaces were being truncated by my own regex. With
+ids extracted correctly, collection and the run agree exactly at 1186 distinct
+node ids on both engines. **The totals reconcile; there is nothing there.**
+
+## B1 — closed, and my mechanism was wrong
+
+`tests/contract/test_db_blocker_is_wired.py` · `tests/unit/test_db_blocker_mechanism.py`
+
+The cause was a module-level `pytestmark = pytest.mark.django_db` in
+`test_s0_surface.py` applying to the test asserting that a test *without* the
+marker cannot reach the database. Its premise was false by its own file's
+declaration and it could not have passed. **I repeated QA's claim that "the
+blocker cannot block an already-connected alias" and that claim is false** —
+the blocker patches `ensure_connection`, which every query calls. My
+*observation* (the verdict was not a function of the tree) was right; the cause
+was the stale test database.
+
+The closure is better than the fix: the test now lives in a module that can
+honestly ask the question, with `test_this_module_declares_no_module_level_database_marker`
+as the guard-on-the-guard, and a positive control. That third test is the part
+worth copying — it is rule 12 applied to a file where *the absence of a line* is
+the fixture.
+
+## B2 — closed. B3, B4 — closed, and I re-ran my own probes against the fix
+
+I kept the two probes that produced the original findings and re-ran them
+verbatim:
+
+| probe | at `a8bde62` | at `2540d0e` |
+|---|---|---|
+| `GET /api/v1/notices/privacy`, `Accept-Language: ta`, flag off, `ta` notice published | **served the Tamil body** | `locale: "en"`, Tamil body not served |
+| `PATCH /api/v1/account`, required consent withdrawn | **200** | **403 CONSENT_REQUIRED** |
+| `PATCH /api/v1/account`, SUSPENDED | **200** | **403 SUSPENDED**, body names what is still open |
+| `GET /api/v1/account/export`, SUSPENDED | 200 | 200 — now *deliberate* |
+| `POST /api/v1/account/erase`, SUSPENDED | 200 | 200 — now *deliberate* |
+
+The last two rows are the right disposition of the contract question I raised
+rather than a residual: Stack S is a ruling, `require_actor`'s unconditional
+`TOMBSTONED` refusal sits outside `checks`, and the comment explaining why
+extending it to `SUSPENDED` *"would look like hardening and would silently
+re-create the bypass this ruling exists to close"* is exactly the reasoning that
+needed to be written down.
+
+`apps/core/i18n.py` is the right shape for B4 — one `allowed_locale`, the
+middleware and the service layer both readers, a source-scan test that fails if
+any file decides locally. That is `CLAUDE.md` rule 10 answered with one
+definition rather than a third correct copy.
+
+## B5, B6 — closed
+
+`test_forbidden_copy.py` exists, reads the manifest, and is non-vacuous in both
+directions: at least five files and over five thousand characters of scanned
+text, a positive detector test per banned shape, negative tests on permitted
+copy, and a test that a context-key exemption does not exempt the msgid beside
+it. It treats both shape exemptions as **pending**, which is the correct reading
+of R10 — a reviewer cannot ratify an exemption in the diff they are approving.
+
+B6's two strings are gone and the replacements are good §1.2 copy: *"There is
+no way to send BookHop a message from inside the app yet"* and *"BookHop opens
+listings one campus at a time. There is nothing to search here yet."* Both are
+facts. `trust.exif` and `help.scope` were removed too (my N4), with a comment
+saying they return in S2 and S6 — the page was wrong, not the strings.
+
+**N4's third string stands unchanged** and I am re-raising it once, as a
+suggestion: `run.what_it_is` on `/` still reads *"BookHop matches the exact
+edition your syllabus asks for with a copy someone on your campus already
+owns."* No catalogue, no matching and no listing exists. Two of three were
+fixed, so this may be a decision; if it is, it is defensible as a statement of
+intent on a splash page. If it was an omission, it goes with the other two.
+
+---
+
+# BLOCKING
+
+### B7 · The guard that stops B3 recurring is vacuous, and is already hiding a live mismatch
+
+**File:** `tests/api/test_precondition_stacks.py:325–354`
+
+```python
+assert expected in body or expected in source, (
+    f"{name} does not declare a precondition stack; an endpoint nobody "
+    "placed is the shape REVIEW-S1 B3 had"
+)
+```
+
+`source` is `inspect.getsource(api)` — **the whole module**. Every expected
+token (`_stack_s`, `_signed_in`, `CONSENT_DIRECTION_STACKS`) appears somewhere
+in that module by definition, so `expected in source` is unconditionally true
+and the per-handler check can never fail.
+
+**Measured:**
+
+```
+age_declaration  expected=_stack_s    in_body=False  in_module_source=True  -> passes
+consents         expected=_signed_in  in_body=True   in_module_source=True  -> passes
+set_consent      expected=CONSENT_... in_body=True   in_module_source=True  -> passes
+export           expected=_stack_s    in_body=True   in_module_source=True  -> passes
+```
+
+`age_declaration` is **already wrong and already silent**: the handlers map
+says `_stack_s`, and the code correctly calls
+`_may_write(user, checks=("status", "campus"))`. The map entry is stale, the
+test says nothing, and the docstring claims *"an endpoint that calls neither
+gate is one nobody placed, and the failure mode is silence."* The failure mode
+is silence.
+
+**Smallest correct fix:** delete `or expected in source`, and correct the
+`age_declaration` entry to the gate it actually calls. Removing the `or` turns
+the test red today, which is the test doing its job.
+
+**Rule cited:** `CLAUDE.md` rule 12 · charter metric *"guard tests weakened in
+a merged diff, target zero"*. It is blocking because it is the guard on B3.
+
+---
+
+# REQUIRED
+
+### R12 · The contract-table test validates four names; it does not enumerate from the table
+
+**File:** `tests/api/test_precondition_stacks.py:235–299`
+
+The parser is **sound**: `^\|\s*\*\*S\*\*\s*\|(.+?)\|\s*$` with `re.M` captures
+the whole remainder of the row, `assert match` fails loudly on a reformat rather
+than returning empty, and the vacuity guard is real — it asserts
+`/account/export` in `rows["S"]`, `display_name` in `rows["M"]`, and length
+floors of 200 and 100 characters, which would also catch a first-match collision
+with some other `| **S** |` row elsewhere in the document. That is a genuinely
+good vacuity guard and it answers the question asked.
+
+**But the membership assertion is parametrized over a four-element literal typed
+in the test file.** The table is used to *validate* four names the author chose;
+it is not used to *enumerate* them. If §2.5's Stack S row gains a fifth
+endpoint, nothing notices — which is the failure the file exists to fix, moved
+up one level. Its own docstring says *"QA found it in one pass because it
+derived membership from the table"*; this test does not.
+
+**Fix:** extract the endpoint tokens from `rows["S"]` (they are `METHOD /path`
+shaped and back-tickable), assert the extracted set equals the handler map's
+Stack-S set, and guard the extraction with a count floor so a parse that finds
+nothing fails instead of passing.
+
+### R13 · Two permanently-red tests break the one thing the suite is for
+
+**File:** `tests/contract/test_future_stack_placements.py` (untracked at time of writing)
+
+`account_correction`'s app (`apps.accounts`) exists and
+`/api/v1/account/correction` does not, so the inversion guard fires — correctly,
+and that is the pattern working. The intent, as briefed, is that the two reds
+stay red as a standing reminder.
+
+**They should not stay red.** Measured on the current tree: `2 failed, 1147
+passed, 65 skipped, 2 xfailed`. From now on every run carries two known
+failures, and the only way to tell a new failure from a known one is to read the
+names — which is precisely how a real failure gets waved through, and this
+project has already paid for failures landing on tests that did not cause them.
+It also breaks the slice's own done-when bar: *"`pytest` is green **or skipped
+with a reason naming the engine and the slice**"*. Rule 12 sanctions a skip with
+a reason; it does not sanction a permanent red.
+
+**The repository already has the right mechanism and improved it in this very
+commit.** `@pytest.mark.xfail(strict=True, reason=...)` is green while the
+finding is open and goes **red the day it is fixed** — exactly the semantics
+wanted here — and `test_least_privilege.py`'s `_refused()` fix (R1, closed) is
+the worked example of making such a tripwire actually fire. Convert both,
+keeping the reason text verbatim.
+
+### R14 · The Stack S band is too wide in three places that prove nothing
+
+**File:** `tests/contract/test_future_stack_placements.py:310–316`
+
+**I agree with the asymmetry, and the reason is sharper than "a 400 still
+answers the question".** The two stacks assert different propositions: for S the
+claim is about the *gate* — "no precondition switched this right off" — and any
+non-gate response proves the gate passed the actor. For M the claim is about the
+*outcome* — "refused for the stated reason" — and only the stated code proves
+it. So an exact match on one side and an exclusion on the other is correct, not
+loose.
+
+The looseness is in which codes the exclusion covers. `not in (401, 403)` also
+accepts:
+
+* **405** — the method was never routed, so the gate was never reached. Proves
+  nothing and reads as a pass.
+* **5xx** — same, and worse, because it would mask a crash in the gate itself.
+* **429** — and this one contradicts the file's own cited reasoning:
+  `safety_report_incident`'s `why` quotes THREAT-MODEL §5.7, *"no safety path is
+  rate-limited to zero"*. A rate limit refusing a suspended student's safety
+  report is a right being switched off in substance; the assertion would pass.
+
+404 is already covered by `_route_exists`. **Fix:** exclude `401, 403, 404, 405`
+and anything `>= 500`, and say in one line that 429 is excluded because §5.7
+rules it out for these paths specifically.
+
+### R15 · Still open from the first review, neither fixed nor recorded as carried
+
+Four Required items have no fix and no disposition in `QA-S1.md`, `TASKS.md` or
+`DECISIONS.md`. Verified by inspection on `2540d0e`:
+
+* **R4 — `django_session`**: still no `COMPLIANCE.md` §7 row, no retention rule,
+  no purge path. `purge_expired` walks `email_login_tokens`, `idempotency_keys`,
+  `personal_data_access_log`, `jobs`, `user_tombstones` — not sessions, and
+  nothing calls `clearsessions`. COMPLIANCE §8.3.
+* **R5 — unclaimed `jobs`**: the purge still selects on `completed_at` /
+  `failed_at` only, so a never-claimed row is never purged and never redacted,
+  and the comment claiming *"even a row whose redaction somehow did not run is
+  gone within the window"* remains false for exactly that row. Rule 9, in the
+  fix for a Red Team CRITICAL.
+* **R9 — internal references in user-facing `message`**: five instances remain
+  and `_check_enum` added a sixth (*"... DATA-MODEL §2 allows ..."*). The new one
+  is reachable only with a developer-supplied enum, so it is the mildest of the
+  six, but it is a new one in a field the contract defines as student-facing and
+  already-localised.
+* **R11 — non-`ServiceError`**: `endpoint` still catches only `Replay` and
+  `ServiceError`; no `handler500`. An unhandled exception in an L2 handler
+  returns HTML, not §2.2's shape.
+
+Each is small. I am not blocking on them, but "Required" means *in this slice*,
+and four of them silently becoming notes is how a Required list stops being
+read.
+
+---
+
+# NOTE
+
+* **N9 — the salt fixture is fine, with one limb unasserted.** Autouse is the
+  right call and it weakens nothing: `test_erasure.py:206` clears
+  `TOMBSTONE_EMAIL_SALT` *in the test body*, after the fixture runs, and requires
+  the `RuntimeError`. So the no-default property would still fail if it
+  regressed. **But `_email_salt()` raises when *either* the salt or the
+  **version** is unset, and no test clears only
+  `TOMBSTONE_EMAIL_SALT_VERSION`.** The version limb exists for §7 row 24's
+  rotation procedure and is currently unchecked. One line.
+* **N10 — `_check_enum` is the right shape and nothing requires its use.** Rule
+  18 answered correctly: detection above the floor, a 400 naming the permitted
+  values instead of a `CheckViolation` 500. Two call sites (consent mechanism,
+  tombstone reason), and the other caller-supplied enums — consent purpose,
+  review outcome, locale — have their own explicit checks, so coverage is
+  complete today. Nothing stops the next enum shipping without one; the set is
+  small and explicit enough that I would not build a guard for it, but it is
+  worth a sentence in the helper's docstring naming the enums it is expected to
+  cover.
+* **N11 — `_route_exists` is sound; two things to know before reusing it.** The
+  catch-all fix is correct and verified firing: `web.views.not_found.__module__`
+  is `web.views`, so the `^.*$` route no longer counts as existence. (a) It
+  defines existence as "handled by an `apps.*` module", so it cannot be reused
+  for an L3 path — add `assert path.startswith("/api/v1/")` over `RULED` so it
+  cannot be silently misapplied. (b) `endpoint`-decorated handlers resolve to the
+  closure defined in `apps/core/api.py`, so **every** L2 endpoint reports
+  `__module__ == "apps.core.api"`. That satisfies `startswith("apps.")` and
+  works — but anyone tightening it to `startswith(ruling["app"])` would break
+  every row at once. Worth one comment.
+* **N12 — the correction endpoint finding is right and is the best thing in this
+  round.** §2.5 cites `POST /account/correction` as the justification for putting
+  `display_name` in Stack M, and it does not exist: a document naming a control
+  as the reason another control is acceptable, with nothing asserting the first
+  exists. That is `CLAUDE.md` rule 9 at one remove, and it is a class the project
+  has not named before — *a control that is load-bearing for a second control's
+  acceptability*. Routing it to cto is correct. Keep the reminder; make it a
+  strict xfail per R13 rather than a red.
+
+---
+
+# PRAISE
+
+* **Three agents reasoned to three different wrong mechanisms on B1, and the
+  thing that settled it was running it.** The correction is pinned as a test
+  rather than written as a note, and the module that asks the question is guarded
+  against acquiring the marker that broke the last one. I was one of the three
+  wrong, and the record says so plainly rather than tidily.
+* **B3's closure is better than the finding.** One `_may_write`, called by every
+  write; the `PATCH /account` split derived over a declared field-to-stack map
+  instead of an `if`; the deadlock on the two endpoints that *satisfy*
+  preconditions 3 and 5 named and narrowed explicitly rather than skipped; and
+  the suspended 403 body now names the four doors that stay open, derived from
+  the Stack S table rather than retyped.
+* **`_discard_or_tombstone` is the right answer to a genuinely hard case** — the
+  delete is available only while nothing append-only points at the row, and the
+  previous guard bought that safety by making adult verification unreachable.
+  Choosing the route by what is actually there, and reusing `MINOR_DISCOVERED`
+  because `user_tombstones` already carries it, is two rules applied at once.
+* **The forward-dated placement pattern is worth copying, with R13 and R14
+  applied.** Carrying the contract's *reasoning* beside each ruling, asserting
+  both sides of every split, and
+  `test_the_unexercised_list_shrinks_rather_than_being_deleted` — which asserts
+  the `pytest.fail` branch still exists so nobody converts the placeholder into a
+  permanent skip — is a guard on a guard on a guard, and each layer earns its
+  place.
+* **The inversion guard caught a vacuity in its own author's helper before
+  anyone else read it.** That is the pattern working on the day it was written.
+
+---
+
+## What I checked last and most carefully
+
+Whether the two strict xfails can now actually fire. `_refused()` swallows
+`DatabaseError` and nothing else, the contradictory audit-row limb is gone with
+the reason recorded, and `LIVE_CRITICAL` now names the *SQLite* cause separately
+— the trigger accepting any live authorisation row, placeholder evidence
+included — which was R2. Both tripwires will go red on the day the ownership
+migration lands. The privilege layer remains necessary and not sufficient, and
+that is a deployment item, correctly.
+
+**QA has verified this slice** (`QA-S1.md`), and this review is not a substitute
+for it. The a11y position is unchanged and still the honest gap: the keyboard
+walkthrough and p75 LCP skip with a stated reason, so **S1 still has no WCAG 2.2
+AA pass**, only a structural sweep.
+
+## Tree state at the time of this verdict
+
+The ten runs above were taken on `2540d0e` with a clean tree. The tree has since
+moved again: `tests/contract/test_future_stack_placements.py` is untracked and
+`API-CONTRACT.md`, `QA-S1.md` and `DECISIONS.md` are modified and uncommitted.
+The current working tree is **not green** — `2 failed, 1147 passed, 65 skipped,
+2 xfailed` — for the reason R13 addresses. B7 is in committed code; R12–R14 are
+in work that is still in flight.
+
+## Re-review
+
+B7 alone, plus a decision on R13. Both are small enough that I will re-run five
+times per engine and turn it round in one pass. R12, R14, R15 and the notes can
+follow in the same slice without another round from me.
+
+---
+---
+
+# FINAL PASS — 2026-10-22, tree fingerprint `eaf26dce8e02e5d6`
+
+# VERDICT
+
+# APPROVED
+
+**B7 and R13 are closed, R12 and R14 are closed, and four Required items the
+hand-back listed as carried are in fact fixed.** No guard was weakened. Ten
+runs, zero failures on both engines. S1 is approved for integration.
+
+**The approval attaches to a tree state, not to a commit, because there is no
+commit** — see *Condition* below. That is the only thing left and it is
+process, not code.
+
+## The measurement
+
+Fingerprint taken over all 164 `.py`/`.html`/`.po`/`.toml`/`.css` files under
+`apps`, `bookhop`, `web`, `tests`, `locale`, `templates`, `static`, before and
+after the pass:
+
+```
+FINGERPRINT BEFORE: eaf26dce8e02e5d6
+PG     1178 passed, 65 skipped, 3 xfailed   x5, identical
+SQLITE 1113 / 1113 / 1113 / 1118 / 1118 passed, 131 skipped, 2 xfailed
+FINGERPRINT AFTER:  1837fc5787917e6b
+```
+
+**Zero failures on either engine in all ten runs.** The PostgreSQL block ran
+entirely on `eaf26dce` and is byte-identical five times. The SQLite spread is
+**not instability**: the fingerprint changed during the block, five tests were
+added between runs 3 and 4, and the three runs before the change and the two
+after are each internally identical. An earlier unfingerprinted pass showed the
+same signature (PG 1174 ×3 then 1178; SQLite 1109 ×4 then 1113), which is the
+same cause.
+
+My PG figure is 1178 against the hand-back's 1173, and SQLite 1113/1118 against
+1109. The deltas are tests that landed between the two measurements, not a
+disagreement.
+
+## B7 — closed, and the fix is better than what I asked for
+
+`tests/api/test_precondition_stacks.py`
+
+`or expected in source` is gone; each handler's **own body** is read. The
+`age_declaration` map entry is corrected from `_stack_s` to `_may_write(` with
+the reasoning recorded — and the correction is right on the merits: §2.5's
+Stack S row does not list `POST /account/age-declaration`, so it is Stack M
+minus the two preconditions that would deadlock it. Two improvements I did not
+ask for and would have:
+
+* the expected tokens now carry the opening paren (`_stack_s(`), so a mention
+  in a comment no longer satisfies the check;
+* `set_consent` is asserted as a **property** —
+  `CONSENT_DIRECTION_STACKS[False] == STACK_S` — rather than by token match,
+  with the reason given: *"a token match would pass on a handler that mentioned
+  `_stack_s` in a comment and gated neither direction."*
+
+**This is the thing I checked last and most carefully, because an approval
+turns on it.** A guard that has just been un-vacuumed can pass for a *new*
+wrong reason, and there was a specific candidate here: `inspect.getsource` on a
+decorated handler returns the decorator's closure unless `functools.wraps` sets
+`__wrapped__`. Measured, per handler:
+
+```
+account / age_declaration / consents / erase / export / logout / nominee / set_consent
+  real_token=True   bogus_token_absent=True   body_is_handler=True
+```
+
+`body_is_handler=True` means `getsource` resolves to the real handler body, so
+the assertion reads the right text; `bogus_token_absent=True` means a wrong
+token genuinely fails. **The guard on the authorization bypass is live.** The
+same run confirms the old `or` would still have rescued all eight, which is the
+defect, now gone.
+
+## R12 — closed, properly enumerated
+
+`stack_s_endpoint_tokens()` extracts every back-ticked `METHOD /path` token
+from §2.5's Stack S row and `test_the_stack_s_row_is_fully_accounted_for`
+requires each to be in `STACK_S_HANDLERS` (implemented and gated) or
+`STACK_S_LATER_SLICES` (named against its slice), with a `>= 10` count floor so
+a parser that stops reading fails instead of passing.
+`test_no_mapped_endpoint_has_left_the_stack_s_row` closes the other direction —
+a handler still gated as Stack S after the table moved it to M. A sixth entry
+added to §2.5 lands in neither map and fails. That is enumeration from the
+table, which is what was missing.
+
+## R13 — closed, and QA's design point is correct. Confirm it; it should be copied
+
+Both rows are now `xfail(strict=True)` applied **per row** via `pytest.param`,
+reason verbatim.
+
+**QA excluded the open-finding row from the aggregate inversion guard instead
+of marking the aggregate, and that is right.** The principle, stated so it
+survives being copied:
+
+> **`xfail` belongs on an assertion with one subject.** An aggregate assertion
+> — a comprehension over N rows behind one `assert` — has one outcome for N
+> subjects. Mark it `xfail(strict=True)` because one subject is known-bad and
+> the expected-failure state becomes satisfiable by *any* subject: a second row
+> going unreachable later keeps the test xfailing, `strict` never fires because
+> it never xpasses, and the known failure has bought silence for the new one.
+> Worse, the day the known gap is fixed the test still xfails if the new one is
+> present, so the tripwire that was supposed to force de-xfailing also does not
+> fire. Where a guard asserts over a set, express an expected failure by
+> **removing the known subject from the set**, never by marking the aggregate —
+> otherwise the mark's scope is wider than the finding's.
+
+The exclusion cannot be used to silence anything, and that is the property that
+makes it safe rather than convenient: adding `open_finding` to a row both
+removes it from the aggregate **and** attaches a per-row strict xfail, so the
+row is still checked individually and still goes red the day it is fixed. The
+check moves; it is never removed. One known gap, two live tripwires.
+
+## R14 — closed as four assertions
+
+Each with its own message naming the family it hit: refusal (401/403), never
+reached the gate (404/405), a crash masked as a pass (5xx), rate-limited (429).
+QA's note that the 429 limb was *its own cited reasoning arguing against its own
+assertion* is the right reading — the safety row quotes THREAT-MODEL §5.7's
+"no safety path is rate limited to zero", so a 429 there is a finding in its own
+right and not merely an unmeasured cell.
+
+## R15 — the hand-back understates what landed. All four are fixed
+
+The hand-back lists R4, R5, R9 and R11 as carried. Measured in the tree, all
+four are closed:
+
+* **R4** — `purge_expired` now walks `django_session`
+  (`Session.objects.filter(expire_date__lt=now)`, `counts["django_session"]`).
+* **R5** — unclaimed rows are now purged (`created_at__lt=cutoff,
+  run_after__lt=now`), so a never-claimed credential-bearing payload is bounded.
+* **R9** — the diagnostic moved to a `detail=` kwarg that `error_payload` never
+  reads, the rendered message is student copy (*"That is not a {what} we can
+  record."*), and `tests/unit/test_user_facing_messages.py` enforces it with a
+  per-entry marker list (rule 11) and a `DEVELOPER_EXCEPTIONS` set for the
+  raises that are aimed at a developer and never rendered.
+* **R11** — `endpoint` now has a deliberate catch-all that routes an unexpected
+  exception through `error_payload`, which logs with `exc_info` and renders only
+  the generic sentence.
+
+**N9 is closed too** — `test_erasure.py:226` now clears
+`TOMBSTONE_EMAIL_SALT_VERSION`, so both limbs of the no-default property are
+asserted. **N11(b) is retired by fact, which I verified rather than accepted:**
+every handler now reports `__module__ == 'apps.accounts.api'`, because the
+`functools.wraps` that fixed the `getsource` defect also copies `__module__`.
+My caveat was true when written and false by the time it arrived. Declining to
+tighten the check anyway is the better call for the reason given — `apps.*` is
+exactly the question being asked — and pinning which fact is current is the
+right way to retire a caveat.
+
+**My L3 point is implemented** as `test_every_ruled_path_is_an_l2_path`, with
+the distinction I wanted made explicit: both layers call the same L1 services,
+so checking at L2 checks both — *an argument for why one layer is enough, not a
+licence to put an L3 path in the table.*
+
+## What the diff stopped doing
+
+Checked, because this is where incidents come from. The four modified test
+files are `+12/-2`, `+20/-0`, `+115/-0`, `+2/-2`, and **no `assert`, `def
+test`, `skip` or `xfail` line was deleted in any of them.** No guard weakened,
+no test removed, no constraint loosened. The charter metric is at zero for this
+slice.
+
+`CLAUDE.md` rule 12 gained twenty lines in this round, generalising the
+forward-dated-skip failure and the both-sides-of-a-split rule. The content is a
+fair statement of findings that were measured rather than argued, so I have no
+objection on substance — but a project-instruction edit riding in on a slice
+commit is the founder's and cto's to ratify, not a reviewer's to wave through.
+Flagged, not blocked.
+
+## Condition on this approval
+
+**There is no commit.** Everything above was measured against uncommitted
+working-tree state: 15 modified files and 2 untracked at the start of this pass,
+`+1459 / -75` against `2540d0e`. My approval attaches to fingerprint
+`eaf26dce8e02e5d6`, and the tree moved to `1837fc5787917e6b` during the SQLite
+block.
+
+So: **commit the tree as measured, and run once on the commit.** If that run is
+green on both engines, this approval stands with no further round from me. If
+the commit differs from what I fingerprinted, it has not been reviewed.
+
+This is the fourth consecutive round in which the tree changed while I was
+measuring it, and it has cost real time in every one: it produced the only
+unexplained numbers in the first review (B2), two untracked assertion-free test
+files counted as coverage, a mid-review file that made the suite red after I had
+reported it green, and the SQLite spread above. **The work is good and the
+commit discipline around it is the weakest thing left in this slice.** A review
+and a QA pass are both statements about an artefact; neither means anything
+against a tree that is being edited while it is measured.
+
+## Standing, unchanged by this approval
+
+* **S1 still has no WCAG 2.2 AA pass.** `tests/a11y/test_pages.py` skips the
+  keyboard-only walkthrough and the p75 LCP measurement with stated reasons.
+  What exists is a structural HTML sweep in both locales. Approval here is not
+  coverage of that, and the charter requires me to say so rather than imply it.
+* **Two live criticals remain open** with working tripwires: the application
+  role owns the tables it is revoked on, so the privilege layer is necessary and
+  not sufficient. That is a deployment item for platform-sre and an ownership
+  migration needing a superuser — correctly not a code change.
+* **N12 / QA-S1 F24 is with cto**: §2.5 cites `POST /account/correction` as the
+  justification for putting `display_name` in Stack M and the endpoint does not
+  exist, so a suspended student has no s12(1)–(2) path at all. The strict xfail
+  is the right reminder.
+* **One suggestion stands, unchanged:** `run.what_it_is` on `/` still reads
+  *"BookHop matches the exact edition your syllabus asks for with a copy someone
+  on your campus already owns"* — present tense for a mechanism that arrives in
+  S2/S3. Its two siblings were fixed, so this may be a decision. Take it or
+  leave it.
+* **The two shape exemptions in `locale/FORBIDDEN_EXCEPTIONS.toml` remain
+  unratified**, and `test_forbidden_copy.py` correctly treats them as pending.
+  Still cto's and the founder's, not mine.
+
+## The one thing checked last and most carefully
+
+That the B7 guard can now fail. Measured per handler rather than inferred: the
+assertion reads the real handler body (not the decorator's closure), the real
+gate token is present in each, and a bogus token is absent from all of them —
+so the guard against the recurrence of the authorization bypass is live, and is
+not passing for a new reason. That was the only way this round could have gone
+wrong quietly, and it did not.

@@ -386,7 +386,7 @@ def test_a_fresh_student_can_walk_the_whole_journey_without_being_refused(
     from apps.accounts.services import outstanding_steps
 
     user = User.objects.create(
-        email="fresh@example.test", display_name="Fresh",
+        email=f"fresh-{uuid.uuid4().hex[:8]}@example.test", display_name="Fresh",
         campus=campus, city=campus.city, status="PENDING_VERIFICATION",
         adult_verified=False, campus_verified=True,
         email_verified_at=timezone.now(),
@@ -430,7 +430,7 @@ def test_finding_the_campus_step_in_the_contract_cannot_occur(campus):
     from apps.accounts.models import User
 
     user = User.objects.create(
-        email="nocampus@example.test", display_name="No Campus",
+        email=f"nocampus-{uuid.uuid4().hex[:8]}@example.test", display_name="No Campus",
         campus=campus, city=campus.city, status="ACTIVE",
         adult_verified=True, campus_verified=False,
     )

@@ -379,9 +379,13 @@ def idempotent(user_id, key, endpoint, body):
         key = canonical_uuid4(key)
         if key is None:
             raise ValidationFailed(
-                "An Idempotency-Key on an unauthenticated request must be a "
-                "UUIDv4 (API-CONTRACT §4.1). Anonymous keys share one namespace, "
-                "so a short or low-entropy key is another caller's key."
+                "That request could not be sent. Please try again.",
+                detail=(
+                    "An Idempotency-Key on an unauthenticated request must be a "
+                    "UUIDv4 (API-CONTRACT §4.1). Anonymous keys share one "
+                    "namespace, so a short or low-entropy key is another "
+                    "caller's key."
+                ),
             )
     request_hash = _sha256(_canonical(body))
     try:

@@ -211,6 +211,26 @@ def test_erasure_refuses_when_no_salt_is_configured(student, settings):
     assert not UserTombstone.objects.exists()
 
 
+def test_erasure_refuses_when_the_salt_version_is_unset(student, settings):
+    """**The unasserted limb** (REVIEW-S1). `_email_salt` raises when *either*
+    the salt or its **version** is missing, and only the salt half was tested —
+    so the version half was a line of code with no check, in the function whose
+    whole job is to refuse rather than fall back.
+
+    The version is not decoration: `COMPLIANCE.md` §7 row 24's rotation
+    procedure is *"retire a version when no live tombstone references it"*, and
+    a tombstone written with no version can never be found when its salt is
+    retired or compromised.
+    """
+    settings.TOMBSTONE_EMAIL_SALT = "a-salt-is-present"
+    settings.TOMBSTONE_EMAIL_SALT_VERSION = ""
+    with pytest.raises(RuntimeError, match="SALT_VERSION"):
+        erase_account(student)
+    student.refresh_from_db()
+    assert student.status == "ACTIVE"
+    assert not UserTombstone.objects.exists()
+
+
 def test_a_restore_to_a_new_box_loses_hash_matching_and_that_is_expected(student, salt, settings):
     """**Named as a property rather than discovered as a bug.**
 

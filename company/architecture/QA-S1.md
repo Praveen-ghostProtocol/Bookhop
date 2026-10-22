@@ -332,15 +332,243 @@ uniform, entirely wrong results.
 
 ---
 
+## 4b. Three ruled placements, asserted four slices before they can be built
+
+Backend named the right next thing: three authorization placements are **ruled
+in §2.5 and cannot be implemented until S5 and S6**, and the reasoning is in a
+comment. *"By S5 the comment will be four slices old and the person
+implementing it will be reading the table, not the reasoning. That is the same
+gap that produced the nominee error, one slice later and with a safety report
+on the other end of it."*
+
+`tests/contract/test_future_stack_placements.py` writes each ruling as an
+assertion that **skips while its app does not exist and runs the day it is
+mounted** — the shape the erasure assertions already use. Seven rows, each
+carrying the contract's own words for *why*, because the why is what decides
+the next ambiguous case and it is the part that gets lost:
+
+| Ruling | Stack | Slice |
+|---|---|---|
+| `POST /reports`, `SAFETY_INCIDENT` and `NCII_OR_IMPERSONATION` | **S** | S6 |
+| `POST /reports`, any other category | **M** | S6 |
+| `POST /support/tickets/{id}/replies` — the appeal channel | **S** | S5 |
+| `POST /support/tickets` — opening a fresh queue item | **M** | S5 |
+| `POST /grievances` | **S** | S6 |
+| `POST /account/correction` (s12(1)–(2)) | **S** | unassigned — **F24** |
+
+Both sides of each split are rows, asserted by
+`test_both_sides_of_each_split_endpoint_are_covered`, because a split endpoint
+checked on one side only is the nominee error again — and §2.5 splits
+`POST /reports` by **category**, which is the same field-dependent shape that
+already went wrong once on `PATCH /account`.
+
+**The failure mode of a forward-dated skip, and how it is closed.** A skip like
+this can skip *forever*: if the endpoint ships at a path the test did not
+predict, nothing runs, the endpoint ships in whichever stack somebody chose,
+and the guard was theatre with a four-slice fuse.
+`test_every_ruled_endpoint_is_reachable_once_its_app_exists` inverts it — once
+the owning app is **installed**, a ruled path that does not resolve is a
+**failure**. The skip is only legitimate while the app itself is absent.
+
+That guard immediately earned itself twice:
+
+* it caught **a bug in QA's own helper**: `resolve()` matches everything,
+  because `web/urls.py` ends in a catch-all `^.*$` for the 404 page. The naive
+  check returned True for every path, so every assertion in the file would have
+  passed vacuously the moment its app was installed. The check now requires the
+  match to come from an `apps.*` urlconf.
+* and then it found **F24**.
+
+### F24 · `POST /account/correction` is named twice in §2.5 and does not exist
+
+§2.5 lists it in the Stack S row with its citation, `(s12(1)–(2))`. It then
+uses it a second time, as **the justification for putting `display_name` in
+Stack M**: *"The right is satisfied by `POST /account/correction`, which is in
+S, staff-reviewed and logged."*
+
+Measured: no such route in `apps/accounts/urls.py`, no handler in `api.py`, and
+no slice in `TASKS.md` assigns it.
+
+So today a suspended student **cannot change their display name** — Stack M
+refuses, correctly and deliberately — and **cannot use the correction route
+either**, because it is not built. The statutory right the contract points at
+to make that restriction defensible has no path at all. This is `CLAUDE.md`
+rule 9's shape exactly: a document naming a control as the reason another
+control is acceptable, with nothing asserting the first one exists.
+
+Not blocking S1 — the restriction it justifies is itself correct, and the gap
+is a missing right rather than a wrong grant. But **§2.5's `display_name`
+reasoning should not be quoted as satisfied until the endpoint exists**, and
+the endpoint needs a slice. The two failing tests are the standing reminder.
+
+### Also forward-dated: the two §2.5 preconditions S1 cannot exercise
+
+Preconditions **6** (scope → `404`) and **7** (the discovery gate → `403
+GATE_CLOSED`) have no subject in S1, because every S1 endpoint is about the
+caller's own account. They are the two most likely to be forgotten by the first
+endpoint that needs them and the two with the largest consequences — one leaks
+the catalogue, the other is the gate. Recorded as skips naming the precondition
+verbatim, and the placeholder **fails rather than skips** once `apps.listings`
+exists, with a test asserting that the `pytest.fail` branch is still there so
+nobody converts it into a permanent skip.
+
+---
+
+### 4b.1 Converted to strict xfail, and the guard kept its teeth
+
+Code review is right that a permanently red suite is the wrong mechanism for a
+correct finding: **every later run carries a known failure and the only way to
+tell a new one is to read the names**, which is how a real failure gets waved
+through — and this project has already paid for failures landing on tests that
+did not cause them (QA-S1 F20). `xfail(strict=True)` has the semantics the
+finding wants: quiet while the gap is open, **red the day it closes**.
+
+Both reds are converted, reason text verbatim. One design point QA added while
+doing it: the inversion guard **excludes rows with an open finding** rather
+than being xfailed itself. If the known gap sat inside it, the whole guard
+would be an expected failure and a *second* row going unreachable later would
+be absorbed into it — a known failure buying silence for the next one, which is
+the exact thing the conversion was meant to prevent. One known gap, one xfail;
+the guard still fails on anything new.
+
+**The Stack S assertion is tightened** as review asked. The claim is about the
+gate, so any response proving the actor reached the handler answers it —
+including a `400` for a body QA could not predict four slices early. But four
+families prove nothing: `401`/`403` is the refusal itself; **`404`/`405` mean
+the request never reached the gate**, so the cell is unmeasured rather than
+passing; **5xx would mask a crash inside the gate as a pass**; and **`429`
+leaves the gate's answer unobservable — and on a safety row it contradicts the
+very rule that row cites**, THREAT-MODEL §5.7, that no safety path is rate
+limited to zero. Each is a separate assertion with its own message, so a cell
+says which of the four it hit.
+
+### 4b.2 Two caveats for anyone reusing the pattern — one encoded, one retired
+
+* **It cannot serve an L3 path.** `_route_exists` defines existence as
+  "handled by an `apps.*` module", which is true of L2 and false of `web/**` by
+  design — so an L3 row would skip forever and assert nothing, reopening the
+  failure mode the inversion guard closes. Now asserted: every ruled path must
+  start with `/api/v1/`. Checking at L2 is enough because both layers call the
+  same L1 services, but that is a reason one layer suffices, not a licence to
+  list an L3 path.
+* **Review's second caveat was already out of date, and QA measured it rather
+  than recording it.** The warning was that `@endpoint` returns a closure, so
+  every handler reports `apps.core.api` and tightening the module check to the
+  owning app would break every row. Measured now: `/api/v1/account/export`
+  reports **`apps.accounts.api`**. The `functools.wraps` that fixed the
+  `inspect.getsource` defect also copies `__module__` — **one change retired
+  two caveats**. The check is still not tightened, for a different reason:
+  `apps.*` is exactly the question being asked (did this reach a real L2
+  handler, or fall into `web/urls.py`'s catch-all `^.*$`?), and tightening adds
+  a second thing to keep in step per row for no extra discrimination. The test
+  now records which of the two facts is current, and fails if `wraps` is ever
+  removed — which would also mean `inspect.getsource` is reading the decorator
+  again.
+
+**QA's trees: 492 passed, 38 skipped, 1 xfailed, 0 failed.** Full suite, two
+consecutive runs: `1158 passed, 65 skipped, 3 xfailed`.
+
+---
+
+### 4b.3 F21 closed, F20 instrumented, and one thing the recount surfaced
+
+**F21 is closed, verified rather than relayed.** `tests/e2e/` holds ten files
+and no probes; the transient files are gone and review's own probes were never
+in that tree. The `--ignore-glob` is dropped and the numbers in this report
+need no caveat: **PostgreSQL `1174 passed, 65 skipped, 3 xfailed`, zero
+failures.**
+
+**One correction to the recount, and it is not about probes.** Five of those
+ten files are not QA's: `test_deletion.py`, `test_first_run_journey.py`,
+`test_no_dob_independently.py`, `test_erasure_sessions.py` and
+`_weird_serializer.py`. Three of them are, by name, the deliverables
+`TASKS.md` §3 and `DATA-MODEL.md` §10.3 assign to test-qa — and §10.3 assigns
+`tests/e2e/test_deletion.py` to test-qa **"and written independently"**, which
+is the one property the file now cannot have, because the implementer wrote it.
+
+QA read it rather than objecting to it, and **the content is sound**: it
+asserts (b) the pseudonym survives and (c) the record cannot be relinked, adds
+the retention floor and the point-of-no-return disclosure, and defers (a), (d),
+(e) and (g) — which need `transfers`, `reports` and `threads` — with a test
+asserting the deferred ones are *skipped and not silently absent*. That is QA's
+own pattern, used correctly. **No rework is needed and none is proposed.** What
+is lost is independence, not coverage, and the ledger should say so rather than
+record a QA deliverable as met: the agent that wrote the deletion code wrote
+the test that says deletion works.
+
+**F20 is now instrumented** — `tests/contract/test_test_database_is_current.py`.
+A stale reused database does not fail where it is stale: teardown flushes a
+table it does not have, leaves rows committed, and the failures surface on
+whichever test next reads global state, which in this schema is the audit chain
+because it is one linked list across the whole table. Three checks now make the
+cause name itself — no unapplied migration, every managed model has its table,
+and every table `sql_flush` will enumerate exists — each failing with the
+`--create-db` advice and the F20 reference, so **one named failure replaces a
+scatter of unrelated ones.** The underlying cause is unchanged and belongs to
+whoever documents the test command; what QA can own is that it stops being a
+mystery, and that is done.
+
+---
+
+### 4b.4 The §10.3 independence gap — QA's answer, with evidence
+
+The ruling is **carry to S4**, and QA agrees with the timing. But QA will not
+agree on the strength of the evidence it had, because *"I read it and the
+content is sound"* is a reading, and the risk independence addresses is not
+sloppiness — it is a **shared blind spot**. A test written from the
+implementation inherits the implementation's misconceptions, and both are then
+wrong together in a way no amount of reading detects, because reading tells you
+a test is internally coherent, not that it is right.
+
+So QA converted the reading into a measurement, without touching the file:
+`tests/contract/test_erasure_properties_independently.py` re-derives from
+§10.1's table the properties checkable today, choosing the two where
+implementer and test are likeliest to share an assumption.
+
+* **§10.1 step 7's "untouched" list.** The direction a deletion feature gets
+  wrong, because every instinct in "delete my account" pulls towards deleting
+  more — and what must survive is precisely the record that the deletion was
+  lawful. The `consents` ledger, the audit rows and the erasure's own audit row
+  all survive. **Pass.**
+* **The salt's location.** §10.1's re-identification claim rests on a secret
+  *"not stored in the database"*, which is a property of deployment rather than
+  of code and is exactly what a test written beside the code assumes, because
+  from inside the process the secret is simply there. Checked the way an
+  attacker with a dump would: the hash is not the plain digest of the address,
+  and the secret is not in the tombstone row. **Pass.**
+* Plus step 2's identity-gone/pseudonym-unchanged pair, §10.1a layer 2 against
+  a **brand-new** session planted after erasure (so layer 1 cannot be what
+  refuses it), and §10.1a's WARNING that layer 2 must refuse `TOMBSTONED` only
+  and never `SUSPENDED`. **All pass.**
+
+**Five independent derivations, five agreements.** So the deferral is safe, and
+QA can now say so with a measurement rather than with a reading. **QA does not
+ask for the rewrite today**, and the reason is better than "it would cost a
+slice": the four deferred §10.3 assertions gain their subjects in S4, the file
+is rewritten then regardless, and **independence arriving with the coverage is
+worth more than independence arriving on its own** — a rewrite now would
+produce a second file asserting the same three live properties this one already
+asserts, by a different hand, and change nothing a regulator could read.
+
+**One condition QA does attach, and it is the whole of its disagreement:**
+*independence deferred is not independence waived.* The gap is recorded against
+§10.3, carried to S4 with its reason, and named in the go/no-go packet — and
+the five derivations above are what makes the carry defensible rather than
+merely convenient. Without them the ledger would be recording a gap it had not
+measured.
+
+---
+
 ## 5. Findings
 
 | # | Finding | Status | Owner |
 |---|---|---|---|
-| **F23** | `POST /account/nominee` is Stack S in §2.5's table and Stack M in the code, so a suspended or unverified student cannot exercise their s14 nomination (§4a) | **OPEN** — QA's four failing cells | backend, S1 |
+| **F24** | *(now `xfail(strict=True)`, red the day it is built)* `POST /account/correction` is named twice in §2.5 — in the Stack S row and as the justification for `display_name` being in Stack M — and does not exist in any slice (§4b) | **OPEN** — QA's two failing tests | cto to assign a slice |
+| ~~F23~~ | `POST /account/nominee` was Stack M where §2.5's table puts it in S. **Closed by backend**; QA's four cells now pass, and backend's own control now parses the Stack table out of the markdown, so the derivation-from-contract method is permanent rather than a thing QA did once | closed | — |
 | ~~F19~~ | **WITHDRAWN.** QA's blocker test lived in a module declaring `pytestmark = pytest.mark.django_db`, so it had database access by its own file's declaration and its premise was false. Backend's verbatim-copy experiment settled it: `1 failed, 1 passed`, one line of difference. Two of the three wrong claims about the mechanism were QA's and one reached the founder as fact. The blocker works; the test now lives in `tests/contract/test_db_blocker_is_wired.py`, which declares no marker and guards that it never acquires one | withdrawn | — |
 
-| **F20** | A stale reused test database produces up to 14 phantom failures and 15 teardown errors, landing on audit-chain tests rather than near the cause. Any migration invalidates it | **OPEN**, operational | backend / whoever documents the test command |
-| **F21** | Four foreign files in `tests/e2e/**`, one of them broken; the author has no tree in `TASKS.md` §1 | **OPEN** | cto ruling |
+| **F20** | *(now self-identifying — see §4b.3)* A stale reused test database produces up to 14 phantom failures and 15 teardown errors, landing on audit-chain tests rather than near the cause. Any migration invalidates it | **OPEN**, operational | backend / whoever documents the test command |
+| ~~F21~~ | Foreign probe files in `tests/e2e/**`. **CLOSED** — verified by listing the tree: ten files, no probes, all tracked. Superseded by a different observation in §4b.3: three of QA's named S1 deliverables in that tree were written by the implementer, so `DATA-MODEL.md` §10.3's *"written independently"* is not satisfied. Content sound; independence is what is missing | closed / noted | ledger |
 | F14, B2 | Carried unchanged from `QA-S0.md` v5.0 §7 | record / by agreement | — |
 | F11, F13, F15, F17 | **CLOSED this pass** — all four were characterisation tests that now fail because the defect is fixed, and all four are converted to regressions named for the finding | closed | — |
 

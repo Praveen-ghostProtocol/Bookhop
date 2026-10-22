@@ -320,6 +320,16 @@ survives, is pseudonymous, and cannot be relinked.
 > framed it** — the run's value was the two defects it found, both in the seven
 > items reading could not reach.
 
+**`POST /account/correction` lands here (QA F24).** s12(1)–(2), Stack S, a
+`CORRECTION` data-subject request on the 7-day clock, staff-reviewed and
+logged, plus the staff decision screen. **It is the justification for keeping
+`display_name` in Stack M, and that justification is currently unbuilt** —
+`API-CONTRACT.md` §2.5 forbids quoting the reasoning as satisfied until the
+conformance test is green, and **QA's two red tests are the correct state and
+must not be skipped.** S2 is the right slice on the merits: `display_name` is
+visible to nobody but its owner until listings exist, **so the restriction
+only starts costing a student anything in S2.**
+
 **Also landing here, from S1 (2026-10-22):** the **Django admin** — backend
 deferred it from S1 and that is right, because the moderation queue it exists
 for is an S2 surface and an admin with no models to moderate is scaffolding.

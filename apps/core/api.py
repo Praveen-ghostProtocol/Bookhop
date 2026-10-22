@@ -192,6 +192,19 @@ def endpoint(*, methods, idempotent_write=None, actor=None):
                 return response
             except ServiceError as exc:
                 return error_response(exc, request_id=request_id)
+            except Exception as exc:  # noqa: BLE001 - deliberate catch-all
+                # **REVIEW-S1 R11.** Without this an unexpected exception
+                # escapes to Django's own handler, and the student gets a page
+                # that is not §2.2's shape, carries no `request_id`, and — with
+                # DEBUG on anywhere — carries a traceback. §2.2 is explicit that
+                # a 500 *"never echoes an exception message; the `request_id` is
+                # the only thing the user gets, and it is enough to find the
+                # log."* That promise needs something to keep it.
+                #
+                # `error_payload` logs the real exception with `exc_info` and
+                # renders only the generic sentence, so nothing is lost from the
+                # operator's side and nothing leaks to the student's.
+                return error_response(ServiceError(str(exc)), request_id=request_id)
 
         # `functools.wraps` rather than copying two attributes by hand: it
         # also sets `__wrapped__`, which is what makes `inspect.getsource`

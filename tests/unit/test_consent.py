@@ -156,8 +156,18 @@ def test_withdrawing_a_purpose_never_granted_is_a_no_op(student):
 
 
 def test_an_unknown_purpose_is_refused(student, privacy_notice):
-    with pytest.raises(ValidationFailed, match="six consent purposes"):
+    # Asserted on the **code** and the developer `detail`, not on the student
+    # message: REVIEW-S1 R9 moved document references out of rendered copy, so
+    # a test matching "DATA-MODEL §2" in `message` would be asserting the
+    # defect. The citation still exists, in the place a developer reads.
+    with pytest.raises(ValidationFailed, match="not one of the permissions"):
         grant_consent(student, "payments", privacy_notice, "SIGNUP_FORM", None, "pytest")
+    with pytest.raises(ValidationFailed) as refusal:
+        grant_consent(student, "payments", privacy_notice, "SIGNUP_FORM", None, "pytest")
+    assert "six consent purposes" in refusal.value.context["detail"], (
+        "the citation left the exception entirely; it belongs in `detail`, "
+        "which is logged and not rendered"
+    )
     with pytest.raises(ValidationFailed):
         withdraw_consent(student, "service_improvement", "SETTINGS_TOGGLE", None, "pytest")
 
@@ -166,7 +176,7 @@ def test_a_grant_with_no_notice_version_is_refused(pending_student):
     """AC-A3.3: the screen names *"the exact `notice_versions` version the
     student is agreeing to"*. A consent row with no version cannot answer
     §8.1's question, so it is refused rather than written with a NULL."""
-    with pytest.raises(ValidationFailed, match="notice version"):
+    with pytest.raises(ValidationFailed, match="cannot record that"):
         grant_consent(pending_student, "account", None, "SIGNUP_FORM", None, "pytest")
 
 

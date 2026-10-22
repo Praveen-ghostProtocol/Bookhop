@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from apps.accounts.models import EmailLoginToken, PersonalDataAccessLog, UserTombstone
 from apps.accounts.services import (
+    JOB_RETENTION,
     PURGE_SKIP_LIST,
     RETENTION_FLOOR,
     TOKEN_PURGE_AFTER,
@@ -247,4 +248,118 @@ def test_no_skip_listed_table_is_purged(student, staff, salt):
     purged_tables = set(PurgeLog.objects.values_list("table_name", flat=True))
     assert purged_tables.isdisjoint(PURGE_SKIP_LIST), (
         f"the purge touched a skip-listed table: {purged_tables & set(PURGE_SKIP_LIST)}"
+    )
+
+
+# --- REVIEW-S1 R4 and R5: the two rows the purge did not reach ------------
+
+
+def test_a_job_never_claimed_is_purged(student):
+    """**REVIEW-S1 R5.** The selection was on `completed_at`/`failed_at`, so a
+    job **never claimed at all** had neither and was never purged — while also
+    never having been redacted by `run_pending_jobs`, which only redacts on
+    finish. So the one row the first layer provably missed was the one row the
+    second layer also missed, and `purge_expired`'s own comment called itself
+    the second layer.
+
+    This is the credential case: an `accounts.send_magic_link` whose runner
+    never ran keeps a live sign-in token in `jobs.payload` forever.
+    """
+    abandoned = Job.objects.create(
+        kind="accounts.send_magic_link",
+        payload={"token": "a-real-looking-token-value", "token_id": 1},
+        created_at=timezone.now() - JOB_RETENTION - timedelta(days=1),
+        run_after=timezone.now() - JOB_RETENTION - timedelta(days=1),
+    )
+    counts = purge_expired(job_run_id="r")
+
+    assert counts["jobs"] >= 1
+    assert not Job.objects.filter(id=abandoned.id).exists()
+    assert PurgeLog.objects.filter(table_name="jobs").exists()
+
+
+def test_a_job_scheduled_for_the_future_is_not_purged(student):
+    """The narrowness that makes the rule safe. `retention.purge` reschedules
+    itself a day ahead, so a rule that deleted unfinished rows by age alone
+    would **delete the job that does the deleting** and the purge would never
+    run again."""
+    scheduled = Job.objects.create(
+        kind="retention.purge", payload={"reschedule": True},
+        created_at=timezone.now() - JOB_RETENTION - timedelta(days=1),
+        run_after=timezone.now() + timedelta(hours=12),
+    )
+    purge_expired()
+    assert Job.objects.filter(id=scheduled.id).exists(), (
+        "a future-scheduled job was deleted; if that job is retention.purge "
+        "itself, retention stops permanently"
+    )
+
+
+def test_a_recently_abandoned_job_is_left_for_the_runner(student):
+    """Overdue by a minute is a slow runner, not residue."""
+    recent = Job.objects.create(
+        kind="core.noop", payload={}, run_after=timezone.now() - timedelta(minutes=10)
+    )
+    purge_expired()
+    assert Job.objects.filter(id=recent.id).exists()
+
+
+def test_purging_abandoned_work_is_logged_rather_than_silent(student, security_log, caplog):
+    """Deleting unrun work is not routine. A growing count here means the
+    runner is not running, which is a different incident from a retention
+    sweep and must not look like one."""
+    import logging
+
+    Job.objects.create(
+        kind="accounts.send_magic_link", payload={"token": "x" * 24},
+        created_at=timezone.now() - JOB_RETENTION - timedelta(days=1),
+        run_after=timezone.now() - JOB_RETENTION - timedelta(days=1),
+    )
+    with caplog.at_level(logging.WARNING, logger="bookhop.security"):
+        purge_expired()
+    assert any(
+        record.getMessage() == "retention.abandoned_jobs_purged" for record in security_log
+    ), "abandoned work was deleted with no signal"
+
+
+def test_expired_sessions_are_purged(student, client):
+    """**REVIEW-S1 R4.** `django_session` had no retention row, no rule and no
+    purge path: nothing called `clearsessions` and this job did not walk it.
+
+    A session row holds `_bookhop_user_id`, so the table is an un-purged record
+    of who was signed in — and `erase_account` scans it, which means every
+    un-purged row also makes erasure slower.
+    """
+    from django.contrib.sessions.models import Session
+
+    from apps.accounts.sessions import SESSION_USER_KEY
+
+    session = client.session
+    session[SESSION_USER_KEY] = student.id
+    session.save()
+    live_key = session.session_key
+
+    Session.objects.filter(session_key=live_key).update(
+        expire_date=timezone.now() - timedelta(days=1)
+    )
+    counts = purge_expired(job_run_id="r")
+
+    assert counts["django_session"] == 1
+    assert not Session.objects.filter(session_key=live_key).exists()
+    assert PurgeLog.objects.filter(table_name="django_session").count() == 1
+
+
+def test_a_live_session_is_not_purged(student, client):
+    from django.contrib.sessions.models import Session
+
+    from apps.accounts.sessions import SESSION_USER_KEY
+
+    session = client.session
+    session[SESSION_USER_KEY] = student.id
+    session.save()
+
+    purge_expired()
+    assert Session.objects.filter(session_key=session.session_key).exists(), (
+        "a live session was purged; every signed-in student would be signed out "
+        "by the nightly job"
     )

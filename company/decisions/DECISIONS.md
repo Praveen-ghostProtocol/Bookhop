@@ -3356,3 +3356,517 @@ zero, now agreed from both sides.**
 
 **F21 has resolved itself** — the stray probe files are gone; only QA's own
 helper remains. **F20 and F18 stay open and non-blocking.**
+
+---
+
+## D-051 — S1 green on both engines, zero spread. Committed 2540d0e
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** PostgreSQL `1144 passed, 57 skipped, 2 xfailed` twice
+identical; SQLite `1079 passed, 123 skipped, 1 xfailed`. Zero failures.
+
+### Backend closed the nominee finding by building QA's method into its own tree
+It rewrote the comment that had recorded the correction in the wrong
+direction — **which would have misled the next reader harder than no comment
+at all** — and then wrote a test that **parses §2.5's Stack table out of the
+markdown** and asserts each listed endpoint calls the Stack S gate, with a
+vacuity guard on the parser.
+
+Its own statement of the lesson, which is the durable part: **"A test written
+from the implementation cannot discover that the implementation read the wrong
+document."** Its tests had agreed with the code through **both** wrong
+placements — the original inference and the over-correction.
+
+**Fixing it surfaced a second defect:** `inspect.getsource` on a decorated
+handler returned the **decorator's wrapper**, so a body-reading test had been
+comparing the decorator against itself for every endpoint.
+
+### Reading the table properly found two more things it had not done
+**Logout had no gate at all** — and refusing it would leave a suspended
+student holding a live session they cannot end, **the opposite of every reason
+suspension exists.** And the suspended response said only "no", which the
+contract calls *the failure this amendment exists to prevent*; it now names
+the four open doors, **derived from stack membership rather than retyped, so a
+route moving between stacks cannot leave the sentence describing the old
+one** — and asserted end to end, because a message living in a constant and
+never reaching a response is the exact shape the missing authorization check
+had.
+
+### Both splits are data, not branches
+Profile by field, consent by direction — **because an authorization decision
+behind a boolean is the shape this slice has been bitten by twice.** And the
+reading of "as easy as granting" is mechanism parity, not shared
+authorization: **the other reading would make the easier direction the one
+that unlocks things.**
+
+### Two defects in backend's own code that QA's matrix found
+An age guard that **conflated "already declared" with "not new"**, so a
+student who reached active status by another route could **never become
+adult-verified at all**. And an invalid enum reaching the database as a 500 —
+rule 18, the constraint guaranteeing the stored state while nothing detected
+the bad input.
+
+### The forward-looking item, acted on now rather than in four slices
+**Three ruled placements cannot be implemented yet** — safety reports, ticket
+reply versus ticket open, and display name — because their tables are S5 and
+S6. Backend's framing: *by S5 the comment will be four slices old and the
+person implementing it will be reading the table, not the reasoning. That is
+the same gap that produced the nominee error, one slice later and with a
+safety report on the other end of it.*
+
+**Routed to QA to pre-register as parametrised skips derived from the contract
+table, which turn red the day the model appears** — the pattern it already
+uses for the erasure assertions, and the one shape that survives four slices
+of forgetting.
+
+**Still open and non-blocking:** the privilege layer is necessary and not
+sufficient (needs a superuser), the append-only-versus-retention contradiction
+awaits its migration, and nothing is deployed, no backup restored, no CI.
+
+---
+
+## D-052 — A right cited as satisfied has no endpoint; the guard found it on day one
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording test-qa
+**Suite:** `2 failed, 1147 passed, 65 skipped, 2 xfailed`, identical twice.
+**Both failures are the new finding and should stay red.**
+
+### F24 — rule 9 one level up
+**`POST /account/correction` is named twice in §2.5 and does not exist.** The
+Stack S table lists it. And §2.5 then uses it a second time as **the
+justification for putting `display_name` in Stack M** — *"the right is
+satisfied by `POST /account/correction`, which is in S, staff-reviewed and
+logged."* No route, no handler, no slice.
+
+So a suspended student cannot change their display name — **correctly** — and
+**cannot use the correction route either, so that right has no path at all.**
+**A document naming a control as the reason another control is acceptable,
+with nothing asserting the first exists.** The restriction is right; its
+justification is unbuilt. Routed to the CTO for a slice, with the standing
+instruction that **§2.5's display-name reasoning must not be quoted as
+satisfied until the endpoint exists**, including in a go/no-go packet.
+
+### The forward-dated assertions, and the guard that makes them honest
+Seven rows, each skipping while its app is absent — **naming app, slice, and
+the contract's own words for why, because the why is what decides the next
+ambiguous case** — and running the day the route is mounted.
+
+**Both sides of every split are rows, and a test enforces that**, because the
+reports endpoint splits by **category** — the same field-dependent shape that
+already went wrong once, and **checking one side only is the nominee error
+again.**
+
+**The failure mode QA named and guarded:** a forward-dated skip can skip
+**forever** — the endpoint ships at an unpredicted path, nothing runs, it
+ships in the wrong stack, and the guard was **theatre with a four-slice
+fuse.** So it inverted the test: once the owning app is installed, a ruled
+path that does not resolve is a **failure**.
+
+**That guard earned itself immediately by catching a bug in QA's own helper:**
+`resolve()` matches everything, because the web urlconf ends in a catch-all
+for the 404 page — so **every assertion in the file would have passed
+vacuously the moment its app was installed.**
+
+### Two preconditions forward-dated for the same reason
+Scope-to-404 and gate-to-403, which S1 cannot exercise at all since every S1
+endpoint concerns the caller's own account. QA's reason for choosing those
+two: **the most likely to be forgotten by the first endpoint that needs them,
+and the two with the largest consequences — one leaks the catalogue, one is
+the gate.** The placeholder **fails rather than skips** once the listings app
+exists, **with a test asserting that failure branch still exists so nobody
+converts it into a permanent skip.**
+
+### Closed and noted
+**F21 has resolved itself** — the stray probe files are gone; only QA's own
+helper remains, now tracked. Code review asked to keep probes out of QA's
+tree, with its own row available for adversarial work. F23 closed, with
+backend's contract-parsing control now a permanent fixture in its tree —
+which QA judged **strictly better than its own version**, since it makes
+derivation-from-contract a control rather than something done once.
+
+**Still open and non-blocking:** the stale-test-database phantom failures, the
+privilege layer re-granted session-wide so the suite's default state is the
+weaker of the two layers, and §5.1's `needs` listing a campus step that cannot
+occur.
+
+---
+
+## D-053 — The correction endpoint gets S2; deleting a dead value found a live gap
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto
+
+### F24 — the gap closed in the right direction
+**The CTO did not close it by moving `display_name` to Stack S**, which would
+have traded a missing endpoint for **a live evasion vector — changing the name
+counterparties recognise after a safety report.** Its framing: **the placement
+is right, its justification is unbuilt, and those need different fixes.**
+
+Scheduled to S2 **on the merits rather than for convenience: a display name is
+visible to nobody but its owner until listings exist, so the restriction only
+starts costing a student anything in S2 — which is exactly when its
+justification has to be real.**
+
+One design note worth keeping: the correction request is **free text, not an
+enum of correctable fields**, because **an enum there would be a list where a
+judgement belongs.**
+
+**And the quoting prohibition is written into the contract itself rather than
+left to memory:** until the conformance test is green, the display-name
+reasoning may not be quoted as satisfied in a packet, an ADR or a report.
+QA's two red tests are marked **must-not-skip**.
+
+### F22 — deleting a dead value exposed something better than the finding
+The unreachable precondition is gone: a magic link is never sent to an
+unrecognised domain, **so consuming one proves the domain matched — the magic
+link *is* the campus evidence.**
+
+**The gap underneath it is the real result: a campus with empty
+`email_domains` has no student sign-in path at all.** The data model says such
+a campus means no self-service signup, with users staff-created — **but
+`request_magic_link` refuses their address too, so a staff-created user cannot
+sign in either.** The unreachable value was the only thing in the contract
+that looked like it addressed this.
+
+**Recorded, not fixed** — v1 is one campus with a working domain, and the
+trigger for reopening it is already named. **The point of writing it down is
+that the next person reading the staff-created path will otherwise assume a
+sign-in path exists for it.**
+
+### A fifth disguise added to rule 12, because it is one the rule did not reach
+Rule 12 covered a check that passes vacuously **now**. QA's pattern exposed a
+check that **has not started**, where *"not yet running"* and *"running and
+passing trivially"* are **indistinguishable from outside** — so a forward-dated
+skip can skip forever, **reading as coverage for the entire window in which the
+decision it encodes gets forgotten.**
+
+Adopted: **once the owning app exists, a ruled path that does not resolve is a
+failure, not a skip**, with a further test asserting that failure branch still
+exists.
+
+**And it earned itself on its first run by catching its own author's bug** — a
+path check that matched everything because the URL config ends in a catch-all,
+**which would have made every assertion in that file pass vacuously the moment
+its app was installed.** The CTO's observation, which I have put in the rule
+rather than the citation: **a guard-for-a-guard whose first catch is its own
+is the strongest evidence the construction is right.**
+
+Two rules promoted alongside it: **where a rule splits a set, both sides are
+rows and a test enforces it** — checking only the permitted side passes, and
+is how a wrong placement survives review. And **a guard for a guard is worth
+writing when the guard is forward-dated or silent.**
+
+### What carries into S2, with justifications already written
+The two-stack split, the correction endpoint, and a behavioural partner for
+every existing structural assertion. **The CTO's observation on the first two:
+they are the same defect seen from opposite ends — one was authorization
+applied too widely, the other a right with no route — and both were found by
+someone trying to build against the contract rather than by reading it.**
+
+---
+
+## D-054 — The guard against the bypass was itself vacuous, and already hiding a mismatch
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording code-review
+**Verified by review:** ten runs on `2540d0e`, **zero spread** — PostgreSQL
+1144 five times identical, SQLite 1079 five times identical.
+
+### B7 — three characters, and what they guard
+`assert expected in body or expected in source`, where `source` is the whole
+module — **so every expected token is present by definition and the
+per-handler check can never fail.** CEO-verified: the map says one gate for
+the age endpoint while the code calls the other. **The guard built to stop the
+authorization bypass recurring is silent, and is already silent about a live
+mismatch.**
+
+### The contract parser is sound; its enumeration is the same defect one level up
+The regex is correct, it fails loudly on a reformat, and the vacuity guard is
+real. **But the membership assertion is parametrized over a four-element
+literal typed into the test file** — validating four names the author chose
+rather than enumerating the table. **A fifth Stack S endpoint goes unnoticed,
+which is exactly the failure the file exists to prevent.**
+
+### A rebuke I am recording against myself
+Review marked four items **Required** in round one; they are neither fixed nor
+recorded as carried. Its words, passed on undiluted: ***"Required" means in
+this slice, and four of them quietly becoming notes is how a Required list
+stops being read.***
+
+That is an integrator failure, not a developer one. Two of the four matter on
+their own terms: **the session table has no retention row, no retention rule
+and no purge path**, and **the jobs purge selects only on completion
+timestamps, so a never-claimed row is never redacted — making the "second
+layer" comment in backend's own file false for exactly that row.**
+
+### R13 — the two reds become strict xfail
+The findings are right and the mechanism is wrong. **A permanently-failing
+suite means every run carries known failures, and the only way to tell a new
+one is to read the names** — which is how a real failure gets waved through,
+and this project has already paid for failures landing on tests that did not
+cause them. **Strict xfail is green while the gap is open and red the day it
+closes**, which is the semantics wanted.
+
+### The asymmetric assertion, sharpened
+**For Stack S the claim is about the gate — any non-gate response proves the
+actor got through. For Stack M it is about the outcome, where only the stated
+code proves the stated reason.** But the exclusion also accepted 405 (never
+routed), 5xx (**masking a crash inside the gate itself**) and 429 — **which
+contradicts the file's own cited reasoning that no safety path is rate-limited
+to zero.**
+
+### Three agents carried one wrong mechanism
+Review withdrew its B1 cause — *the blocker cannot block an already-connected
+alias* — which it had taken from QA and I had taken from both. **False.** Its
+disposition is the right one: the observation was correct, the cause was the
+stale test database, and **the fix is better than either, because the question
+now lives in a module that can honestly ask it, with a guard on the guard.**
+
+### A class this project had not named
+Review on the correction-endpoint finding: **a control that is load-bearing
+for a second control's acceptability.** Rule 9 at one remove. Already
+scheduled.
+
+**Re-review is B7 plus the R13 decision: one pass, five runs per engine, and
+review expects to approve.** S1 still has **no WCAG 2.2 AA pass** — the
+keyboard walkthrough and the performance percentile skip with a stated reason.
+
+---
+
+## D-055 — A mark must be as narrow as the gap it marks
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** PostgreSQL `1173 passed, 65 skipped, 3 xfailed`; SQLite
+`1109 passed, 131 skipped, 2 xfailed`. Zero failures on either.
+
+### B7 closed, verified line by line
+The vacuous `or` is gone, the map entry is corrected to the gate the code
+actually calls, and **the contract-table membership is now extracted into a
+set rather than parametrized over a typed literal** — so a fifth endpoint
+added to the contract is no longer invisible.
+
+### The design point that generalises past this file
+Converting the two reds to strict xfail, QA did **not** xfail the inversion
+guard itself. It **excludes rows with an open finding instead** — because had
+the known gap stayed inside the guard, **the whole guard would be an expected
+failure, and a second row going unreachable later would be absorbed into it.**
+
+Its framing, adopted: **a known failure buying silence for the next one is the
+exact thing the conversion was meant to prevent.** The general rule — **any
+time a known gap is marked, the mark must be as narrow as the gap, or it
+becomes a blanket.** Routed to review to confirm, because it is the part most
+likely to be copied without its reasoning.
+
+### A caveat that expired between being written and being read
+Review warned that the decorator's closure made every handler report the same
+module, so tightening a check would break every row. **Measured: false** — the
+`functools.wraps` that fixed the `getsource` defect also copies `__module__`,
+so **one change retired two caveats.** True when review read the code, false
+by the time it arrived.
+
+**QA declined to tighten the check anyway, for a better reason than the
+caveat**: `apps.*` is exactly the question being asked, and tightening adds a
+second thing to keep in step per row for no extra discrimination. It pinned
+which fact is current, so **one test now guards both.**
+
+### The assertion, as four assertions
+Each with its own message, so a cell reports which family it hit: refusal,
+never-reached-the-gate, **a crash masked as a pass**, or rate-limited. QA's
+note on the last: it was **its own cited reasoning arguing against its own
+assertion**, since the safety row quotes the rule that no safety path is
+rate-limited to zero.
+
+### F21 closed by measurement
+**There are no probe files in QA's tree.** I listed it: ten files, every one
+QA's own, all tracked. Transient during earlier passes; review's probes were
+never there. **QA can drop the ignore-glob its numbers have been carrying.**
+
+### The sentence this round is worth remembering for
+Three agents carried the wrong blocker mechanism, and **what settled it was
+not better reasoning but running the same test body twice with one line
+different.** QA counts **five instances this round where measuring beat
+reasoning** — which is the argument for pinning mechanism **tests** rather
+than mechanism **explanations**, and is now how this project resolves a
+disputed cause.
+
+**Carried and not fixed:** four Required items with backend, recorded as my
+failure in D-054. **S1 still has no WCAG 2.2 AA pass.** Final review pass
+running.
+
+---
+
+## D-056 — The deletion test's independence is lost; recorded, not papered over
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**Suite:** PostgreSQL `1178 passed, 65 skipped, 3 xfailed` twice identical;
+SQLite `1113 passed, 131 skipped, 2 xfailed`. Zero failures.
+
+### CEO correction — I inferred authorship from a directory listing
+Closing F21 I told QA all ten files in its tree were its own. **Five are not.**
+I read a listing, saw tracked files, and inferred who wrote them — **which a
+listing cannot tell you.** The same move I have spent the day correcting in
+others, made while closing a finding about that exact tree. F21 remains
+correctly closed; the claim attached to it was wrong.
+
+### The finding underneath it
+**DATA-MODEL §10.3 assigns the deletion end-to-end test to test-qa "and
+written independently". The implementer wrote it.** QA read it rather than
+objecting: the content is sound, the properties that need later tables are
+**skipped rather than silently absent**, and **no rework is needed.**
+**What is lost is independence, not coverage.**
+
+**Ruling: recorded as not met; not rewritten today.** Changing the author of a
+sound test buys nothing now, and the deferred properties land in S4 — at which
+point that file is written properly, by QA, from the specification, **and the
+independence arrives with the coverage rather than as a separate exercise.**
+Carried to S4 with its reason and **named explicitly in the go/no-go packet**,
+because QA's framing is right: **the agent that wrote the deletion code wrote
+the test that says deletion works, and that is the assertion a regulator would
+read.**
+
+QA has been invited to argue the ruling down — **better to be argued out of a
+convenient decision than to discover later that the agent whose charter owns
+the property disagreed quietly.**
+
+### Why instrumenting the stale database was worth more than fixing it
+**A stale database does not fail where it is stale.** Teardown flushes a table
+it lacks, leaves rows committed, and the failures surface on whichever test
+next reads global state — **which in this schema is always the audit chain,
+because it is one linked list across the whole table.** Three checks now fail
+by name with the fix in the message. **One named failure replaces a scatter of
+unrelated ones.**
+
+### Two formulations adopted verbatim
+**On marks:** *a mark that is wider than the gap it marks is a blanket, and a
+blanket absorbs the next failure.* With the reason the wrong version is
+tempting — **the wide mark reads as "we know about this" while the narrow one
+reads as special-casing, and the narrow one is right precisely because the
+guard's value is in what it catches next.** The parametrised case is the trap:
+marking the function rather than the row.
+
+**On disputes:** when an explanation and a measurement disagree, **the
+explanation is the thing to delete, even when it is in a document whose job is
+to explain.** Five disputes this round were settled by measurement over
+reasoning — the blocker mechanism, the boolean probe, the escaping, the
+privilege state, the module attribution.
+
+---
+
+## D-057 — All four Required items closed; the second layer had the same hole as the first
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** PostgreSQL `1178 passed, 65 skipped, 3 xfailed`; SQLite
+`1113 passed, 131 skipped, 2 xfailed`. Zero failures. Backend ran five each.
+
+### B7 was worse than three characters, and backend checked the contract rather than my word
+I told it the map was wrong and the code right. **It verified against §2.5
+instead of taking that** — the age endpoint does not appear in the Stack S
+row, and the M row is "everything else" — and reached the same conclusion
+from the source. Each handler's **own body** is now read with no module-wide
+fallback, plus two guards the map never had: one failing if a routed handler
+has no entry, and one proving the predicate **can** reject a wrong gate, which
+is what the `or` made impossible.
+
+### Turning on the real enumeration found three things immediately
+Two Stack S entries the four-element literal had never covered — the profile
+endpoint qualified *"for locale only"*, and the consent toggle, which reaches
+Stack S **through the direction map rather than by calling the gate**, so it
+is asserted as a property rather than a token, **since a token match would
+pass on a handler that merely mentioned the gate.**
+
+And a latent defect: the extractor's regex held **a literal backspace byte
+where a word boundary was intended**, so it returned zero tokens on its first
+run. **The count floor caught it** — the guard-for-the-guard working again.
+
+### R5 is the one that mattered, and it is the critical we thought we had closed
+A job **never claimed at all** had neither timestamp, was never redacted on
+finish, and was never purged. **So the one row the first layer provably missed
+was the one row the second layer also missed — and the comment called it the
+second layer.** For the sign-in job that is **a live token retained
+indefinitely.**
+
+The new branch is deliberately narrow, because a broader rule **would delete
+the retention job's own reschedule and stop retention permanently** — with a
+test for exactly that. **A purge that stops purging is a worse bug than the
+one being fixed.**
+
+### R9 — the fix for one rule introduced an instance of another
+Six document references in rendered copy, **and the seventh arrived from
+backend's own rule-18 enum validator while it was fixing the six.** Citations
+moved to a logged field rather than deleted, **with both halves asserted so
+the fix cannot be satisfied by removing the diagnosis.** The guard is an AST
+walk, **because a grep cannot tell a message from the docstring above it.**
+
+### R4 closed except the piece backend does not own
+Sessions now purge and log. It also **compounds**: erasure scans that table,
+so every un-purged row made erasure slower. **The inventory row is
+compliance's file and I am carrying it.**
+
+### Backend's own diagnosis of the round, in its words
+**"You read the prose and QA read the table."** That single sentence explains
+both the nominee error and the correction-endpoint gap, and it is why the
+contract-parsing test matters more than the fix that prompted it.
+
+**Its standing concern is already answered** — QA's forward-dated placements
+cover all three judgement calls, with both sides of every split as rows and an
+inversion guard that turns a skip into a failure the day the app exists.
+Backend could not have known; told.
+
+---
+
+## D-058 — QA converted my ruling's evidence before accepting it
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**Suite:** PostgreSQL `1183 passed, 65 skipped, 3 xfailed`; SQLite
+`1118 passed, 131 skipped, 2 xfailed`. Zero failures.
+
+### It agreed with the ruling and refused the evidence I had used for it
+I deferred a compliance property partly on QA's statement that the test's
+content is sound. **QA pointed out that this was a *reading*, and that the
+risk independence addresses is not sloppiness but a shared blind spot** — **a
+test written from the implementation inherits the implementation's
+misconceptions, and reading it tells you it is internally coherent, not that
+it is right.** So I was about to defer a compliance property on a sentence
+carrying the same weakness the property is about.
+
+**It converted the reading into a measurement before answering.** Five
+derivations straight from the specification, choosing the two places
+implementer and test are likeliest to share an assumption:
+
+- **The "untouched" list**, because **that is the direction a deletion feature
+  gets wrong — every instinct in "delete my account" pulls towards deleting
+  more, and what must survive is precisely the record that the deletion was
+  lawful.**
+- **The salt's location**, because the re-identification claim rests on a
+  secret *not stored in the database* — **a deployment property, not a code
+  one, and exactly what a test written beside the code assumes, since from
+  inside the process the secret is simply there.** Checked the way an attacker
+  with a dump would.
+
+Plus the identity-gone/pseudonym-unchanged pair, the second erasure layer
+tested against **a brand-new session planted after erasure** so the first
+layer cannot be what refuses it, and the warning that layer must refuse
+tombstoned accounts only and never suspended ones. **Five derivations, five
+agreements.**
+
+**Ruling stands, and now rests on a measurement rather than a reading.**
+QA's reason for not asking for the rewrite is better than cost: the deferred
+assertions gain their subjects in S4, the file is rewritten then regardless,
+and **independence arriving with the coverage is worth more than independence
+arriving on its own.** Its condition, adopted: **independence deferred is not
+independence waived** — recorded, carried, named in the packet, **and the five
+derivations are what make the carry defensible rather than merely
+convenient.**
+
+### A second CEO finding: my commit practice destroyed the evidence QA suggested
+QA offered the cheap authorship check and noted it had not run it either. **I
+ran it. It cannot work here: all four files report the same commit — mine —
+because I commit every agent's work in one bulk commit.** So git attributes
+authorship to the integrator, not the author.
+
+**Our own commit practice erases per-agent authorship**, which is the
+provenance the independence property depends on. **Standing change from S2:
+each agent's work is committed separately so authorship survives in history.**
+
+### Two formulations kept
+**On why a listing misleads:** *a file listing tells you what exists and never
+who wrote it — and the more the filenames match expectations, the more
+confidently it will be misread.* My inference was locally reasonable, which is
+what made it plausible.
+
+**On narrow marks:** **the narrow mark is also the harder one to write,
+because you must decide precisely what the gap is before you can scope a mark
+to it. The wide mark lets you skip that decision, which is most of why it is
+tempting.** Scoping it is what forced the realisation that the gap was one row
+and not one test — **and that distinction is what kept the guard able to catch
+the next row.**

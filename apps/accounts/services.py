@@ -249,9 +249,12 @@ def request_magic_link(email: str, ip, user_agent) -> None:
     if campus is None:
         log.info("auth.magic_link.domain_unrecognised", extra={"domain": email_domain(address)})
         raise EmailDomainNotRecognised(
-            f"No active campus accepts {email_domain(address)!r}. The caller still "
-            "answers 202 (API-CONTRACT §5.1); name the accepted domains instead "
-            "(PRD AC-A1.2, accepted_email_domains())."
+            "We can only email a college address.",
+            detail=(
+                f"No active campus accepts {email_domain(address)!r}. The caller "
+                "still answers 202 (API-CONTRACT §5.1); name the accepted domains "
+                "instead (PRD AC-A1.2, accepted_email_domains())."
+            ),
         )
 
     raw = secrets.token_urlsafe(32)
@@ -583,9 +586,13 @@ def review_age(staff, user, outcome: str, note: str) -> None:
     for shape in _DATE_SHAPES:
         if re.search(shape, note, re.IGNORECASE):
             raise ValidationFailed(
-                "An age-review note may not contain a date of birth (DATA-MODEL §2: "
-                "no DOB is persisted anywhere, in any state). Record what you "
-                "reviewed about the account, not a date."
+                "An age-review note may not contain a date of birth. Record what "
+                "you reviewed about the account, not a date.",
+                detail=(
+                    "DATA-MODEL §2: no DOB is persisted anywhere, in any state — "
+                    "a reviewer's free-text box is the last route by which one "
+                    "could reach storage."
+                ),
             )
 
     with transaction.atomic():
@@ -737,19 +744,35 @@ def _check_enum(value, permitted, what, why=""):
     with `new row for relation "consents" violates check constraint`, which
     says nothing about what to send instead. One helper, so the next enum does
     not get its own hand-written check.
+
+    **Every service argument that lands in a `CHECK (col IN (...))` column
+    belongs here**, and the three that do today — consent mechanism, tombstone
+    reason, and the outcome/method pair `review_age` checks inline — are the
+    whole set only because S1 has three. A new enum column added in S2 or S4
+    without a call to this is a 500 waiting for its first bad input, so the
+    rule is: **if the database would refuse it, refuse it here first, with the
+    permitted values named.**
     """
     if value not in permitted:
         raise ValidationFailed(
-            f"{value!r} is not a permitted {what}. DATA-MODEL §2 allows "
-            f"{sorted(permitted)}." + (f" {why}" if why else "")
+            f"That is not a {what} we can record.",
+            detail=(
+                f"{value!r} is not a permitted {what}; DATA-MODEL §2 allows "
+                f"{sorted(permitted)}." + (f" {why}" if why else "")
+            ),
+            field_errors={what.replace(" ", "_"): [f"One of {sorted(permitted)}."]},
         )
 
 
 def _append_consent(user, purpose_key, notice_version, mechanism, ip, user_agent, *, granted):
     if purpose_key not in CONSENT_PURPOSES:
         raise ValidationFailed(
-            f"{purpose_key!r} is not one of the six consent purposes in DATA-MODEL §2. "
-            "A new purpose is a new lawful basis and needs privacy-compliance sign-off."
+            "That is not one of the permissions this account can set.",
+            detail=(
+                f"{purpose_key!r} is not one of the six consent purposes in "
+                "DATA-MODEL §2. A new purpose is a new lawful basis and needs "
+                "privacy-compliance sign-off."
+            ),
         )
     _check_enum(
         mechanism, CONSENT_MECHANISMS, "consent mechanism",
@@ -758,9 +781,12 @@ def _append_consent(user, purpose_key, notice_version, mechanism, ip, user_agent
     )
     if notice_version is None:
         raise ValidationFailed(
-            "A consent row must name the notice version the student agreed to "
-            "(DATA-MODEL §2; PRD AC-A3.3). No PRIVACY notice is published — run "
-            "`manage.py seed_demo` or publish one."
+            "We cannot record that right now. Please try again shortly.",
+            detail=(
+                "A consent row must name the notice version the student agreed to "
+                "(DATA-MODEL §2; PRD AC-A3.3). No PRIVACY notice is published — "
+                "run `manage.py seed_demo` or publish one."
+            ),
         )
     now = timezone.now()
     with transaction.atomic():
@@ -994,9 +1020,12 @@ def record_nomination(user, nominee):
     extra = set(nominee) - allowed
     if extra:
         raise ValidationFailed(
-            f"A nomination holds a name and an email and nothing else; got {sorted(extra)}. "
-            "A third party's other details would be personal data with no "
-            "COMPLIANCE.md §7 row."
+            "A nomination holds a name and an email address and nothing else. "
+            f"Remove: {', '.join(sorted(extra))}.",
+            detail=(
+                "A third party's other details would be personal data with no "
+                "COMPLIANCE.md §7 row."
+            ),
         )
     name = " ".join(str(nominee.get("name", "")).split())
     if not _has_visible_character(name):
@@ -1466,21 +1495,78 @@ def purge_expired(job_run_id=None):
     # in `PurgeLog`'s own docstring — and, because `accounts.send_magic_link`
     # carried a raw sign-in token, an unbounded store of live credentials.
     # `run_pending_jobs` now redacts a finished payload, so this is the second
-    # layer (`CLAUDE.md` rule 14): even a row whose redaction somehow did not
-    # run is gone within the window.
+    # layer (`CLAUDE.md` rule 14): a row whose redaction did not run is gone
+    # within the window.
     #
-    # Only finished rows. A row still waiting or still retrying is work, not
-    # residue, and deleting it would silently drop a scheduled job — which for
-    # `retention.purge` itself would stop the purge from ever running again.
+    # **That claim was false when it was first written**, and REVIEW-S1 R5 is
+    # why this comment now says which rows: the selection was on completion
+    # timestamps alone, so the one row redaction had definitely *not* reached —
+    # a job never claimed at all — was also the one row this never deleted.
+    # A second layer that misses exactly what the first layer misses is not a
+    # second layer. The `abandoned` branch below is the correction.
     from apps.core.models import Job
 
-    stale_jobs = list(
-        Job.objects.filter(completed_at__lt=now - JOB_RETENTION).values_list("id", flat=True)
-    ) + list(Job.objects.filter(failed_at__lt=now - JOB_RETENTION).values_list("id", flat=True))
+    cutoff = now - JOB_RETENTION
+    stale_jobs = set(
+        Job.objects.filter(completed_at__lt=cutoff).values_list("id", flat=True)
+    ) | set(Job.objects.filter(failed_at__lt=cutoff).values_list("id", flat=True))
+
+    # **REVIEW-S1 R5.** Selecting only on completion timestamps leaves one row
+    # out, and it is the worst one: a job **never claimed at all** has neither
+    # `completed_at` nor `failed_at`, so it was never redacted by
+    # `run_pending_jobs` *and* never purged here — it keeps its payload, with
+    # its credential, forever. The comment in `apps/core/jobs.py` calling this
+    # the second layer was false for exactly that row.
+    #
+    # The condition is deliberately narrow: **overdue**, unfinished, and older
+    # than the retention window. A job scheduled to run in the future is work,
+    # not residue, and `retention.purge` reschedules itself a day ahead — so a
+    # broader rule would delete the job that does the deleting.
+    abandoned = set(
+        Job.objects.filter(
+            created_at__lt=cutoff, run_after__lt=now,
+            completed_at__isnull=True, failed_at__isnull=True,
+        ).values_list("id", flat=True)
+    )
+    if abandoned:
+        # Deleting unrun work is not routine, so it is visible rather than
+        # silent — a growing count here means the runner is not running.
+        log.warning(
+            "retention.abandoned_jobs_purged",
+            extra={
+                "count": len(abandoned),
+                "kinds": sorted(
+                    set(Job.objects.filter(id__in=abandoned).values_list("kind", flat=True))
+                ),
+            },
+        )
+    stale_jobs |= abandoned
+
     if stale_jobs:
         Job.objects.filter(id__in=stale_jobs).delete()
-        _log_purge("jobs", stale_jobs, None, now, job_run_id, "PURGE")
+        _log_purge("jobs", sorted(stale_jobs), None, now, job_run_id, "PURGE")
     counts["jobs"] = len(stale_jobs)
+
+    # **REVIEW-S1 R4.** `django_session` had no retention row, no rule and no
+    # purge path: nothing called `clearsessions` and this job did not walk it.
+    # A session row holds `_bookhop_user_id` and survives its own expiry
+    # indefinitely, so the table is an un-purged store of who was signed in —
+    # and `erase_account` scans it, which means it also grows the cost of
+    # every erasure.
+    #
+    # Expiry is the retention rule the framework already gives us; this is the
+    # job that enforces it. Rows are deleted rather than redacted because an
+    # expired session has no evidentiary value — `audit_log` carries the
+    # sign-in.
+    from django.contrib.sessions.models import Session
+
+    expired_sessions = list(
+        Session.objects.filter(expire_date__lt=now).values_list("session_key", flat=True)
+    )
+    if expired_sessions:
+        Session.objects.filter(session_key__in=expired_sessions).delete()
+        _log_purge("django_session", expired_sessions, None, now, job_run_id, "PURGE")
+    counts["django_session"] = len(expired_sessions)
 
     # §7 row 3 / §10.1: the tombstone's `email_hash` lives one year, then goes.
     # The tombstone row itself **stays** — the pseudonym is what the transaction

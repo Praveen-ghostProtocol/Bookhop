@@ -269,28 +269,120 @@ def test_the_contract_table_is_readable_and_names_both_stacks():
     assert len(rows["S"]) > 200 and len(rows["M"]) > 100
 
 
-@pytest.mark.parametrize(
-    "endpoint_text,handler",
-    [
-        ("POST /auth/logout", "logout"),
-        ("GET /account/export", "export"),
-        ("POST /account/erase", "erase"),
-        ("POST /account/nominee", "nominee"),
-    ],
-)
-def test_every_stack_s_endpoint_in_the_contract_uses_the_stack_s_gate(endpoint_text, handler):
-    """The assertion that would have caught the nominee placement, in backend's
-    own tree, on the first wrong move rather than the second."""
+#: Contract endpoint string -> the handler implementing it, for the Stack S
+#: entries **S1 ships**. Every other entry in the row belongs to a later
+#: slice and is listed in `STACK_S_LATER_SLICES` — so the two together must
+#: account for *everything the table contains*, and a sixth entry added to
+#: §2.5 lands in neither and fails.
+STACK_S_HANDLERS = {
+    "POST /auth/logout": "logout",
+    "GET /account": "account",
+    # Listed in the row as **"for `locale` only"** — the field split, which
+    # `account()` implements by taking Stack S unconditionally and adding the
+    # marketplace gate only when a Stack M field is present.
+    "PATCH /account": "account",
+    "GET /account/export": "export",
+    "POST /account/erase": "erase",
+    "PUT /account/consents/{purpose_key}": "set_consent",
+    "POST /account/nominee": "nominee",
+    "GET /legal/{kind}": "notice",
+}
+
+#: Stack S endpoints whose tables do not exist yet, with the slice. Not an
+#: excuse list: `test_the_stack_s_row_is_fully_accounted_for` requires every
+#: token in the row to be in one map or the other.
+STACK_S_LATER_SLICES = {
+    "POST /account/correction": "S6 — staff-reviewed correction queue",
+    "POST /grievances": "S6",
+    "POST /reports": "S6 — safety categories only",
+    "GET /help": "S5",
+    "GET /help/{id}": "S5",
+    "POST /help/{id}/reply": "S5",
+}
+
+
+def stack_s_endpoint_tokens():
+    """Every endpoint token in §2.5's Stack S row, extracted from the table.
+
+    **Extracted, not typed.** The previous version parametrised over a
+    four-element literal I had chosen, so it validated four names rather than
+    enumerating the row — and *a fifth Stack S endpoint added to §2.5 would
+    have gone unnoticed*, which is precisely the failure this file exists to
+    prevent. Same defect as the nominee placement, one level up.
+    """
+    import re
+
+    row = contract_stack_rows()["S"]
+    tokens = set()
+    for code in re.findall(r"`([^`]+)`", row):
+        code = code.strip()
+        if re.match(r"^(GET|POST|PUT|PATCH|DELETE) ", code) or code.startswith("/"):
+            tokens.add(code)
+    return tokens
+
+
+def test_the_stack_s_row_is_fully_accounted_for():
+    """**The enumeration, with a count floor.** Every endpoint token in the
+    row is either implemented and gated, or recorded against the slice that
+    will implement it. A new entry lands in neither map and fails here."""
+    tokens = stack_s_endpoint_tokens()
+    assert len(tokens) >= 10, (
+        f"only {len(tokens)} endpoint tokens extracted from §2.5's Stack S row "
+        f"({sorted(tokens)}); the parser has stopped reading the table"
+    )
+    known = set(STACK_S_HANDLERS) | set(STACK_S_LATER_SLICES)
+    unaccounted = sorted(tokens - known)
+    assert unaccounted == [], (
+        "§2.5's Stack S row contains endpoints this test does not account for. "
+        "Either S1 implements one and it needs a STACK_S_HANDLERS entry with a "
+        "gate, or a later slice does and it needs a STACK_S_LATER_SLICES entry "
+        f"naming that slice: {unaccounted}"
+    )
+
+
+def test_no_mapped_endpoint_has_left_the_stack_s_row():
+    """The other direction: a handler still gated as Stack S after the table
+    moved it to M would be a permission nobody granted."""
+    tokens = stack_s_endpoint_tokens()
+    for endpoint_text in sorted(STACK_S_HANDLERS):
+        assert endpoint_text in tokens, (
+            f"{endpoint_text} is gated as Stack S but is no longer in §2.5's "
+            "Stack S row"
+        )
+
+
+@pytest.mark.parametrize("endpoint_text", sorted(STACK_S_HANDLERS))
+def test_every_stack_s_endpoint_in_the_contract_uses_the_stack_s_gate(endpoint_text):
+    """The assertion that would have caught the nominee placement, in
+    backend's own tree, on the first wrong move rather than the second."""
     import inspect
 
     from apps.accounts import api
 
-    rows = contract_stack_rows()
-    assert endpoint_text in rows["S"], (
-        f"{endpoint_text} is no longer in §2.5's Stack S row; this test is "
-        "asserting a membership the contract has withdrawn"
-    )
+    handler = STACK_S_HANDLERS[endpoint_text]
     body = inspect.getsource(getattr(api, handler))
+
+    if handler == "notice":
+        # Public and unauthenticated — there is no actor to gate (r.4(2)).
+        assert "require_safe" in body
+        return
+
+    if handler == "set_consent":
+        # The row says *"**withdrawal above all**"*, and this endpoint carries
+        # both directions. Asserted as the **property** rather than by looking
+        # for a token: the withdrawal direction's check list must be exactly
+        # Stack S. A token match would pass on a handler that mentioned
+        # `_stack_s` in a comment and gated neither direction.
+        from apps.accounts.api import CONSENT_DIRECTION_STACKS
+        from apps.accounts.services import STACK_S
+
+        assert CONSENT_DIRECTION_STACKS[False] == STACK_S, (
+            "withdrawing consent is not on Stack S; DPDP r.3(c)(i) and §2.5 "
+            "both put it there, and it is the direction the ruling names"
+        )
+        assert "CONSENT_DIRECTION_STACKS[" in body
+        return
+
     assert "_stack_s(" in body, (
         f"§2.5's table puts {endpoint_text} in Stack S and {handler}() does not "
         "call the Stack S gate. The table is normative; the prose summary names "
@@ -322,33 +414,76 @@ def test_a_suspended_student_is_told_what_is_still_open(client, student):
     assert "delete your account" in body["error"]["message"]
 
 
+#: handler -> the exact token its body must contain to count as placed.
+#:
+#: **Corrected: `age_declaration` said `_stack_s` and the code calls
+#: `_may_write`.** The map was wrong, not the code — §2.5's Stack S row does
+#: not list `POST /account/age-declaration` and the M row is "everything
+#: else", so age declaration is Stack M minus the two preconditions that would
+#: deadlock it. The mismatch survived because the assertion below used to read
+#: `expected in body or expected in source`, and `source` is the whole module,
+#: so **every expected token was present by definition** and the per-handler
+#: check could never fail. Three characters, and they made the guard against
+#: the authorization bypass silent about a live mismatch.
+HANDLER_GATES = {
+    "magic_link": None,          # anonymous (§5.1: always 202)
+    "consume": None,             # anonymous
+    "logout": "_stack_s(",
+    "age_declaration": "_may_write(",
+    "consents": "_signed_in(",   # a read
+    "set_consent": "CONSENT_DIRECTION_STACKS[",
+    "account": "_stack_s(",      # plus _may_write for the display_name field
+    "export": "_stack_s(",
+    "nominee": "_stack_s(",
+    "erase": "_stack_s(",
+    "notice": None,              # public, unauthenticated (r.4(2))
+}
+
+
 def test_every_s1_endpoint_declares_a_stack():
     """`CLAUDE.md` rule 9 on the placement itself: an endpoint that calls
-    neither gate is one nobody placed, and the failure mode is silence."""
+    neither gate is one nobody placed, and the failure mode is silence.
+
+    Each handler's **own body** is read — no module-wide fallback. That `or`
+    is what made this guard vacuous.
+    """
     import inspect
 
     from apps.accounts import api
 
-    handlers = {
-        "magic_link": "anonymous",
-        "consume": "anonymous",
-        "logout": "_stack",
-        "age_declaration": "_stack_s",
-        "consents": "_signed_in",
-        "set_consent": "CONSENT_DIRECTION_STACKS",
-        "account": "_stack_s",
-        "export": "_stack_s",
-        "nominee": "_stack_s",
-        "erase": "_stack_s",
-        "notice": "public",
-    }
-    source = inspect.getsource(api)
-    for name, expected in handlers.items():
+    for name, expected in sorted(HANDLER_GATES.items()):
         assert hasattr(api, name), f"API-CONTRACT §5.1 names {name} and it is absent"
-        if expected in ("anonymous", "public", "_stack"):
+        if expected is None:
             continue
         body = inspect.getsource(getattr(api, name))
-        assert expected in body or expected in source, (
-            f"{name} does not declare a precondition stack; an endpoint nobody "
-            "placed is the shape REVIEW-S1 B3 had"
+        assert expected in body, (
+            f"{name}() does not call {expected!r}; an endpoint nobody placed is "
+            "the shape REVIEW-S1 B3 had"
         )
+
+
+def test_the_handler_map_covers_every_route_in_the_urlconf():
+    """The map's own guard. A handler absent from `HANDLER_GATES` is one this
+    file does not check, which is how the next endpoint ships unplaced."""
+    from apps.accounts import urls
+
+    routed = {pattern.callback.__name__ for pattern in urls.urlpatterns}
+    missing = sorted(routed - set(HANDLER_GATES))
+    assert missing == [], (
+        f"these routed handlers have no entry in HANDLER_GATES: {missing}"
+    )
+
+
+def test_the_placement_guard_can_actually_fail():
+    """`CLAUDE.md` rule 12, and the reason this test exists at all: the
+    assertion above was green for two wrong placements because of one `or`.
+    So prove the predicate rejects a body that calls the wrong gate."""
+    import inspect
+
+    from apps.accounts import api
+
+    body = inspect.getsource(api.export)
+    assert "_stack_s(" in body
+    assert "_may_write(" not in body, (
+        "export calls the marketplace gate; §2.5's table puts it in Stack S"
+    )

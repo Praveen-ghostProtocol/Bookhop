@@ -616,6 +616,38 @@ the plpgsql function inventory, the frozen column lists and the
 `ENABLE ALWAYS` check are all existence checks, and each needs a behavioural
 partner or an explicit note that its property is asserted elsewhere.
 
+#### 6.3a · A DEFERRED check is vacuous for its whole deferral window, and that window is invisible
+
+**Added 2026-10-22 from QA's pre-registration of the three future
+placements — and it is a variant rule 12 does not reach.** Rule 12 is about a
+check that passes vacuously *now*. This is a check that **has not started yet,
+where "not yet running" and "running and passing trivially" are
+indistinguishable from outside.**
+
+**A forward-dated skip can skip forever.** The endpoint ships at a path nobody
+predicted, the skip condition never flips, nothing ever runs — **and the guard
+was theatre with a multi-slice fuse.** Worse, it reads as coverage for the
+whole intervening period, which is exactly the window in which the decision it
+encodes gets forgotten.
+
+**QA's inversion is the right construction and is adopted as the pattern:**
+once the owning app is installed, **a ruled path that does not resolve is a
+FAILURE, not a skip** — with a further test asserting that failure branch
+still exists, so nobody converts it into a permanent skip.
+
+**And it earned itself immediately: the guard caught a bug in QA's own
+helper.** `resolve()` matched everything, because the web urlconf ends in a
+catch-all for the 404 page — **so every assertion in that file would have
+passed vacuously the moment its app was installed.** A guard-for-the-guard
+whose first catch is its own author's is the strongest evidence the
+construction is right.
+
+**One further requirement, from the same pass: where a rule splits a set, both
+sides are rows and a test enforces that.** The reports endpoint splits by
+**category**, which is the field-dependent shape that has already gone wrong
+once — **checking only the permitted side is the nominee error again**, and it
+passes.
+
 **Dependency and supply chain:** pinned versions with hashes; `pip-audit` in
 CI; nine runtime packages (ADR-001 §2.8); htmx vendored rather than loaded from
 a CDN, so no third-party script executes in a page that can read a session.

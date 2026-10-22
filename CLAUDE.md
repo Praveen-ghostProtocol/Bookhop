@@ -102,6 +102,26 @@ the prompt — do not collapse the role into the main context.
       the target silently uncovered, **reported as coverage for a whole
       slice.** An instrument must assert its own reach, and any number it
       produces is quoted with the count of subjects actually reached.
+    - **A check that has not started yet.** A test forward-dated to a slice
+      that does not exist can skip **forever** — the endpoint ships at an
+      unpredicted path, nothing runs, and the decision it encodes is forgotten
+      while the file reads as coverage for the whole window. From outside,
+      *"not yet running"* and *"running and passing trivially"* are
+      indistinguishable. **Invert it: once the owning app exists, a ruled path
+      that does not resolve is a failure, not a skip** — and assert that
+      failure branch still exists, so nobody converts it back.
+
+    Two rules that follow from all five:
+
+    **Where a rule splits a set, both sides are rows, and a test enforces
+    that.** Checking only the permitted side passes, and it is how a wrong
+    placement survives review.
+
+    **A guard for a guard is worth writing when the guard is forward-dated or
+    silent.** The one written here caught its own author's bug on its first
+    run — a path-existence check that matched everything, because the URL
+    config ends in a catch-all, which would have made every assertion in the
+    file pass vacuously the moment its app was installed.
 
     The last is the most consequential, because everything downstream trusts
     the instrument. **A harness that silently covers a third of its target

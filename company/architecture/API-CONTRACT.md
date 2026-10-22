@@ -191,8 +191,42 @@ could defensibly have gone the other way:**
 - **`display_name` is in M while `locale` is in S.** Correction of personal
   data is a statutory right, but **it is not a right to a public-facing handle
   while suspended** — changing the name counterparties recognise is an evasion
-  vector after a safety report. The right is satisfied by
-  `POST /account/correction`, which is in S, staff-reviewed and logged.
+  vector after a safety report. The right is to be satisfied by
+  `POST /account/correction`, which is in S, staff-reviewed and logged —
+  **and that endpoint DOES NOT EXIST YET. See the status note below before
+  quoting this reasoning anywhere.**
+
+> **STATUS · `POST /account/correction` is NOT IMPLEMENTED · QA F24,
+> 2026-10-22**
+>
+> **This is rule 9's shape one level up, and it is mine: a document naming a
+> control as the reason ANOTHER control is acceptable, with nothing asserting
+> the first exists.** §2.5 names the correction route twice — once in the
+> Stack S table with its s12(1)–(2) citation, and once as **the justification
+> for putting `display_name` in Stack M.** Measured by QA: no route, no
+> handler, no slice.
+>
+> **So today a suspended student cannot change their display name — correctly,
+> by the M placement — and cannot use the correction route either, because
+> there is none. The correction right currently has no path at all.**
+>
+> **The M placement stands; what is wrong is that its justification is
+> unbuilt.** I am not moving `display_name` to Stack S to close the gap: that
+> would trade a missing endpoint for a live evasion vector, and the endpoint is
+> small.
+>
+> **Until the conformance test is green, the `display_name` reasoning above
+> may not be quoted as satisfied — in a go/no-go packet, an ADR, or a
+> report.** Same mechanism and same reason as ADR-003 §5.3.1: **an absent
+> control correctly reported as absent is a known gap; an absent control a
+> document claims is a false statement.** QA's two red tests are the correct
+> state and must not be skipped to green the suite.
+>
+> **Slice: S2**, with the other S1 carry-overs — and S2 is the right slice on
+> the merits rather than the convenient one. **`display_name` is visible to
+> nobody but its owner until listings exist, so the restriction only starts
+> costing a student anything in S2 — which is exactly when its justification
+> has to be real.**
 
 **The `403 SUSPENDED` body must name what the student can still do** — export,
 erase, withdraw consent, reply to their ticket. **A suspension that tells
@@ -229,6 +263,14 @@ def grant_consent(user, purpose_key, notice_version, mechanism, ip, user_agent) 
 def withdraw_consent(user, purpose_key, mechanism, ip, user_agent) -> None
 def accept_seller_terms(user, notice_version, ip) -> None
 def update_profile(user, *, display_name=None, locale=None) -> User
+#   Stack M for display_name, Stack S for locale (§2.5).
+def request_correction(actor, *, subject: str, stated_problem: str) -> DataSubjectRequest
+#   s12(1)-(2). Stack S. NOT IMPLEMENTED — S2 (§2.5 status note, QA F24).
+#   Creates a data_subject_requests row, kind='CORRECTION', due_at = +7 days.
+#   Free text, not an enum of correctable fields: staff decide, and an enum
+#   here would be a list where a judgement belongs.
+def decide_correction(staff, dsr, *, outcome: str, applied: dict, note: str) -> DataSubjectRequest
+#   Staff-only. Applies the correction, writes audit_log and completes the DSR.
 def erase_account(user, reason='USER_REQUEST') -> None         # DATA-MODEL §10.1, one transaction
 def log_personal_data_access(staff, subject_pseudonym, fields: list[str], purpose) -> None
 
@@ -502,7 +544,32 @@ agent knows exactly what it owns.
 | L2 | L3 | Notes |
 |---|---|---|
 | `POST /api/v1/auth/magic-link` | `POST /auth/start` | body `{email}`. **Always returns 202 whatever happens** — a different response for an unknown address is an account-enumeration oracle. Rate limited per §2.4. |
-| `POST /api/v1/auth/consume` | `GET /auth/c/{token}` | single use, 10-minute expiry. Rotates the session. On success: 200 with `{needs: ["age","consent","campus"]}` so the client knows the next step. |
+| `POST /api/v1/auth/consume` | `GET /auth/c/{token}` | single use, 10-minute expiry. Rotates the session. On success: 200 with **`{needs: ["age","consent"]}`** so the client knows the next step. **`"campus"` REMOVED 2026-10-22 (QA F22) — it cannot occur**, see below |
+
+> **F22 — `needs: ["campus"]` was an unreachable value, and removing it
+> exposes a real gap it was concealing.**
+>
+> **It cannot occur.** `request_magic_link` raises `EmailDomainNotRecognised`
+> for an address outside `campuses.email_domains`, so **no link is ever sent to
+> an unrecognised domain** — and consuming a link therefore *proves* the domain
+> matched. The magic link **is** the campus evidence (ADR-001 §2.5); that is
+> the whole point of the design. A client branching on `"campus"` would be
+> writing a screen no student can reach.
+>
+> **The gap underneath it, which is why this is worth more than deleting a
+> string.** `DATA-MODEL.md` §1 says an empty `email_domains` means "no
+> self-service signup", and those users are staff-created with
+> `campus_verifications.method = 'STAFF_MANUAL'`. **But such a user still has
+> no way to sign in** — `request_magic_link` would refuse their address too.
+> **So a campus with empty `email_domains` currently has no student sign-in
+> path at all**, and the unreachable `needs` value was the only thing in the
+> contract that looked like it addressed that.
+>
+> **Not fixed here, deliberately:** v1 is one campus with a working
+> institutional domain, and the trigger for solving it is already written —
+> ADR-001 §2.5 says a second campus without usable institutional email is what
+> reopens the SMS question. **Recorded so the next person who reads
+> `STAFF_MANUAL` does not assume a sign-in path exists for it.**
 | `POST /api/v1/auth/logout` | `POST /auth/logout` | |
 | `POST /api/v1/account/age-declaration` | `POST /account/age` | body `{date_of_birth}`. **Under 18 ⇒ `403 NOT_ADULT_VERIFIED` and the account is deleted immediately**; `age_verification_events` records the rejection; **the DOB is never persisted** (`DATA-MODEL.md` §2). |
 | `GET /api/v1/account/consents` | `GET /account/privacy` | current state per purpose + the notice version |
@@ -511,6 +578,7 @@ agent knows exactly what it owns.
 | `PATCH /api/v1/account` | `POST /account` | `{display_name?, locale?}` |
 | `GET /api/v1/account/export` | `GET /account/export` | **s11 access right** — a JSON summary of personal data and processing activities |
 | `POST /api/v1/account/nominee` | `POST /account/nominee` | **s14 nomination.** In the Act, built once, nobody else builds it |
+| `POST /api/v1/account/correction` | `POST /account/correction` | **s12(1)–(2) correction.** Stack S. Creates a `CORRECTION` data-subject request, 7-day clock, staff-reviewed, logged. **NOT IMPLEMENTED — S2** (§2.5 status note). It is what makes the `display_name` restriction defensible |
 | `POST /api/v1/account/erase` | `POST /account/delete` | two-step confirm in L3. Runs `erase_account`. **Response states plainly which records are retained for one year and why** (r.8(3)) — the user learns it here, not from a support ticket |
 | `GET /api/v1/notices/{kind}` | `GET /legal/{kind}` | public, unauthenticated. `privacy`, `terms`, `seller-terms`, `community-rules`, **`handover-guidance`** *(renamed — see below)*, **`ranking`**, **`grievance-officer`** — the last composes the `GRIEVANCE_PROCEDURE` notice with the officer fields read from `legal_entities` at render time, never copied into a notice (`DATA-MODEL.md` A-25) |
 
@@ -798,5 +866,8 @@ four contract guarantees:
 | **A-9** | 2026-10-21 | Banned vocabulary grows to eight words; enforcement is per-script — see `THREAT-MODEL.md` §6.1 | Design **TR-8** | cto |
 | **A-13** | 2026-10-21 | **§4.1 — anonymous POSTs get real idempotency** via a non-null sentinel key, not an exemption. Must close before S1 wires `/auth/magic-link` | QA-S0 **B3** | cto |
 | **A-14** | 2026-10-21 | §2.2's error-shape renderer, CSP middleware and `test_forbidden_response.py` **assigned to S1 backend** — named controls that belonged to no slice | REVIEW-S0 N1–N3 | cto |
+| **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
+| **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
+| **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
 | **A-16** | 2026-10-21 | **§4.1 key-format scope stated as an INVARIANT, not a conclusion**: UUID required when unauthenticated, unconstrained when authenticated, resting on *`user_id` partitions the key namespace, one principal per partition* — **and extending to the authenticated namespace the moment any endpoint writes a key on another principal's behalf.** Three reachable breaks named: staff-acting-for-student in S5/S6, impersonation or service accounts, and `user_id` reuse after purge | REVIEW-S0 **§21** | cto |
 | **A-15** | 2026-10-21 | **§4.1 anonymous idempotency re-specified** as a partial unique index on `key WHERE user_id IS NULL` — my `user_id = 0` sentinel is **withdrawn**, it breaks the S1 FK. **Anonymous POSTs require a key**, with one exemption: the L3 `GET /auth/c/{token}`, where a single-use token is idempotent by construction | ENGINE-DIVERGENCE §9.6a | cto |
