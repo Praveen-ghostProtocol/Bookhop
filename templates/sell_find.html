@@ -1,0 +1,164 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET /sell/find-book` — JOURNEYS J2 steps 1 to 6, and `POST /sell` renders
+  back to here on any failure so the typed values are never cleared
+  (SYSTEM §4.4 `error`).
+
+  THREE SHAPES ON ONE ROUTE, because they are one question asked in sequence
+  and a separate URL for each would cost a round trip on 3G:
+    1. no ISBN yet            — one field, which is J2 step 1's whole screen;
+    2. the ISBN resolves      — the book, "Is this the one?", then the intake;
+    3. the ISBN does not      — `sell.isbn.notfound`, the add-a-book fields,
+                                then the same intake below them.
+  Shape 3 is never a dead end. AC-S4.4 is why there is no "I don't have an
+  ISBN" path: a book with no ISBN needs staff approval and cannot be
+  self-published, so offering the path here would be offering a route that
+  ends in a refusal.
+
+  AC-S1.1 COUNTS INTERACTIONS AND SCREENS, SO HERE IS THE COUNT. Required
+  input is three screens — ISBN, this form, photos — and eight interactions:
+  type the ISBN, submit, pick a condition, pick an annotation level, tick
+  damage, type the amount, tick the undertaking, submit. Language and category
+  carry defaults and cost nothing if left alone.
+
+  NO SUGGESTED PRICE, NO RANGE, NO "SIMILAR BOOKS", AND NOTHING STRUCK
+  THROUGH — EX-3 and AC-S2.2. A suggested figure would need a settled-price
+  history, which P14 forbids outright, and it would make BookHop a price-setter
+  on a marketplace it also runs.
+
+  THE FOUR CONDITION VALUES ARE PICKED HERE AND QUOTED ON THE LISTING,
+  VERBATIM. `web/forms.py` holds the option text and `seller_words()` is the
+  one reader that turns the stored value back into it, so the template maps no
+  enum and BookHop writes no sentence between the seller's words (SYSTEM §4.14,
+  AC-S3.1).
+{% endcomment %}
+{% block title %}{% translate "List a book" context "sell.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "List a book" context "sell.h1" %}</h1>
+
+{% include "_errorslot.html" with form=isbn_form %}
+
+<form method="get" action="/sell/find-book">
+  {% translate "On the back cover, or the first page inside." context "sell.isbn.hint" as isbn_hint %}
+  {% include "_field.html" with field=isbn_form.isbn hint=isbn_hint required=True %}
+  <button class="btn btn--primary" type="submit">{% translate "Find this book" context "sell.isbn.submit" %}</button>
+</form>
+
+{% if book %}
+  {% comment %} J2 step 3 — confirmation, not assumption. The student is holding
+     the book; we show what we think it is and let them disagree by typing a
+     different number into the field above. {% endcomment %}
+  <div class="card">
+    <p class="biblio">{{ book.title }}</p>
+    <p class="sub">{{ book.authors }}{% if book.edition %} · {{ book.edition }}{% endif %}{% if book.publisher %} · {{ book.publisher }}{% endif %}{% if book.year %} · {{ book.year }}{% endif %}</p>
+    <p class="mono">{{ book.isbn }}</p>
+    <p>{% translate "Is this the one?" context "sell.isbn.found" %}</p>
+  </div>
+{% elif not_found %}
+  <div class="notice notice--wait">
+    <span class="notice__label">{% translate "Not in the catalogue yet" context "sell.isbn.notfound.label" %}</span>
+    {% translate "We don't have this ISBN yet. Type the title, author and edition and we'll add it." context "sell.isbn.notfound" %}
+  </div>
+{% endif %}
+
+{% if form %}
+<form method="post" action="/sell">
+  {% csrf_token %}
+  <input type="hidden" name="isbn" value="{{ isbn }}">
+
+  {% include "_errorslot.html" with form=form %}
+
+  {% if details %}
+    {% comment %} J2 step 2's "not in catalogue" branch. `catalog.create_book`
+       writes the row with `staff_verified_at` NULL, which is what puts it in
+       J2-staff's queue — there is no separate flag, because "unverified" is
+       the absence of a verification. Edition is required here and nowhere
+       else: it is the field the whole product turns on. {% endcomment %}
+    {% include "_errorslot.html" with form=details %}
+    <h2>{% translate "What does the book say?" context "sell.addbook.h" %}</h2>
+    {% include "_field.html" with field=details.title required=True %}
+    {% include "_field.html" with field=details.authors required=True %}
+    {% translate "Students look for an exact edition. If you're not sure, it's on the title page." context "sell.edition.hint" as ed_hint %}
+    {% include "_field.html" with field=details.edition_label hint=ed_hint required=True %}
+    {% include "_field.html" with field=details.publisher %}
+    {% include "_field.html" with field=details.publication_year %}
+  {% endif %}
+
+  <h2>{% translate "What's wrong with it?" context "sell.condition.label" %}</h2>
+  <p class="meta">{% translate "Torn pages, writing, a bent cover, a missing CD — say it plainly. Buyers believe a description that admits things." context "sell.condition.hint" %}</p>
+
+  {% include "_group.html" with field=form.condition required=True %}
+  {% comment %} AC-S3.3: annotation is a NEUTRAL FACT, never a defect and never
+     a feature. A senior's pencil marks are the one thing a hand-me-down has
+     that a new copy does not, so this group sits apart from damage and nothing
+     in its wording calls it a problem. {% endcomment %}
+  {% include "_group.html" with field=form.annotation_level required=True %}
+  {% comment %} AC-S3.2: damage is AFFIRMATIVELY CONFIRMED, both ways. Nothing
+     ticked is a validation error rather than a default, because an untouched
+     list submitting as empty is an implied no-damage claim the seller never
+     made — *"exactly the misdescription we would have authored"*. The
+     "No damage to report" tick is the seventh box and the rule lives in
+     `web/forms.py clean_damage_flags`, not here. {% endcomment %}
+  {% translate "Tick everything that applies, or tick that there is none." context "sell.damage.hint" as dmg_hint %}
+  {% include "_group.html" with field=form.damage_flags hint=dmg_hint required=True %}
+
+  {% include "_field.html" with field=form.language required=True %}
+  {% include "_field.html" with field=form.category required=True %}
+
+  {% comment %} SYSTEM §4.15. The question is the label — "What are you asking
+     for it?" — which makes the number the seller's opening position
+     grammatically, before any hint text does it semantically. The ₹ is outside
+     the input (§4.4) and `aria-hidden`, so the unit is carried for a screen
+     reader by the visually-hidden suffix in the label instead of by a symbol
+     it would read as "rupee sign".
+
+     `price.seller.hint` is the string COPY-DECK §3.1 calls the one that makes
+     negotiability REAL rather than STATED — it tells the seller, at the moment
+     they type the number, that it is a starting point. It is B4 and it carries
+     a limb of the s194-O position. If any string on this page survives a
+     shortening pass it is this one. {% endcomment %}
+  <div class="field{% if form.asking_price_rupees.errors %} field--invalid{% endif %}">
+    <label class="field__label" for="id_asking_price_rupees">
+      {% translate "What are you asking for it?" context "sell.price.label" %}<span class="vh"> — {% translate "in rupees" context "sell.price.unit" %}</span>
+      <span class="field__req">({% translate "required" context "sys.required" %})</span>
+    </label>
+    <span class="field__hint" id="id_asking_price_rupees-hint">
+      {% translate "This is the price you're asking for. You can agree something different when you meet — BookHop won't record it either way." context "price.seller.hint" %}
+      {% translate "You can't change this number later. You can still agree a different price when you meet." context "sell.price.locked" %}
+    </span>
+    <span class="field__error" id="id_asking_price_rupees-error">{% if form.asking_price_rupees.errors %}{{ form.asking_price_rupees.errors.0 }}{% endif %}</span>
+    <span class="money"><span class="money__sym" aria-hidden="true">₹</span>{{ form.asking_price_rupees }}</span>
+  </div>
+
+  {% comment %} AC-S4.1 and r.6(4)(a): the undertaking is a tick the seller
+     makes, recorded as a `seller_terms_acceptances` row against a live
+     `notice_versions` row. NOT PRE-TICKED — E-Com r.4(9), and
+     `BooleanField(initial=False)` is what guarantees it, not this markup. The
+     full terms are the notice, linked; this label states the one clause
+     US-S4 exists for rather than restating the notice in a checkbox. {% endcomment %}
+  {% comment %} THE LINK IS OUTSIDE THE <label>, AND THAT IS A FIX RATHER THAN
+     A LAYOUT CHOICE. A `<label>` may not contain interactive content: with the
+     `<a>` inside it, Chrome computed the checkbox's accessible name as "on" —
+     its `value` attribute — so a screen-reader user met an unlabelled required
+     control on the one tick r.6(4)(a) needs to be informed, and a tap on the
+     link also toggled the box. Found by reading the accessibility tree in a
+     real browser; `tests/a11y/harness.py` passed it, correctly, because a
+     `<label for>` with text *does* exist and that is all a parser can see.
+     This is the §4.6 note's shape: the harness measures structure, a browser
+     measures the computed name, and neither substitutes for the other.
+
+     The hint keeps its id, because the input's `aria-describedby` names it. A
+     description containing a link is announced as text, and the link is still
+     in the tab order on its own. {% endcomment %}
+  <div class="check">
+    {{ form.seller_terms }}
+    <label class="check__text" for="id_seller_terms">{{ form.seller_terms.label }}</label>
+  </div>
+  <span class="field__hint" id="id_seller_terms-hint"><a href="/legal/seller-terms">{% translate "Read the seller terms" context "sell.terms.link" %}</a></span>
+  <span class="field__error" id="id_seller_terms-error">{% if form.seller_terms.errors %}{{ form.seller_terms.errors.0 }}{% endif %}</span>
+
+  <button class="btn btn--commit" type="submit">{% translate "Save this and add photos" context "sell.save" %}</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -46,6 +46,18 @@ slice_written = "S1"
 blocking_strings_in_catalogue_at_S1 = 64
 blocking_strings_without_a_tamil_draft_at_S1 = 46
 
+# S2 (2026-10-22). Measured the same way, by matching every msgctxt in
+# `locale/ta/LC_MESSAGES/django.po` against the prefixes below.
+#
+# **The prefix rule did the job it was written for.** S2 added the first B4
+# strings with a real figure beside them — `price.*`, `sell.price.*`,
+# `listing.price.row` — and every one of them was blocking on arrival with
+# nobody remembering to extend anything. An enumerated list would have needed
+# an edit, and the edit is the step that gets skipped.
+blocking_strings_in_catalogue_at_S2 = 86
+blocking_strings_without_a_tamil_draft_at_S2 = 60
+total_strings_in_catalogue_at_S2 = 254
+
 # --- B1 ---------------------------------------------------------------------
 [classes.B1]
 scope = "COPY-DECK §7 — the handover guidance"

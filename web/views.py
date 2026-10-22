@@ -31,6 +31,12 @@ inside `<main>` — never a bare framework page, because a 500 still has to show
 the grievance-officer link in the footer (`SYSTEM.md` §4.1 `error`).
 """
 
+import hashlib
+import pathlib
+from functools import lru_cache
+
+from django.conf import settings
+from django.contrib.staticfiles import finders
 from django.http import (
     Http404,
     HttpResponse,
@@ -40,7 +46,7 @@ from django.http import (
 )
 from django.shortcuts import render
 from django.templatetags.static import static
-from django.utils import translation
+from django.utils import timezone, translation
 from django.utils.translation import pgettext
 from django.views.decorators.http import require_http_methods, require_safe
 
@@ -50,12 +56,19 @@ from apps.core import errors
 from . import context as ctx
 from .forms import (
     CONSENT_PURPOSES,
+    MAX_PHOTOS,
     REQUIRED_CONSENT_PURPOSES,
     AgeDeclarationForm,
+    BookDetailsForm,
     ConsentForm,
+    IsbnForm,
+    ListingForm,
     NomineeForm,
+    PhotoForm,
     ProfileForm,
     SignInForm,
+    WantedForm,
+    seller_words,
 )
 
 #: `GET /legal/{slug}` — the seven public notice **routes** of
@@ -147,6 +160,13 @@ def _page(request, template, status=200, **extra):
     renders, and the response says so at the HTTP level too.
     """
     locales = extra.setdefault("locales", ctx.offered_locales())
+    # The masthead's two marketplace links render only for a signed-in
+    # student, because `/sell` and `/wanted` redirect to sign-in otherwise and
+    # a nav item that bounces you is worse than one that is not there.
+    # `JOURNEYS.md` J2's entry point is *"GET /sell from the main
+    # navigation"*, so this is the journey's own requirement rather than
+    # decoration — without it the sell flow is only reachable by typing a URL.
+    extra.setdefault("signed_in", ctx.current_user(request) is not None)
     lang = getattr(request, "LANGUAGE_CODE", "en")
     lang = lang if lang in locales else locales[0]
     translation.activate(lang)
@@ -199,6 +219,11 @@ def _service_problem(request, exc):
             "sys.unchanged",
             "That didn't go through. Nothing has changed.",
         )
+    if code in ("NOT_FOUND", "GONE"):
+        # §2.2: not found **or** not visible to this actor, same body — a 403
+        # would confirm the row exists and leak the catalogue. So this renders
+        # the ordinary 404 page and says nothing about which it was.
+        return not_found(request)
     return None
 
 
@@ -681,6 +706,845 @@ def help_page(request):
     return _page(request, "help.html")
 
 
+# ===========================================================================
+# S2 · the sell flow, the listing page, and the want
+# ===========================================================================
+#
+# THE L1 MODULES ARE IMPORTED AT CALL TIME, NOT AT MODULE IMPORT, AND THAT IS
+# DELIBERATE RATHER THAN LAZY.
+#
+# `web/urls.py` is imported by the root URLconf, so a module-level
+# `from apps.listings import services` turns a service layer that is still
+# landing into a 500 on **every route in the product**, including the
+# grievance-officer page that `SYSTEM.md` §4.1 says must survive an outage.
+# Imported here, a missing S2 service breaks exactly the S2 route that needs
+# it and nothing else. `sys.modules` caches after the first call, so the cost
+# is a dict lookup.
+#
+# NOTHING BELOW STUBS A MISSING SERVICE. If a name is not there yet the
+# `ImportError`/`AttributeError` propagates and the route 500s honestly. A
+# placeholder that returned `[]` would render an empty page that looks like an
+# answer, which is the shape `CLAUDE.md` rule 10 calls worse than no check.
+
+
+def _catalog():
+    from apps.catalog import services  # noqa: PLC0415 — see the block comment
+
+    return services
+
+
+def _listings():
+    from apps.listings import services  # noqa: PLC0415
+
+    return services
+
+
+
+#: FOUR READS `API-CONTRACT.md` §3 DOES NOT NAME, AND BACKEND HAS SHIPPED
+#: THREE OF THEM. Recorded because the contract is still short of the code and
+#: the next reader of §3 will not find these:
+#:
+#:   apps.listings.services.my_listings(actor, cursor=None, limit=20) -> Page
+#:   apps.listings.services.get_own_listing(actor, listing_id) -> Listing  # NotFound
+#:   apps.listings.services.my_requests(actor, cursor=None, limit=20) -> Page
+#:   apps.listings.services.seller_block(listing) -> dict
+#:
+#: Why `discovery.get_listing` could not have served the first two: it is a
+#: **discovery** call, so it runs `assert_discovery_open` and is scoped to
+#: what is visible (`API-CONTRACT.md` §5.3). A `DRAFT` is visible to nobody —
+#: that is what `DRAFT` means — so a seller could not reach their own
+#: half-finished listing to add a photo to it, and on a campus whose gate is
+#: lawfully closed they could not reach any of their listings at all.
+#: `PRD.md` AC-S1.3 makes resuming from `GET /sell` a failable criterion.
+#: `get_own_listing`'s docstring makes the same argument from the other side.
+#:
+#: The fourth read, closing a want, needs no function: `close_request` already
+#: accepts an id where it documents an object.
+#:
+#: **`apps.discovery` does not exist** — it is S3 — so `/listing/{id}` reads
+#: through `get_own_listing` in this slice. See `listing_detail`.
+#:
+#: cto: §3 needs these four names added. Nothing here invents one.
+
+
+def _items(page):
+    """The rows out of a `Page` (`API-CONTRACT.md` §2.3: `{items, next_cursor}`).
+
+    Tolerant of an object or a mapping because `Page` has no concrete
+    definition in the contract yet — one expression, not a compatibility
+    shim, and it collapses to `page.items` the moment there is a class.
+    """
+    if hasattr(page, "items") and not callable(getattr(page, "items")):
+        return list(page.items)
+    if isinstance(page, dict):
+        return list(page.get("items", ()))
+    return list(page)
+
+
+#: Plain words for `listings.status` (`DATA-MODEL.md` §6.1).
+#:
+#: **No raw state name ever reaches a student** — `JOURNEYS.md` Appendix A
+#: lists `AWAITING_CONFIRMATION` by name as the thing never shown, and
+#: `PRD.md` AC-H1.4 makes it failable. A value that is not here renders **no
+#: chip at all** rather than its own identifier: showing less than we know is
+#: the safe direction, and a missing word is a visible gap a reviewer notices
+#: where `REMOVED_LEGAL` on a student's screen is a defect they would not.
+STATUS_WORDS = {
+    "DRAFT": ("sell.status.DRAFT", "Not on the list yet"),
+    "PENDING_REVIEW": ("sell.status.PENDING_REVIEW", "Waiting to be looked at"),
+    "LIVE": ("sell.status.LIVE", "On the list"),
+    "RESERVED": ("sell.status.RESERVED", "Someone is collecting this one"),
+    "CLOSED_TRANSFERRED": ("sell.status.CLOSED_TRANSFERRED", "This one changed hands"),
+    "WITHDRAWN": ("sell.status.WITHDRAWN", "Taken down"),
+    "REJECTED": ("sell.status.REJECTED", "Not put on the list"),
+    "REMOVED_LEGAL": ("sell.status.REMOVED_LEGAL", "Taken down after a legal notice"),
+}
+
+#: The two states in which a listing is a thing other students can reach.
+#: A seller's `DRAFT` links to its own photo step instead.
+PUBLIC_STATUSES = ("LIVE", "RESERVED")
+
+#: `SYSTEM.md` §4.11 `stale`. Not a warning about a seller; a statement about
+#: elapsed time, and `COMPETITORS.md` §3.5 calls listing staleness the
+#: category's oldest failure mode.
+STALE_AFTER_DAYS = 21
+
+
+def _rupees(paise):
+    """A rupee figure as a string, with paise shown only when there are any.
+
+    The intake accepts whole rupees and refuses a decimal (`web/forms.py`
+    `clean_asking_price_rupees`), so the second branch is reachable only from
+    seed or staff-created data. It renders rather than rounding, for the same
+    reason the intake refuses rather than rounding: **a rounded money value is
+    a wrong value that looks right** (`CLAUDE.md` rule 12).
+
+    The label is never attached here. `price.label.full` lives in the template
+    beside the figure, because a helper that returned "Seller's asking price
+    ₹280" as one string would put a legal control inside a formatter.
+    """
+    if paise is None:
+        return None
+    whole, part = divmod(int(paise), 100)
+    return f"{whole:,}" if part == 0 else f"{whole:,}.{part:02d}"
+
+
+def _book_of(book):
+    """The bibliographic identity of a `books` row, as plain values.
+
+    Reading `listing.book` at the call site is an attribute hop on the object
+    L1 returned, which is what `account()` already does for
+    `campus_verification_method`. It is **not** a query L3 composed: no
+    filter, no manager, no `.objects`.
+    """
+    authors = getattr(book, "authors", None) or []
+    return {
+        "title": getattr(book, "title", None),
+        "authors": ", ".join(str(a) for a in authors),
+        "edition": getattr(book, "edition_label", None),
+        "publisher": getattr(book, "publisher", None),
+        "year": getattr(book, "publication_year", None),
+        "isbn": getattr(book, "isbn13", None),
+    }
+
+
+def _listing_row(listing, today=None):
+    """One listing as the values a template renders, and nothing more.
+
+    The template maps no enum and formats no money. Every judgement — which
+    word a status gets, whether a listing is stale, whether it has a public
+    URL — is made here once, where it can be read in one place.
+    """
+    status = getattr(listing, "status", None)
+    word = STATUS_WORDS.get(status)
+    # TWO DIFFERENT AGES, AND THEY ANSWER TWO DIFFERENT QUESTIONS.
+    # `trust.attribution` is *"— Priya S, 3 days ago"*: when the seller said
+    # this, which is `created_at` — and it must render on a listing that has
+    # not been published yet, because the words are theirs from the moment
+    # they typed them. `trust.stale_listing` is *"listed 24 days ago"*: how
+    # long it has been on the list, which is `published_at` and is NULL until
+    # it is. Using one for both silently drops the attribution from every
+    # unpublished listing, which is where it is easiest not to notice.
+    written = getattr(listing, "created_at", None)
+    published = getattr(listing, "published_at", None)
+    now = timezone.now()
+    days = (now - published).days if published is not None else None
+    wrote_days = (now - written).days if written is not None else None
+    return {
+        "id": getattr(listing, "id", None),
+        "book": _book_of(getattr(listing, "book", None)),
+        "status": status,
+        "status_word": pgettext(*word) if word else None,
+        "price": _rupees(getattr(listing, "asking_price_paise", None)),
+        "version": getattr(listing, "version", None),
+        "published_at": published,
+        "days_old": days,
+        "wrote_days_ago": wrote_days,
+        "stale": days is not None and days > STALE_AFTER_DAYS,
+        "public": status in PUBLIC_STATUSES,
+        "words": seller_words(
+            getattr(listing, "condition", None),
+            getattr(listing, "annotation_level", None),
+            getattr(listing, "damage_flags", None),
+        ),
+    }
+
+
+def _photo_rows(listing):
+    """The photos on a listing, as `{id, bytes, kb}`.
+
+    **CONTRACT GAP, smaller than the four above and recorded in the same
+    breath:** `API-CONTRACT.md` §3 has no accessor for a listing's photos, so
+    this hops the reverse relation on the object L1 returned. It is the one
+    place in `web/**` that touches a related manager, it is confined to this
+    function so a future `listings.services.photos_for(listing)` is a one-line
+    change, and it fails closed — no relation, no photos, and the page renders
+    its `empty` state rather than raising.
+
+    The byte total is what `SYSTEM.md` §4.16's `Save-Data` link names, and it
+    is **computed from the stored sizes rather than estimated**, which is the
+    whole point of telling a student what an image will cost them.
+    """
+    try:
+        rows = list(getattr(listing, "photos").all())
+    except Exception:  # noqa: BLE001 — a missing relation is zero photos
+        return []
+    # KB rounds UP, never down. `SYSTEM.md` §4.16 words the figure as "about
+    # {kb} KB" and it is a **cost to the student**, so the honest direction is
+    # the one that cannot under-state what they will pay. Rounding to nearest
+    # also prints "0 KB" for anything under 512 bytes, which reads as broken.
+    return [
+        {
+            "id": getattr(p, "id", None),
+            "bytes": getattr(p, "bytes", 0) or 0,
+            "kb": -(-(getattr(p, "bytes", 0) or 0) // 1024),
+        }
+        for p in rows
+    ]
+
+
+def _seller_block(listing):
+    """`SYSTEM.md` §4.11a — and every branch in it fails closed.
+
+    Returns `{name, campus, college_email_signin}`.
+
+    **THE VERIFICATION-METHOD TEST IS L1's, NOT MINE.**
+    `listings.services.seller_block` decides `signed_in_with_college_email`
+    from `campus_verifications.method`, and it is the one definition
+    (`CLAUDE.md` rule 11) — L3 does not re-derive it and does not reach for
+    `users.campus_verified`, which includes `STAFF_MANUAL` and would make the
+    string a false statement about a person. That is condition 3 of
+    `COMPLIANCE.md` §2.5a and criterion 7h. L1 also decides what a seller
+    identity contains: three keys and no fourth, so no address, phone, email
+    or coordinate can reach a template even by accident.
+
+    **L3 ADDS THE SECOND CONDITION, WHICH L1 CANNOT SEE.** Condition 2 /
+    criterion 7g: showing the fact to a counterparty is a *different
+    processing operation* from verifying it, so the line must not render until
+    `consent.listing_publication.disclosure` is live in the privacy notice.
+    That is a question about a `notice_versions` row, not about a listing, and
+    `_disclosure_is_notified` asks it here. Two independent layers over one
+    string, which is `CLAUDE.md` rule 12 rather than belt and braces: either
+    one alone would ship the line in a case the other refuses.
+
+    **When it is false the line and its qualifier are both absent, with no
+    substitute string and no comment on the absence.** Not "not available",
+    not a greyed placeholder, not a tooltip, and above all not "Verified by
+    BookHop staff" — BookHop asserting something about a person is the single
+    worst string that could exist in this product (`COPY-DECK.md` §3.2).
+
+    **No part of `campuses.email_domains` reaches any template** (criterion
+    7f): `seller_block` does not return a domain and nothing here adds one.
+    """
+    block = _listings().seller_block(listing)
+    return {
+        "name": (block.get("display_name") or "").strip() or None,
+        "campus": block.get("campus_name"),
+        "college_email_signin": (
+            bool(block.get("signed_in_with_college_email")) and _disclosure_is_notified()
+        ),
+    }
+
+
+#: `COPY-DECK.md` §10.4 `consent.listing_publication.disclosure`, and criterion
+#: 7g's gate. Written once, read twice: rendered to the student on the consent
+#: screen, and compared against the live privacy notice here. **Not a
+#: hand-copy** (`CLAUDE.md` rule 11) — both readers evaluate the same gettext
+#: call, so a reword cannot move one without the other.
+def _disclosure_sentence():
+    return pgettext(
+        "consent.listing_publication.disclosure",
+        "When you put a book on the list, other students on your campus see "
+        "your display name, your campus, and that you signed in with a college "
+        "email address.",
+    )
+
+
+def _disclosure_is_notified():
+    """True when the disclosure is actually in the live privacy notice.
+
+    Criterion 7g as a runtime gate rather than as a note in a review. The
+    notice body is backend's (`notice_versions`), so this asks the notice
+    instead of assuming it, and **it fails closed**: no notice, no match, no
+    sign-in line. Today that is the expected answer and the seller block
+    correctly renders nothing — which is the control working, not a bug.
+    """
+    notice = ctx.read_notice("PRIVACY")
+    body = getattr(notice, "body", None) or getattr(notice, "body_text", None) or ""
+    return _disclosure_sentence() in str(body)
+
+
+# --- J2 · listing a book ---------------------------------------------------
+
+@require_http_methods(["GET", "HEAD", "POST"])
+@_signed_in_only
+def sell(request):
+    """`GET /sell` — my listings. `POST /sell` — create one.
+
+    One path, two methods, because `API-CONTRACT.md` §5.2 names one path for
+    both and a no-JS browser posts back to where the contract says.
+
+    `GET` is `PRD.md` AC-S1.3's resume point: *"an abandoned listing stays
+    `DRAFT` and is resumable from `GET /sell` with every entered field and
+    every uploaded photo intact."* Nothing here is cached and nothing is
+    optimistic — the rows are whatever L1 last confirmed.
+    """
+    user = _require_user(request)
+    if request.method == "POST":
+        return _sell_create(request, user)
+    try:
+        mine = _listings().my_listings(user)
+    except errors.ServiceError as exc:
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+    return _page(
+        request,
+        "sell.html",
+        rows=[_listing_row(listing) for listing in _items(mine)],
+        flash=request.session.pop("flash", None),
+    )
+
+
+def _sell_create(request, user):
+    """`POST /sell` — J2 steps 3 to 7, in one transaction of the student's time.
+
+    **The book is re-resolved from the posted ISBN rather than carried in the
+    session.** Two reasons, and the second is the one that matters: a session
+    makes the flow un-resumable across a dropped connection, which is the
+    normal case on 3G; and between the lookup and the submit another student
+    may have created the same `books` row, so re-resolving is also how the
+    race resolves itself instead of becoming a `DUPLICATE_ISBN` the seller
+    cannot act on.
+
+    **Seller terms are accepted before the listing is created**, because
+    `create_listing` raises `SellerTermsNotAccepted` otherwise and J2 step 6
+    says that is rendered as the terms screen again, never as an error page.
+    """
+    isbn = "".join(ch for ch in request.POST.get("isbn", "") if ch.isdigit())
+    form = ListingForm(request.POST)
+    details = BookDetailsForm(request.POST) if request.POST.get("title") else None
+    ip, _ua = _ip_ua(request)
+
+    if not form.is_valid() or (details is not None and not details.is_valid()):
+        return _find_book_page(request, isbn, form=form, details=details, status=400)
+
+    try:
+        book = _catalog().find_book_by_isbn(isbn) if isbn else None
+        if book is None:
+            if details is None:
+                # The ISBN resolved when the form was rendered and does not
+                # now. Send the student back to step 2 rather than guessing a
+                # catalogue row on their behalf — a wrong edition is the one
+                # failure this product cannot afford.
+                return HttpResponseRedirect("/sell/find-book")
+            book = _catalog().create_book(
+                user,
+                isbn13=isbn,
+                title=details.cleaned_data["title"],
+                authors=details.cleaned_data["authors"],
+                edition_label=details.cleaned_data["edition_label"],
+                publisher=details.cleaned_data["publisher"],
+                publication_year=details.cleaned_data["publication_year"],
+                language=form.cleaned_data["language"],
+            )
+        notice = accounts.current_notice("SELLER_TERMS", ctx.locale_of(user))
+        if notice is None:
+            # Strict, not degrading, for the same reason the consent POST is:
+            # a `seller_terms_acceptances` row against a missing version is a
+            # defective legal record, and r.6(4)(a) wants a real one.
+            return _problem(
+                request,
+                503,
+                "sell.terms.missing.h",
+                "The seller terms aren't published yet",
+                "sell.terms.missing.body",
+                "BookHop cannot take a listing until they are.",
+            )
+        accounts.accept_seller_terms(user, notice, ip)
+        listing = _listings().create_listing(
+            user,
+            book=book,
+            asking_price_paise=form.cleaned_data["asking_price_rupees"] * 100,
+            condition=form.cleaned_data["condition"],
+            annotation_level=form.cleaned_data["annotation_level"],
+            damage_flags=form.cleaned_data["damage_flags"],
+            language=form.cleaned_data["language"],
+            category=form.cleaned_data["category"],
+            # AC-S3.2's affirmative half, which the column cannot carry: an
+            # empty `damage_flags` means two different things, and `no_damage`
+            # is which one. L1 refuses an empty list without it, so the
+            # sentinel is never stored and silence is never read as a claim.
+            no_damage=not form.cleaned_data["damage_flags"],
+        )
+    except errors.ServiceError as exc:
+        code = getattr(exc, "code", None)
+        if code == "DUPLICATE_ISBN":
+            # J2 step 2's "is this the one?" screen, which is where a seller
+            # holding a book belongs when the catalogue already knows it.
+            return HttpResponseRedirect(f"/sell/find-book?isbn={isbn}")
+        if code == "SELLER_TERMS_NOT_ACCEPTED":
+            form.add_error("seller_terms", pgettext(
+                "sell.terms.required",
+                "BookHop cannot take a listing until you have read the seller terms.",
+            ))
+            return _find_book_page(request, isbn, form=form, details=details, status=403)
+        if code == "VALIDATION_FAILED":
+            return _find_book_page(request, isbn, form=form, details=details, status=400)
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+    return HttpResponseRedirect(f"/sell/{listing.id}/photos")
+
+
+@require_safe
+@_signed_in_only
+def sell_find_book(request):
+    """`GET /sell/find-book` — J2 steps 1 to 6.
+
+    Three shapes on one route, because they are one question asked in
+    sequence and a separate URL for each would cost a round trip on 3G:
+
+    1. **no `isbn`** — the single ISBN field (J2 step 1);
+    2. **`isbn` resolves** — the book, "Is this the one?", and the intake form;
+    3. **`isbn` does not resolve** — `sell.isbn.notfound`, the add-a-book
+       fields, and the same intake form below them. Never a dead end.
+
+    A `GET` with the ISBN in the query string, so the resolved book is a URL
+    the student can reload, share with themselves, and reach with the back
+    button after a dropped connection. **An ISBN is not personal data** — it
+    identifies an edition, not a person — so the privacy rule about query
+    strings does not bite here.
+
+    `API-CONTRACT.md` §5.2 calls this an htmx typeahead that degrades to a
+    submit button. **It ships as the submit button and no htmx**, which is the
+    baseline the contract requires the enhancement to degrade to; a typeahead
+    that fires a request per keystroke on a metered connection is the wrong
+    default for this device, and the enhancement can be added later without
+    changing a single route.
+    """
+    _require_user(request)
+    raw = request.GET.get("isbn")
+    return _find_book_page(request, raw)
+
+
+def _find_book_page(request, raw_isbn, form=None, details=None, status=200):
+    """Render step 1/2/3 of the sell flow. Shared by the GET and the failed POST.
+
+    One renderer, so a validation failure comes back on the page the student
+    was looking at with every value they typed still in it (`SYSTEM.md` §4.4
+    `error`: *"the typed value is never cleared"*).
+    """
+    isbn_form = IsbnForm({"isbn": raw_isbn} if raw_isbn else None)
+    book = None
+    not_found_isbn = None
+    checksum_error = False
+
+    if raw_isbn and isbn_form.is_valid():
+        try:
+            book = _catalog().find_book_by_isbn(isbn_form.cleaned_data["isbn"])
+        except errors.ServiceError as exc:
+            if getattr(exc, "code", None) != "VALIDATION_FAILED":
+                raise
+            # The only validation the service can still refuse after this
+            # form's 13-digit check is the **checksum** — which is L1's rule
+            # and is deliberately not re-implemented in `web/forms.py`
+            # (`CLAUDE.md` rule 11). The sentence is ours so it stays inside
+            # the copy deny-list; the judgement is L1's.
+            checksum_error = True
+            isbn_form.add_error("isbn", pgettext(
+                "sell.isbn.checksum",
+                "That ISBN doesn't look right — check the digits.",
+            ))
+        if book is None and not checksum_error:
+            not_found_isbn = isbn_form.cleaned_data["isbn"]
+
+    resolved = book is not None or not_found_isbn is not None
+    return _page(
+        request,
+        "sell_find.html",
+        status=status,
+        isbn_form=isbn_form,
+        isbn=(book and getattr(book, "isbn13", None)) or not_found_isbn or "",
+        book=_book_of(book) if book is not None else None,
+        not_found=not_found_isbn,
+        form=(form or ListingForm()) if resolved else None,
+        details=(details or BookDetailsForm()) if not_found_isbn else None,
+    )
+
+
+@require_http_methods(["GET", "HEAD", "POST"])
+@_signed_in_only
+def sell_photos(request, listing_id):
+    """`GET`/`POST /sell/{id}/photos` — J2 step 8, and the riskiest screen here.
+
+    **ONE FILE PER REQUEST.** `SYSTEM.md` §4.5: *"on 3G a 4-file request that
+    dies at 90% loses all four; four requests lose one."* With JavaScript off
+    that property is free rather than engineered — one input, one submit, one
+    round trip — and the page that comes back **is** the resumable state, so
+    there is no queue to lose and nothing is ever shown as uploaded that the
+    server has not confirmed (rule 9 of `SYSTEM.md` §1).
+
+    **The listing already exists as a `DRAFT` before any photo is sent**, so
+    the typed description, the price and the ISBN are never at risk from a
+    photo failure. That is EC-13 and AC-S1.3, and it is why `create_listing`
+    and `publish_listing` are two calls.
+
+    THE FOUR FAILURE STATES, AND WHAT THE STUDENT SEES IN EACH:
+
+    * **too big** — refused by `PhotoForm` before a byte is read, with the
+      size named. The student is told rather than meeting a proxy's 413 after
+      paying for the upload;
+    * **not an image we can read** — `UNSUPPORTED_IMAGE`/`VALIDATION_FAILED`
+      from `add_photo`, with the format list, because J2 step 8 requires it;
+    * **a fifth photo** — `TOO_MANY_PHOTOS`, rendered as §4.5's `disabled`
+      state: the control goes away and the reason is in text beside it, never
+      a dead control with no explanation;
+    * **the upload dies mid-flight** — the browser's own network error, and on
+      return this page shows exactly what landed. Nothing is queued and
+      nothing claims to be saved that is not (`ADR-001` §6 excludes offline
+      writes).
+
+    The consecutive-failure count is in the session so §4.5's *"after 3
+    failures the row offers Publish without this photo"* is a real affordance
+    rather than a specification. **Publishing is available at every count** —
+    photos are not required — so the count changes what is said, never what
+    is possible.
+
+    # ponytail: with JavaScript off a retry re-opens the file picker, because
+    # §4.5's "the row keeps the chosen file" cannot be done — no browser
+    # repopulates a file input, by design. Ceiling stated rather than hidden;
+    # the upgrade path is the htmx enhancement, which keeps the `File` object
+    # in memory and re-POSTs it.
+    """
+    user = _require_user(request)
+    fails = request.session.get("photo_fails") or {}
+    key = str(listing_id)
+    form = PhotoForm()
+    try:
+        listing = _listings().get_own_listing(user, listing_id)
+        if request.method == "POST":
+            form = PhotoForm(request.POST, request.FILES)
+            if form.is_valid():
+                try:
+                    _listings().add_photo(user, listing, form.cleaned_data["photo"])
+                except errors.ServiceError as exc:
+                    code = getattr(exc, "code", None)
+                    if code not in ("TOO_MANY_PHOTOS", "VALIDATION_FAILED"):
+                        raise
+                    fails[key] = fails.get(key, 0) + 1
+                    request.session["photo_fails"] = fails
+                    form.add_error("photo", _photo_error(code))
+                else:
+                    fails.pop(key, None)
+                    request.session["photo_fails"] = fails
+                    return HttpResponseRedirect(f"/sell/{listing_id}/photos")
+            else:
+                fails[key] = fails.get(key, 0) + 1
+                request.session["photo_fails"] = fails
+            listing = _listings().get_own_listing(user, listing_id)
+    except errors.ServiceError as exc:
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+
+    photos = _photo_rows(listing)
+    return _page(
+        request,
+        "sell_photos.html",
+        status=400 if form.errors else 200,
+        row=_listing_row(listing),
+        form=form,
+        photos=photos,
+        photo_count=len(photos),
+        max_photos=MAX_PHOTOS,
+        room_for_more=len(photos) < MAX_PHOTOS,
+        repeated_failures=fails.get(key, 0) >= 3,
+    )
+
+
+def _photo_error(code):
+    """The sentence for a refused photo. Two codes, two different next actions."""
+    if code == "TOO_MANY_PHOTOS":
+        return pgettext(
+            "sell.photos.full",
+            "This listing already has four photos, which is the most BookHop takes.",
+        )
+    return pgettext(
+        "sell.photos.unsupported",
+        "BookHop couldn't read that file. It takes JPEG, PNG and WebP photos.",
+    )
+
+
+@require_http_methods(["POST"])
+@_signed_in_only
+def sell_publish(request, listing_id):
+    """`POST /sell/{id}/publish` — J2 step 9.
+
+    **No success sentence is flashed about where the listing went**, and that
+    is AC-S4.3 satisfied structurally rather than by discipline. At pilot
+    `LISTING_REVIEW_ALL=true` puts every listing in `PENDING_REVIEW`; with the
+    config off `publish_listing` may reach `LIVE` directly. A flash saying
+    *"we'll look at this"* would be false in the second case and a flash
+    saying *"it's on the list"* false in the first — so the redirect lands on
+    `/sell`, where each listing's own status word is read from what L1
+    returned. **Turning the config off changes no string**, which is what the
+    criterion asks for.
+
+    `expected_version` comes from a hidden field rendered off the object, so
+    two tabs produce a `409` rather than one silently overwriting the other
+    (`API-CONTRACT.md` §4.2).
+    """
+    return _transition(request, listing_id, "publish_listing")
+
+
+@require_http_methods(["POST"])
+@_signed_in_only
+def sell_withdraw(request, listing_id):
+    """`POST /sell/{id}/withdraw` — J2 step 11, behind a `<details>` confirm.
+
+    Native disclosure, no JavaScript, no modal, no focus trap: the destructive
+    button is not reachable by one stray tap and is never adjacent to a
+    primary action (`SYSTEM.md` §5.1).
+    """
+    return _transition(request, listing_id, "withdraw_listing")
+
+
+def _transition(request, listing_id, service_name):
+    """Publish or withdraw — the same five lines twice would be the divergence.
+
+    A `409` is rendered as `SYSTEM.md` §4.18's wording rather than as an error
+    page: the listing changed, here it is as it stands now, nothing you did
+    was lost.
+    """
+    user = _require_user(request)
+    try:
+        version = int(request.POST.get("expected_version", ""))
+    except ValueError:
+        version = None
+    try:
+        listing = _listings().get_own_listing(user, listing_id)
+        getattr(_listings(), service_name)(user, listing, version)
+    except errors.ServiceError as exc:
+        code = getattr(exc, "code", None)
+        if code == "VERSION_CONFLICT":
+            request.session["flash"] = pgettext(
+                "sys.conflict.listing",
+                "This listing changed while you were looking at it. "
+                "Here it is as it stands now.",
+            )
+            return HttpResponseRedirect("/sell")
+        if code == "TRANSITION_NOT_ALLOWED":
+            request.session["flash"] = pgettext(
+                "sell.transition.no",
+                "That isn't something this listing can do from where it is now.",
+            )
+            return HttpResponseRedirect("/sell")
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+    request.session["flash"] = pgettext("sell.published", "Saved.")
+    return HttpResponseRedirect("/sell")
+
+
+# --- the listing page ------------------------------------------------------
+
+@require_safe
+@_signed_in_only
+def listing_detail(request, listing_id):
+    """`GET /listing/{id}` — **two labelled blocks, and the structure is a
+    compliance control rather than a layout preference.**
+
+    `SYSTEM.md` §4.11 and `COPY-DECK.md` §3.2: *"About this book"* holds the
+    bibliographic identity, the asking price with its negotiability sentence,
+    and the seller's attributed quotation; *"About this seller"* holds the
+    display name, the campus, and — only when true — the sign-in fact with its
+    qualifier immediately after it. **No trust sentence appears outside the
+    block whose scope it names**, because compliance flagged that an unscoped
+    "nothing here is checked" beside "signed in with a college email address"
+    reads as the product arguing with itself.
+
+    **There is no offer form on this page in S2 and that is not an omission.**
+    `POST /offers` is `apps/transfers`, slice S4. A button that posted nowhere
+    would be the shape `COPY-DECK.md` §14 withdrew five strings for. The page
+    states the fact instead, in the register `help.no_channel` established: a
+    statement about the product, not a promise about our future conduct.
+
+    **THE READ IS `get_own_listing`, NOT `discovery.get_listing`, AND ONLY
+    UNTIL S3.** `apps/discovery` does not exist — `API-CONTRACT.md` §5.3 puts
+    every discovery read in S3 — so in this slice the only student who can
+    reach a listing is the one who wrote it, arriving from `/sell` to see what
+    the page looks like. `get_own_listing` is **strictly tighter** than the
+    discovery read it stands in for: scoped, plus an ownership predicate, so
+    nobody sees a listing they could not already see. Anyone else gets the
+    404 that `API-CONTRACT.md` §2.2 requires for an invisible row.
+
+    S3 swaps one line. The page itself does not change, which is the point of
+    building it now: the buyer-facing listing exists and has been looked at
+    before a buyer can reach it.
+
+    **Criterion 9 — "no `<img>` when `Save-Data: on`" — is satisfied VACUOUSLY
+    on this page today and must not be reported as passing** (`CLAUDE.md`
+    rule 10). No route serves a stored photo: `listing_photos.storage_key`
+    exists, `API-CONTRACT.md` §5.2 has no `GET` for a photo, and inventing a
+    media URL is not L3's to do. So the page emits no `<img>` under any
+    header, the `Save-Data` branch has nothing to gate, and both it and
+    `SYSTEM.md` §4.16's strip are deliberately unbuilt rather than written
+    against a URL that does not exist. Escalated with the slice; the spec is
+    quoted in `listing.html` where the strip goes.
+    """
+    user = _require_user(request)
+    try:
+        listing = _listings().get_own_listing(user, listing_id)
+    except errors.ServiceError as exc:
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+    return _page(
+        request,
+        "listing.html",
+        row=_listing_row(listing),
+        seller=_seller_block(listing),
+        photos=_photo_rows(listing),
+    )
+
+
+# --- J4 · the book that is not there ---------------------------------------
+
+@require_http_methods(["GET", "HEAD", "POST"])
+@_signed_in_only
+def wanted(request):
+    """`GET`/`POST /wanted` — `JOURNEYS.md` J4 steps 2 and 6.
+
+    **This page promises nothing** (AC-B2.5). It records a row and says so.
+    J4 step 3 — *"a matching listing is published and the student is told"* —
+    is ⛔ BLOCKED on CG-4: there is no `WANT_MATCHED` kind and no scan job, so
+    **the student is never told anything**, and the page says that in one
+    sentence rather than leaving them to infer a notification that will not
+    come. `COPY-DECK.md` §1.7 rule 2: the first-person-plural verb in *"we'll
+    tell you when someone lists it"* has no function behind it, so the string
+    waits for the slice that writes one.
+
+    An ISBN we do not recognise is carried as `free_text_title` rather than
+    refused (EC-17) — one of the few places the product learns something about
+    a syllabus nobody told us about.
+    """
+    user = _require_user(request)
+    form = WantedForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        isbn = form.cleaned_data["isbn"]
+        title = form.cleaned_data["title"]
+        book = None
+        try:
+            if isbn:
+                try:
+                    book = _catalog().find_book_by_isbn(isbn)
+                except errors.ServiceError as exc:
+                    if getattr(exc, "code", None) != "VALIDATION_FAILED":
+                        raise
+                    book = None
+            _listings().create_request(
+                user,
+                book=book,
+                free_text_title=None if book is not None else (title or isbn),
+                course_code=form.cleaned_data["course_code"] or None,
+            )
+        except errors.ServiceError as exc:
+            page = _service_problem(request, exc)
+            if page is not None:
+                return page
+            raise
+        request.session["flash"] = pgettext(
+            "wanted.recorded",
+            "That is on your list below. BookHop does not tell you when a copy "
+            "is listed — there is no way for it to yet.",
+        )
+        return HttpResponseRedirect("/wanted")
+
+    try:
+        mine = _listings().my_requests(user)
+    except errors.ServiceError as exc:
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+    return _page(
+        request,
+        "wanted.html",
+        status=400 if form.errors else 200,
+        form=form,
+        rows=[_request_row(r) for r in _items(mine)],
+        flash=request.session.pop("flash", None),
+    )
+
+
+def _request_row(req):
+    """One `book_requests` row as display values. Open rows are the only ones
+    with an action; a closed one is history and says which kind."""
+    book = getattr(req, "book", None)
+    status = getattr(req, "status", None)
+    word = {
+        "OPEN": ("wanted.status.OPEN", "Still looking"),
+        "FULFILLED": ("wanted.status.FULFILLED", "You got this one"),
+        "WITHDRAWN": ("wanted.status.WITHDRAWN", "You closed this"),
+        "EXPIRED": ("wanted.status.EXPIRED", "Closed at the end of term"),
+    }.get(status)
+    return {
+        "id": getattr(req, "id", None),
+        "title": getattr(book, "title", None) or getattr(req, "free_text_title", None),
+        "isbn": getattr(book, "isbn13", None),
+        "course_code": getattr(req, "course_code", None),
+        "status": status,
+        "status_word": pgettext(*word) if word else None,
+        "open": status == "OPEN",
+    }
+
+
+@require_http_methods(["POST"])
+@_signed_in_only
+def wanted_close(request, request_id):
+    """`POST /wanted/{id}/close` — J4 step 6, "I don't need this any more"."""
+    user = _require_user(request)
+    try:
+        # `close_request` documents a `BookRequest` and accepts an id where it
+        # looks one up, scoped and ownership-checked. Passing the id is one
+        # call rather than two and cannot read a row this student may not
+        # close — so no `get_my_request` is needed and none is proposed.
+        _listings().close_request(user, request_id)
+    except errors.ServiceError as exc:
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
+    request.session["flash"] = pgettext("wanted.closed", "Taken off your list.")
+    return HttpResponseRedirect("/wanted")
+
+
 # --- public notices --------------------------------------------------------
 
 @require_safe
@@ -733,14 +1597,83 @@ def offline(request):
     return _page(request, "offline.html", offline_mode=True)
 
 
+#: The PWA shell, as one list. `sw.js` receives it and `shell_version()`
+#: hashes it, so the precache list and the cache name cannot disagree
+#: (`CLAUDE.md` rule 11). Each entry is `(url, source file)`; `/offline` and
+#: `/manifest.webmanifest` are routes rather than static files, so their
+#: sources are the templates that produce them.
+SHELL = (
+    ("css/tokens.css", None),
+    ("css/app.css", None),
+    ("js/sw-register.js", None),
+    ("icons/bookhop.svg", None),
+    ("/offline", "offline.html"),
+    ("/manifest.webmanifest", "manifest.webmanifest"),
+)
+
+
+@lru_cache(maxsize=1)
+def shell_version():
+    """A cache name derived from the shell's actual bytes.
+
+    **`VERSION = 'bookhop-s1-1'` WAS A HAND-TYPED STRING AND ITS OWN COMMENT
+    CLAIMED A PROPERTY NOTHING ENFORCED** — *"they are versioned by VERSION,
+    so a stale one cannot outlive a deploy"*, which is true only while someone
+    remembers to edit it. That is `CLAUDE.md` rule 9's shape in a comment, and
+    it failed the first time it was tested: a CSS change in this slice was
+    invisible in the browser because the worker kept serving the precached
+    copy, and **a student with the PWA installed would have kept the old
+    stylesheet indefinitely.** Found by changing a file and looking, which no
+    test here does.
+
+    So the name is the content. Change any shell file and the cache name
+    changes, the `activate` handler deletes every other key, and the new bytes
+    are fetched. Nobody has to remember anything.
+
+    # ponytail: computed once per process (`lru_cache`), not per request.
+    # Ceiling — a shell file edited while the server is running keeps the old
+    # name until a restart, which is correct in production (a deploy restarts
+    # the process) and is a known inconvenience in development. The upgrade
+    # path, if it ever matters, is `settings.DEBUG and _digest()`.
+    #
+    # A missing file hashes as absent rather than raising: `/sw.js` must not
+    # 500 because an icon moved, and an absent file still changes the digest,
+    # which is the behaviour that matters.
+    """
+    digest = hashlib.sha256()
+    for name, template in SHELL:
+        path = (
+            pathlib.Path(settings.BASE_DIR) / "templates" / template
+            if template
+            else finders.find(name)
+        )
+        try:
+            digest.update(pathlib.Path(path).read_bytes())
+        except (OSError, TypeError):
+            digest.update(b"\x00missing:" + name.encode())
+    return "bookhop-" + digest.hexdigest()[:16]
+
+
 @require_safe
 def service_worker(request):
     """`GET /sw.js` — served from the root so its scope is the whole origin.
 
     A service worker's scope cannot exceed its own path, so this cannot live
     under `/static/`.
+
+    The shell list and the cache name both come from `SHELL`, so the precache
+    list and the version it is stored under cannot drift apart.
     """
-    response = render(request, "sw.js", {}, content_type="text/javascript")
+    response = render(
+        request,
+        "sw.js",
+        {
+            "version": shell_version(),
+            "shell_static": [name for name, template in SHELL if template is None],
+            "shell_routes": [name for name, template in SHELL if template is not None],
+        },
+        content_type="text/javascript",
+    )
     response["Cache-Control"] = "no-cache"
     return response
 

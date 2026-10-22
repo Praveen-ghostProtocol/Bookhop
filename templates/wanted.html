@@ -1,0 +1,79 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET`/`POST /wanted` — JOURNEYS J4 steps 2 and 6. On a cold campus this is
+  the modal journey, not the edge case (R-04, T4): the honest answer to most
+  searches at semester start is "not yet".
+
+  THIS PAGE PROMISES NOTHING, AND THE SENTENCE THAT SAYS SO IS THE POINT.
+  AC-B2.5: the want form never promises a time, a probability, or that the
+  book will arrive. J4 step 3 — *"a matching listing is published and the
+  student is told within 15 minutes"* — is ⛔ BLOCKED on CG-4: there is no
+  `WANT_MATCHED` notification kind and no scan job, so **the student is never
+  told anything.**
+
+  So COPY-DECK's `search.empty.cta` — *"Tell me when someone lists it"* — is
+  NOT used here, and neither is `listing.reserved.cta`. Both are labels on a
+  notification that nothing sends. §1.7 rule 2: name the code behind the
+  first-person verb, and if the answer is a slice number the string waits.
+  They return with CG-4.
+
+  What replaces them is a statement of what the row actually does, which is
+  also the thing that makes the page worth having: a want with no supply is
+  the measurement that tells staff the campus is illiquid (R-01), and it is
+  the request limb of the match rate.
+
+  AC-B2.1 asks for the form pre-filled from a zero-result search in ≤2
+  interactions. `GET /search` is **S3**, so there is nothing to pre-fill from
+  yet; the form takes the same two values the query will carry, so S3 wires
+  the query string to these field names and adds no screen.
+{% endcomment %}
+{% block title %}{% translate "Books you're looking for" context "wanted.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Books you're looking for" context "wanted.h1" %}</h1>
+
+{% include "_errorslot.html" %}
+
+<form method="post" action="/wanted">
+  {% csrf_token %}
+  {% translate "The 13 digits under the barcode, if the book is in front of you." context "wanted.isbn.hint" as isbn_hint %}
+  {% include "_field.html" with field=form.isbn hint=isbn_hint %}
+  {% include "_field.html" with field=form.title %}
+  {% translate "It helps staff see which reading lists have nothing behind them." context "wanted.course.hint" as course_hint %}
+  {% include "_field.html" with field=form.course_code hint=course_hint %}
+  <button class="btn btn--primary" type="submit">{% translate "Add this to my list" context "wanted.submit" %}</button>
+</form>
+
+{% comment %} A fact about the product and about our database, stated before
+   the student types rather than after they submit — the AC-H6.5 ordering,
+   applied here. Not a hedge and not an apology: there is no mechanism, and a
+   softened version of that would still be a promise (COPY-DECK §14's third
+   check). {% endcomment %}
+<p class="meta">{% translate "BookHop records this so staff can see which books nobody on your campus has. It does not tell you when a copy is listed — there is no way for it to yet." context "wanted.no_notification" %}</p>
+
+<div class="section">
+  <h2>{% translate "On your list" context "wanted.mine.h" %}</h2>
+  {% if rows %}
+    <ul class="rows">
+      {% for row in rows %}
+        <li>
+          {% if row.status_word %}<span class="chip chip--wait">{{ row.status_word }}</span>{% endif %}
+          <p class="biblio">{{ row.title }}</p>
+          {% if row.isbn %}<p class="mono">{{ row.isbn }}</p>{% endif %}
+          {% if row.course_code %}<p class="meta">{{ row.course_code }}</p>{% endif %}
+          {% if row.open %}
+            <form method="post" action="/wanted/{{ row.id }}/close">
+              {% csrf_token %}
+              <button class="btn btn--secondary" type="submit">{% translate "I don't need this any more" context "wanted.close" %}<span class="vh"> — {{ row.title }}</span></button>
+            </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {% comment %} SYSTEM §4.26: the reason, and exactly one next action — which
+       is the form above, so this names it rather than repeating it. {% endcomment %}
+    <p>{% translate "Nothing on your list yet. Add a book above and staff can see it is missing." context "wanted.empty" %}</p>
+  {% endif %}
+</div>
+{% endblock %}

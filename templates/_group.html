@@ -1,0 +1,40 @@
+{% load i18n %}{% comment %}
+  A radio or checkbox GROUP — SYSTEM §4.4, and `_field.html`'s sibling.
+
+  WHY THIS EXISTS RATHER THAN REUSING `_field.html`. A group of radios has no
+  single control for a `<label for>` to point at: `field.id_for_label` on a
+  `RadioSelect` is `id_condition_0`, the FIRST option, so `_field.html` would
+  tie the question to one answer and a screen reader would announce
+  "Which of these describes your copy? As new" as the name of the As-new radio
+  and nothing at all as the name of the group. `<fieldset>` + `<legend>` is the
+  native structure for exactly this and needs no ARIA.
+
+  THE IDS ARE BUILT FROM `field.name`, NOT FROM `id_for_label`, AND THAT IS THE
+  WHOLE REASON THE ARIA LINES UP. `web/forms.py _Form._wire_aria` sets
+  `aria-describedby="id_<name>-hint id_<name>-error"` on the widget, which a
+  `RadioSelect` copies onto every option input. So the hint and error spans
+  have to carry those exact ids — `id_for_label` would make them
+  `id_condition_0-hint` and every option would point at an element that does
+  not exist, which is invalid ARIA and which several screen readers answer by
+  announcing no description at all.
+
+  THE FIELDSET CARRIES `id="id_<name>"` AND `tabindex="-1"`. `_errorslot.html`
+  links each failing field as `#id_<name>`; for a group there is no input with
+  that id, so without this the summary link in the error slot would go
+  nowhere — a working link to the wrong place is harder to notice than a
+  broken one. `tabindex="-1"` makes the jump move focus as well as scroll.
+
+  Both described-by targets are always emitted, empty when unused, for the
+  reason `_field.html` gives at length.
+
+  Takes: field (bound), hint (string or empty), required (bool).
+{% endcomment %}
+<fieldset class="field fieldgroup{% if field.errors %} field--invalid{% endif %}"
+          id="id_{{ field.name }}" tabindex="-1">
+  <legend class="field__label">
+    {{ field.label }}{% if required %} <span class="field__req">({% translate "required" context "sys.required" %})</span>{% endif %}
+  </legend>
+  <span class="field__hint" id="id_{{ field.name }}-hint">{{ hint|default:"" }}</span>
+  <span class="field__error" id="id_{{ field.name }}-error">{% if field.errors %}{{ field.errors.0 }}{% endif %}</span>
+  {{ field }}
+</fieldset>

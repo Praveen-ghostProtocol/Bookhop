@@ -84,12 +84,107 @@
 # that gets edited under schedule pressure, which is rule 13's whole point.
 # ---------------------------------------------------------------------------
 
+# ===========================================================================
+# S2 UPDATE, 2026-10-22 — THE "price" MATCHER IS BROADER THAN THE BAN, AND S2
+# IS THE SLICE THAT MAKES THAT VISIBLE. ONE SHAPE EXEMPTION PROPOSED; NO
+# STRING EXEMPTION, AND [strings] STAYS EMPTY.
+# ===========================================================================
+# S1 shipped no rupee figure, so no string contained the word "price" and the
+# scan was clean. S2 ships the sell flow and the listing page, and the scan now
+# reports **six findings, all of the token `price`, and nothing else** — zero
+# findings across all eight vouching words and zero across Ban 2's four
+# phrases. Measured, not asserted: `tests/unit/test_forbidden_copy.py`'s own
+# `findings(translatable_text(...))` over `templates/**` and `locale/en/**`.
+#
+# The six, with where each one comes from:
+#
+#   price.label.full      "Seller's asking price"
+#   price.negotiable      "This is what the seller is asking. The two of you
+#                          agree the actual price between yourselves."
+#   price.seller.hint     "This is the price you're asking for. …"
+#   sell.price.locked     "You can't change this number later. You can still
+#                          agree a different price when you meet."
+#   sell.empty.body       "… the ISBN from the back of the book, what's wrong
+#                          with it, and your price."
+#   sell.price.relist     "To ask a different price, take this down and put it
+#                          up again. …"
+#
+# **Five of the six are COPY-DECK §3.1 and §6.1 verbatim and four of them are
+# B4 — each one carries a limb of the s194-O position.** `price.label.full` is
+# the one that cannot move at all: Q9's statement of facts already asserts to
+# counsel that *"the asking price is labelled as the seller's asking price
+# throughout"*, so a rename makes a representation to counsel false.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS A MATCHER DEFECT AND NOT A COPY DEFECT
+# ---------------------------------------------------------------------------
+# ADR-003 §2.3 and COPY-DECK §1.1 Ban 2 forbid **the bare label "Price"**.
+# SYSTEM.md criterion 7b says the same thing in its own words — *"no element
+# whose visible label or `<th>` is the bare word 'Price'"* — and adds that the
+# bare-label limb *"needs a rendered-DOM check as well as a grep"*.
+#
+# `apps/core/copy_rules.py` carries `BANNED_LABELS = ("price",)` and
+# `findings()` matches it as `\bprice\b` **anywhere in any translatable text**.
+# That is strictly broader than the rule it implements: it bans the ordinary
+# English noun in prose, including in the exact replacement strings §3.1
+# prescribes for the banned label. The deck's own §10.2 row points at
+# `price.label.full` as the thing to use instead of "Price" — and the matcher
+# refuses it.
+#
+# This is CLAUDE.md rule 13 arriving on schedule: *"a guard that fires on the
+# contracts it protects will be edited, not obeyed."* Resort 1 (rename our own
+# name) does not apply — the wording is COMPLIANCE §4.3.1's and counsel's, not
+# ours. So: resort 2, exempt the shape, ratified.
+#
+# **The copy was NOT reworded to make the scan green.** Two strings were
+# drafted with "amount" substituted for "price" while this file was being
+# written and both were reverted, because quietly editing mandated legal copy
+# so an over-broad grep stays green is the precise failure rule 13 describes.
+# The red test is the honest state and it names a real defect in the control.
+#
+# ---------------------------------------------------------------------------
+# THE PROPOSED NARROWING, AS A PROPERTY RATHER THAN A LIST (rule 11)
+# ---------------------------------------------------------------------------
+# `BANNED_LABELS` should be matched **only against label-shaped text**, and
+# permitted there when the label names whose number it is:
+#
+#   a string is LABEL-SHAPED when, trimmed, it has no sentence-ending
+#   punctuation and at most four words;
+#   a label-shaped string containing "price" is a FINDING unless it also
+#   contains "asking".
+#
+# Against the real corpus: "Price" is caught. "Max price" is caught — which
+# matters, because `price.filter.label` exists to prevent exactly that
+# (COPY-DECK §3.1). "Seller's asking price" and "Asking price" pass, which is
+# the whole point. Prose stops being matched, because prose is not a label and
+# was never what the ban was about.
+#
+# **CLAUDE.md rule 12 — the other layer, named.** Prose misuse is what
+# `BANNED_PHRASES` is for, and it is untouched by this: "pay the listed
+# price", "fixed price", "non-negotiable" and "final price" are matched as
+# whole phrases wherever they appear, in prose or in a label. So the narrowing
+# removes coverage of **no sentence anyone has argued is forbidden** — it
+# removes coverage of the word, which only Ban 2's phrase list and the
+# label rule were ever meant to reach. Criterion 7b's rendered-DOM check
+# remains unwritten and remains the right second layer; it is named in the
+# escalation.
+#
+# `apps/core/copy_rules.py` and `tests/unit/test_forbidden_copy.py` are
+# **backend-developer's** (TASKS §1), so this file can only propose. Raised to
+# cto in the S2 slice note. Until it lands,
+# `test_no_shipped_english_string_contains_a_banned_word` is RED on six
+# strings and that red is correct.
+# ---------------------------------------------------------------------------
+
 [meta]
 source = "company/design/COPY-DECK.md §1.1 · company/architecture/THREAT-MODEL.md §6.1(a)"
 locale = "en"
 match = "whole-word, case-insensitive, inflections enumerated not stemmed"
 scanned_at_S1 = 122
 findings_in_shipped_copy_at_S1 = 0
+scanned_at_S2 = 254
+findings_in_shipped_copy_at_S2 = 6
+findings_at_S2_note = "All six are the token `price` in prose, in strings COPY-DECK §3.1/§6.1 mandate. Zero findings across the eight vouching words and zero across Ban 2's four phrases. See [shapes.bare_label]."
 
 # The shape rule above, as data, so the test does not hand-copy it
 # (CLAUDE.md rule 10). These name what the scanner must EXCLUDE from the text
@@ -104,6 +199,23 @@ applies_to = [
 never_applies_to = ["msgid", "msgid_plural", "msgstr", "msgstr[n]", "any other template text"]
 other_layer = "The deny-list still scans every msgid and msgstr; Code Review still applies COPY-DECK §1.2 to sentences."
 ratified_by = "PENDING — cto/code-review. Recorded by frontend-developer at S1; this file is the proposal, not the ratification."
+
+[shapes.bare_label]
+why = "ADR-003 §2.3 and COPY-DECK §1.1 Ban 2 forbid the BARE LABEL \"Price\", and criterion 7b says so in those words. `BANNED_LABELS` is matched as `\\bprice\\b` over all translatable text, which bans the ordinary noun in prose — including in the four B4 strings COPY-DECK §3.1 prescribes as the replacement for the banned label, one of which (`price.label.full`) is asserted to counsel by name. CLAUDE.md rule 13 resort 2: the colliding name is mandated by a frozen contract and is not ours to rename."
+applies_to = [
+  "a `BANNED_LABELS` token matched against text that is NOT label-shaped",
+  "label-shaped means: trimmed, no sentence-ending punctuation, at most four words",
+  "a label-shaped string containing the token is still a finding unless it also contains \"asking\"",
+]
+never_applies_to = [
+  "BANNED_WORDS and its inflections, which are unchanged everywhere",
+  "BANNED_PHRASES, which stay matched as whole phrases in prose and in labels",
+  "a label-shaped string with no \"asking\" in it — \"Price\" and \"Max price\" stay findings",
+]
+other_layer = "BANNED_PHRASES independently catches every prose misuse anyone has named: \"pay the listed price\", \"fixed price\", \"non-negotiable\", \"final price\". Criterion 7b's rendered-DOM check is the intended second layer for the label limb and is NOT YET WRITTEN — stated here rather than implied, because an unbuilt layer is not a layer (CLAUDE.md rule 12)."
+proposed_by = "frontend-developer, S2"
+implemented_in = "apps/core/copy_rules.py + tests/unit/test_forbidden_copy.py — backend-developer's files (TASKS §1). NOT IMPLEMENTED. The guard is RED on six strings until it is, and that red is the correct state."
+ratified_by = "PENDING — cto/code-review."
 
 [shapes.template_comment]
 why = "Every rationale in templates/** and in this file quotes the banned words to explain the ban. A guard that fires on its own rationale gets edited, not obeyed (CLAUDE.md rule 13)."

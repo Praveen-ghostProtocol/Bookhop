@@ -586,6 +586,49 @@ msgctxt "legal.version"
 msgid "Version %(version)s"
 msgstr ""
 
+#: templates/listing.html
+msgctxt "listing.book.label"
+msgid "About this book"
+msgstr "இந்தப் புத்தகத்தைப் பற்றி"
+
+#: templates/listing.html
+msgctxt "listing.no_offer_yet"
+msgid "There is no way to offer on a listing from inside BookHop yet."
+msgstr ""
+
+#: templates/listing.html
+msgctxt "listing.photos.pending"
+msgid "The seller attached %(n)s photo. BookHop has no way to show it yet."
+msgid_plural "The seller attached %(n)s photos. BookHop has no way to show them yet."
+msgstr[0] ""
+msgstr[1] ""
+
+#: templates/sell.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "listing.price.row"
+msgid "Asking ₹%(amount)s"
+msgstr "கேட்கும் விலை ₹%(amount)s"
+
+#: templates/listing.html
+msgctxt "listing.reserved"
+msgid "Someone else is collecting this one."
+msgstr "வேறு யாரோ இதை வாங்கப் போகிறார்கள்."
+
+#: templates/listing.html
+msgctxt "listing.seller.label"
+msgid "About this seller"
+msgstr "இந்த விற்பவரைப் பற்றி"
+
+#: templates/listing.html
+msgctxt "listing.state.label"
+msgid "Not available"
+msgstr ""
+
+#: templates/listing.html
+msgctxt "listing.withdrawn"
+msgid "The seller took this down."
+msgstr "விற்பவர் இதை நீக்கிவிட்டார்."
+
 #: web/forms.py
 msgctxt "nominee.email.label"
 msgid "Their email address"
@@ -616,11 +659,29 @@ msgctxt "nominee.summary"
 msgid "Name someone to act for you"
 msgstr ""
 
+#: templates/listing.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "price.label.full"
+msgid "Seller's asking price"
+msgstr "விற்பவர் கேட்கும் விலை"
+
+#: templates/listing.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "price.negotiable"
+msgid "This is what the seller is asking. The two of you agree the actual price between yourselves."
+msgstr "இது விற்பவர் கேட்கும் விலை. உண்மையான விலையை நீங்கள் இருவரும் பேசி முடிவு செய்ய வேண்டும்."
+
 #: templates/help.html
 #. BLOCKING CLASS B4 (COPY-DECK §2)
 msgctxt "price.not_recorded"
 msgid "BookHop does not know and does not record what you actually pay."
 msgstr "நீங்கள் உண்மையில் எவ்வளவு கொடுக்கிறீர்கள் என்பதை BookHop அறியாது, பதிவும் செய்யாது."
+
+#: templates/sell_find.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "price.seller.hint"
+msgid "This is the price you're asking for. You can agree something different when you meet — BookHop won't record it either way."
+msgstr "இது நீங்கள் கேட்கும் விலை. சந்திக்கும்போது வேறு விலையை முடிவு செய்யலாம் — எப்படியிருந்தாலும் BookHop அதைப் பதிவு செய்யாது."
 
 #: templates/privacy.html
 #. BLOCKING CLASS B3 (COPY-DECK §2)
@@ -694,6 +755,433 @@ msgctxt "run.why_email"
 msgid "Your college address is how we know you're on this campus. We don't ask for a document or a phone number."
 msgstr "நீங்கள் இந்தக் கல்லூரியில் இருப்பதை உங்கள் கல்லூரி முகவரியே காட்டுகிறது. ஆவணமும் தொலைபேசி எண்ணும் கேட்கவில்லை."
 
+#: templates/sell_find.html
+msgctxt "sell.addbook.h"
+msgid "What does the book say?"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.annotation.HEAVY_NOTES"
+msgid "Notes written throughout"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.annotation.HIGHLIGHTED"
+msgid "Highlighting in it"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.annotation.LIGHT_PENCIL"
+msgid "Some pencil marks"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.annotation.NONE"
+msgid "Nothing written in it"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.annotation.pick"
+msgid "Has anyone written in it?"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.authors.label"
+msgid "Author or authors"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.category.PRESCRIBED_TEXTBOOK"
+msgid "On a reading list"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.category.REFERENCE"
+msgid "A reference book"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.category.label"
+msgid "What kind of book is it?"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.condition.AS_NEW"
+msgid "As new"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.condition.FAIR"
+msgid "Fair"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.condition.GOOD"
+msgid "Good"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.condition.HEAVILY_USED"
+msgid "Heavily used"
+msgstr ""
+
+#: templates/sell_find.html
+msgctxt "sell.condition.hint"
+msgid "Torn pages, writing, a bent cover, a missing CD — say it plainly. Buyers believe a description that admits things."
+msgstr "கிழிந்த பக்கங்கள், எழுதியிருப்பது, வளைந்த அட்டை, இல்லாத CD — தெளிவாகச் சொல்லுங்கள். குறைகளைச் சொல்லும் விவரிப்பையே வாங்குபவர்கள் நம்புவார்கள்."
+
+#: templates/sell_find.html
+msgctxt "sell.condition.label"
+msgid "What's wrong with it?"
+msgstr "அதில் என்ன பிரச்சினை?"
+
+#: web/forms.py
+msgctxt "sell.condition.pick"
+msgid "Which of these describes your copy?"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.BROKEN_SPINE"
+msgid "Broken spine"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.COVER_DAMAGE"
+msgid "Damage to the cover"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.LOOSE_PAGES"
+msgid "Loose pages"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.MISSING_PAGES"
+msgid "Missing pages"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.TORN_PAGES"
+msgid "Torn pages"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.WATER"
+msgid "Water damage"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.contradiction"
+msgid "You ticked “No damage to report” and also ticked damage. Leave only the one that is true."
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.error"
+msgid "Tick what is damaged, or tick “No damage to report”."
+msgstr ""
+
+#: templates/sell_find.html
+msgctxt "sell.damage.hint"
+msgid "Tick everything that applies, or tick that there is none."
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.none"
+msgid "No damage to report"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.damage.pick"
+msgid "Is anything damaged?"
+msgstr ""
+
+#: templates/sell_find.html
+msgctxt "sell.edition.hint"
+msgid "Students look for an exact edition. If you're not sure, it's on the title page."
+msgstr "மாணவர்கள் சரியான பதிப்பைத் தேடுவார்கள். உறுதியாகத் தெரியவில்லை என்றால், தலைப்புப் பக்கத்தில் இருக்கும்."
+
+#: web/forms.py
+msgctxt "sell.edition.label"
+msgid "Edition"
+msgstr "பதிப்பு"
+
+#: templates/sell.html
+msgctxt "sell.empty.body"
+msgid "It takes about two minutes: the ISBN from the back of the book, what's wrong with it, and your price."
+msgstr "இதற்கு சுமார் இரண்டு நிமிடம்: புத்தகத்தின் பின்பக்கம் உள்ள ISBN, அதில் என்ன பிரச்சினை, உங்கள் விலை."
+
+#: templates/sell.html
+msgctxt "sell.empty.cta"
+msgid "List a book"
+msgstr "ஒரு புத்தகத்தைப் பட்டியலிடு"
+
+#: templates/sell.html
+msgctxt "sell.empty.title"
+msgid "You haven't listed a book yet."
+msgstr "நீங்கள் இன்னும் எந்தப் புத்தகத்தையும் பட்டியலிடவில்லை."
+
+#: templates/sell_find.html
+msgctxt "sell.h1"
+msgid "List a book"
+msgstr "ஒரு புத்தகத்தைப் பட்டியலிடு"
+
+#: web/views.py
+msgctxt "sell.isbn.checksum"
+msgid ""
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.isbn.error"
+msgid "That is %(n)s digits. An ISBN-13 has 13 — check the number under the barcode."
+msgstr "அது %(n)s இலக்கங்கள். ISBN-13-ல் 13 இருக்கும் — பார்கோடுக்குக் கீழே உள்ள எண்ணைப் பாருங்கள்."
+
+#: templates/sell_find.html
+msgctxt "sell.isbn.found"
+msgid "Is this the one?"
+msgstr "இதுதானா?"
+
+#: templates/sell_find.html
+msgctxt "sell.isbn.hint"
+msgid "On the back cover, or the first page inside."
+msgstr "பின் அட்டையில், அல்லது உள்ளே முதல் பக்கத்தில்."
+
+#: web/forms.py
+msgctxt "sell.isbn.label"
+msgid "ISBN (13 digits, under the barcode)"
+msgstr "ISBN (13 இலக்கங்கள், பார்கோடுக்குக் கீழே)"
+
+#: templates/sell_find.html
+msgctxt "sell.isbn.notfound"
+msgid "We don't have this ISBN yet. Type the title, author and edition and we'll add it."
+msgstr "இந்த ISBN இன்னும் எங்களிடம் இல்லை. தலைப்பு, ஆசிரியர், பதிப்பு எழுதுங்கள், சேர்த்துக்கொள்வோம்."
+
+#: templates/sell_find.html
+msgctxt "sell.isbn.notfound.label"
+msgid "Not in the catalogue yet"
+msgstr ""
+
+#: templates/sell_find.html
+msgctxt "sell.isbn.submit"
+msgid "Find this book"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.language.en"
+msgid "English"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.language.hi"
+msgid "Hindi"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.language.label"
+msgid "What language is this copy in?"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.language.other"
+msgid "Another language"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.language.ta"
+msgid "Tamil"
+msgstr ""
+
+#: templates/sell.html
+msgctxt "sell.mine.h1"
+msgid "Your books"
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.done"
+msgid "Uploaded"
+msgstr ""
+
+#: web/views.py
+msgctxt "sell.photos.full"
+msgid "This listing already has four photos, which is the most BookHop takes."
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.full.label"
+msgid "No room for more"
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.hint"
+msgid "One of the cover and one of the worst page helps a buyer decide."
+msgstr "அட்டையின் ஒரு படமும் மிகவும் மோசமான பக்கத்தின் ஒரு படமும் வாங்குபவருக்கு உதவும்."
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.label"
+msgid "Add photos (up to 4)"
+msgstr "படங்கள் சேர் (அதிகபட்சம் 4)"
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.max"
+msgid "This listing has %(n)s photos, which is the most BookHop takes."
+msgstr ""
+
+#: templates/listing.html
+msgctxt "sell.photos.none"
+msgid "No photos. Buyers will only have your description."
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.partial"
+msgid "%(i)s of %(n)s photos attached."
+msgstr "%(n)s படங்களில் %(i)s இணைக்கப்பட்டது."
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.row"
+msgid "Photo %(i)s — %(kb)s KB"
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.skip"
+msgid "You can put the book on the list without this photo."
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.stuck"
+msgid "Still not working"
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.photos.submit"
+msgid "Add this photo"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.photos.too_big"
+msgid "That photo is %(mb)s MB. The most BookHop takes is 8 MB — "
+msgstr ""
+
+#: web/views.py
+msgctxt "sell.photos.unsupported"
+msgid ""
+msgstr ""
+
+#: web/forms.py
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.ceiling"
+msgid "The most a book can be listed at is ₹%(max)s."
+msgstr ""
+
+#: web/forms.py
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.digits"
+msgid "Type the amount in rupees, in digits."
+msgstr ""
+
+#: templates/sell_find.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.label"
+msgid "What are you asking for it?"
+msgstr "இதற்கு எவ்வளவு கேட்கிறீர்கள்?"
+
+#: templates/sell_find.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.locked"
+msgid "You can't change this number later. You can still agree a different price when you meet."
+msgstr "இந்த எண்ணை பின்னர் மாற்ற முடியாது. சந்திக்கும்போது வேறு விலையை முடிவு செய்யலாம்."
+
+#: templates/sell.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.relist"
+msgid "To ask a different price, take this down and put it up again. You can still agree a different price when you meet."
+msgstr ""
+
+#: templates/listing.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.unit"
+msgid "in rupees"
+msgstr ""
+
+#: web/forms.py
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.whole"
+msgid "Whole rupees only, no paise. Round it to the rupee yourself rather than letting BookHop round it for you."
+msgstr ""
+
+#: templates/sell.html
+msgctxt "sell.publish"
+msgid "Put this on the list"
+msgstr "இதைப் பட்டியலில் சேர்"
+
+#: web/views.py
+msgctxt "sell.published"
+msgid "Saved."
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.publisher.label"
+msgid "Publisher"
+msgstr ""
+
+#: templates/sell.html
+msgctxt "sell.resume"
+msgid "Finish this one"
+msgstr ""
+
+#: templates/sell_photos.html
+msgctxt "sell.review.body"
+msgid "A listing goes on the list after someone at BookHop reads it. There is no date for when that happens."
+msgstr ""
+
+#: templates/sell_find.html
+msgctxt "sell.save"
+msgid "Save this and add photos"
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.terms.label"
+msgid "I have read the seller terms and this copy is the original, not a photocopy, a scan or a spiral-bound reproduction."
+msgstr ""
+
+#: templates/sell_find.html
+msgctxt "sell.terms.link"
+msgid "Read the seller terms"
+msgstr ""
+
+#: web/views.py
+msgctxt "sell.terms.required"
+msgid "BookHop cannot take a listing until you have read the seller terms."
+msgstr ""
+
+#: web/forms.py
+msgctxt "sell.title.label"
+msgid "Title, exactly as it is on the cover"
+msgstr ""
+
+#: web/views.py
+msgctxt "sell.transition.no"
+msgid ""
+msgstr ""
+
+#: templates/sell.html
+msgctxt "sell.view"
+msgid "See it as another student sees it"
+msgstr ""
+
+#: templates/sell.html
+msgctxt "sell.withdraw"
+msgid "Take this down"
+msgstr "இதை நீக்கு"
+
+#: web/forms.py
+msgctxt "sell.year.label"
+msgid "Year it was published"
+msgstr ""
+
+#: web/views.py
+msgctxt "sys.conflict.listing"
+msgid "This listing changed while you were looking at it. Here it is as it stands now."
+msgstr ""
+
 #: templates/base.html
 msgctxt "sys.done.label"
 msgid "Done"
@@ -724,6 +1212,16 @@ msgstr ""
 #: templates/base.html
 msgctxt "sys.nav.label"
 msgid "Site"
+msgstr ""
+
+#: templates/base.html
+msgctxt "sys.nav.sell"
+msgid "Sell"
+msgstr ""
+
+#: templates/base.html
+msgctxt "sys.nav.wanted"
+msgid "Wanted"
 msgstr ""
 
 #: templates/base.html
@@ -766,6 +1264,18 @@ msgctxt "sys.skip"
 msgid "Skip to content"
 msgstr "உள்ளடக்கத்திற்குச் செல்"
 
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.account_only"
+msgid "That's all BookHop knows about them. We haven't checked who they are."
+msgstr "BookHop அவரைப் பற்றி அறிந்திருப்பது இதுமட்டுமே. அவர் யார் என்பதை நாங்கள் சரிபார்க்கவில்லை."
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.attribution"
+msgid "— %(name)s, %(n)s days ago"
+msgstr "— %(name)s, %(n)s நாட்களுக்கு முன்"
+
 #: templates/account.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)
 msgctxt "trust.campus_mail"
@@ -778,9 +1288,114 @@ msgctxt "trust.check_yourself"
 msgid "Look at the book before you hand over any money."
 msgstr "பணம் கொடுப்பதற்கு முன் புத்தகத்தைப் பார்த்துக் கொள்ளுங்கள்."
 
+#: templates/sell_photos.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.exif"
+msgid "We remove the location and camera details from your photos."
+msgstr "உங்கள் படங்களிலிருந்து இடம் மற்றும் கேமரா விவரங்களை நீக்குகிறோம்."
+
 #: templates/help.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)
 msgctxt "trust.no_ratings"
 msgid "There are no ratings on BookHop."
 msgstr "BookHop-ல் மதிப்பெண்கள் இல்லை."
 
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.not_checked"
+msgid "BookHop hasn't checked this book."
+msgstr "இந்தப் புத்தகத்தை BookHop சரிபார்க்கவில்லை."
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.scope.label"
+msgid "What BookHop knows"
+msgstr ""
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.seller_words.label"
+msgid "Condition, in the seller's words"
+msgstr "நிலை — விற்பவர் எழுதியது"
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.stale.label"
+msgid "How old this is"
+msgstr ""
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.stale_listing"
+msgid "Listed %(n)s days ago — this may be gone."
+msgstr "%(n)s நாட்களுக்கு முன் பட்டியலிடப்பட்டது — இது இல்லாமல் போயிருக்கலாம்."
+
+#: templates/wanted.html
+msgctxt "wanted.close"
+msgid "I don't need this any more"
+msgstr ""
+
+#: web/views.py
+msgctxt "wanted.closed"
+msgid "Taken off your list."
+msgstr ""
+
+#: templates/wanted.html
+msgctxt "wanted.course.hint"
+msgid "It helps staff see which reading lists have nothing behind them."
+msgstr ""
+
+#: web/forms.py
+msgctxt "wanted.course.label"
+msgid "Course code, if you know it"
+msgstr ""
+
+#: templates/wanted.html
+msgctxt "wanted.empty"
+msgid "Nothing on your list yet. Add a book above and staff can see it is missing."
+msgstr ""
+
+#: templates/sell.html
+msgctxt "wanted.h1"
+msgid "Books you're looking for"
+msgstr ""
+
+#: templates/wanted.html
+msgctxt "wanted.isbn.hint"
+msgid "The 13 digits under the barcode, if the book is in front of you."
+msgstr ""
+
+#: web/forms.py
+msgctxt "wanted.isbn.label"
+msgid "ISBN, if you have it"
+msgstr ""
+
+#: templates/wanted.html
+msgctxt "wanted.mine.h"
+msgid "On your list"
+msgstr ""
+
+#: web/forms.py
+msgctxt "wanted.need_one"
+msgid "Give either the ISBN or the title."
+msgstr ""
+
+#: templates/wanted.html
+msgctxt "wanted.no_notification"
+msgid "BookHop records this so staff can see which books nobody on your campus has. It does not tell you when a copy is listed — there is no way for it to yet."
+msgstr ""
+
+#: web/views.py
+msgctxt "wanted.recorded"
+msgid "That is on your list below. BookHop does not tell you when a copy is listed — there is no way for it to yet."
+msgstr ""
+
+#: templates/wanted.html
+msgctxt "wanted.submit"
+msgid "Add this to my list"
+msgstr ""
+
+#: web/forms.py
+msgctxt "wanted.title.label"
+msgid "Title of the book"
+msgstr ""

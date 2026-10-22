@@ -135,7 +135,14 @@ li { margin-bottom: var(--s-2); }
   border-bottom: var(--bw-hair) solid var(--c-rule);
 }
 
+/* The brand is also the home link, so it is a control and the 44px floor
+   applies to it (SYSTEM §1 rule 2). It measured 28px tall at 320px until this
+   rule — the one target in S1 that was under the floor, found by measuring
+   every control's box in a real browser rather than by reading the markup. */
 .masthead__name {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
   font-family: var(--f-biblio);
   font-size: var(--t-md);
   font-weight: var(--w-bold);
@@ -600,6 +607,118 @@ details > :not(summary) {
   padding-bottom: var(--s-2);
 }
 
+/* ----------------------------------------------------------- 8b. S2 BLOCKS */
+
+/* A radio or checkbox GROUP (`_group.html`). <fieldset> carries a default
+   border, padding and min-inline-size that fight a 320px column, so all three
+   are reset — `min-inline-size: 0` is the one that is invisible when missing:
+   without it a fieldset refuses to shrink below its widest option and the page
+   scrolls sideways, which is SC 1.4.10 and acceptance criterion 4. */
+.fieldgroup {
+  min-inline-size: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fieldgroup > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Every option is its own 44px row with a hairline between, so the targets are
+   separated by the row boundary rather than by a gap nobody can see
+   (SYSTEM §1 rule 2, SC 2.5.8). */
+.fieldgroup li {
+  margin: 0;
+  border-top: var(--bw-hair) solid var(--c-rule);
+}
+
+.fieldgroup label {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: var(--s-2) 0;
+}
+
+.fieldgroup input[type="radio"],
+.fieldgroup input[type="checkbox"] {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  accent-color: var(--c-stamp);
+}
+
+/* A link that is a hint's whole content is a standalone control, not a word in
+   a sentence, so SC 2.5.8's inline exception does not cover it and SYSTEM §1
+   rule 2's 44px floor applies. Measured at 320px it was 137x20 before this
+   rule. Scoped to a hint that contains nothing but the link, so a link inside
+   a sentence of hint text keeps its line height. */
+.field__hint > a:only-child {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+}
+
+/* THE ASKING PRICE — SYSTEM §4.15. One per page, and the ₹ is outside the
+   number. The symbol is `aria-hidden`; the unit reaches a screen reader as a
+   visually-hidden word, because "₹" is announced as "rupee sign" or as
+   nothing at all depending on the engine. */
+.price__label {
+  margin-bottom: 0;
+  font-size: var(--t-xs);
+  font-weight: var(--w-bold);
+  color: var(--c-ink-2);
+}
+
+.price {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-2xl);
+  line-height: var(--lh-flat);
+  font-variant-numeric: tabular-nums;
+}
+
+.price__sym {
+  margin-inline-end: var(--s-1);
+  font-size: var(--t-lg);
+  color: var(--c-ink-2);
+}
+
+/* The intake field, same anatomy at input size: the symbol sits beside the
+   control rather than inside it, so it is never mistaken for a typed
+   character and never has to be stripped out of the value. */
+.money {
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.money__sym {
+  flex: none;
+  font-size: var(--t-md);
+  color: var(--c-ink-2);
+}
+
+/* THE ATTRIBUTED QUOTATION — SYSTEM §4.14, the trust primitive. The marks are
+   real characters in the markup, not CSS `::before` content, so they survive a
+   screen reader and reader mode. This rule only indents; it never adds or
+   removes a quotation mark. */
+blockquote {
+  margin: 0 0 var(--s-2);
+  padding-inline-start: var(--s-4);
+  border-inline-start: var(--bw-rail) solid var(--c-rule-strong);
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+cite {
+  font-style: normal;
+}
+
 /* ------------------------------------------------------- 9. FORCED COLOURS
    Android's and Windows' high-contrast modes drop our colours, and the state
    system is the one place colour carries meaning. Every state also carries a
@@ -609,7 +728,8 @@ details > :not(summary) {
 @media (forced-colors: active) {
   .notice,
   .card,
-  .chip {
+  .chip,
+  blockquote {
     border: var(--bw-hair) solid CanvasText;
     border-inline-start-width: var(--bw-rail);
   }

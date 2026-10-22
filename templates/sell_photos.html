@@ -1,0 +1,129 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET`/`POST /sell/{id}/photos` — JOURNEYS J2 step 8, and the screen most
+  likely to fail on the device this product is designed for.
+
+  ONE FILE PER REQUEST. SYSTEM §4.5: *"on 3G a 4-file request that dies at 90%
+  loses all four; four requests lose one."* With JavaScript off that property
+  is free rather than engineered — one input, one submit, one round trip — and
+  the page that comes back IS the resumable state. There is no queue, so there
+  is nothing to lose and nothing that can claim to be saved while it is not
+  (SYSTEM §1 rule 9; ADR-001 §6 excludes offline writes outright).
+
+  THE LISTING ALREADY EXISTS AS A DRAFT BEFORE ANY PHOTO IS SENT, which is why
+  this screen is survivable: the typed description, the ISBN and the price are
+  never at risk from a photo failure. EC-13 and AC-S1.3, and the reason
+  `create_listing` and `publish_listing` are two calls.
+
+  THE FIVE STATES OF SYSTEM §4.5, AND WHERE EACH ONE IS:
+    default   — zero rows: the control, the hint, and `sell.photos.hint`.
+    partial   — some uploaded, more possible: `sell.photos.partial` counts
+                them and **the publish button stays enabled**, because photos
+                are not required.
+    error     — a refused file: the message is in the field's error slot with
+                what to do next. The two reasons are different sentences
+                because they have different next actions — a file we cannot
+                read needs a different file; a fifth photo needs none.
+    disabled  — four photos: the control is GONE and the reason is in text
+                beside it. SYSTEM §2.2: *"a disabled control with no stated
+                reason is a defect"*, so there is no greyed control here at
+                all, only the sentence.
+    empty     — publishing with none: `sell.photos.none`, stated as a fact.
+                Not an error.
+
+  LOADING AND OFFLINE ARE THE BROWSER'S, DELIBERATELY. §4.5 specifies a
+  determinate progress bar driven by `XMLHttpRequest.upload.onprogress`; there
+  is no JavaScript in this product, so what the student gets is their
+  browser's own upload indicator, which is determinate, native, and costs
+  zero bytes. A dropped connection is the browser's error page, and on return
+  this page shows exactly what landed. **Neither is simulated and neither is
+  claimed.**
+
+  `trust.exif` IS ON THIS PAGE AND THIS IS THE SLICE IT BECAME TRUE IN.
+  COPY-DECK §9a held it back from the S1 help page because the EXIF step did
+  not exist; `listing_photos.exif_stripped_at` is NOT NULL, so the row cannot
+  exist unless the strip happened — the sentence describes a structural
+  guarantee, not an intention. A photo of a book taken at home carries where
+  home is, and the student should be told the mechanism before they take it,
+  not after.
+{% endcomment %}
+{% block title %}{% translate "Add photos (up to 4)" context "sell.photos.label" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Add photos (up to 4)" context "sell.photos.label" %}</h1>
+
+<p class="biblio">{{ row.book.title }}</p>
+<p class="sub">{{ row.book.authors }}{% if row.book.edition %} · {{ row.book.edition }}{% endif %}</p>
+
+{% include "_errorslot.html" %}
+
+{% if photos %}
+  {% comment %} `partial`/`default`: what has actually landed, with its real
+     size. The count is a fact about the server's rows, never about an
+     in-flight request. {% endcomment %}
+  <p>{% blocktranslate context "sell.photos.partial" with i=photo_count n=max_photos %}{{ i }} of {{ n }} photos attached.{% endblocktranslate %}</p>
+  <ul class="rows">
+    {% for photo in photos %}
+      <li>
+        <span class="chip chip--live">{% translate "Uploaded" context "sell.photos.done" %}</span>
+        {% blocktranslate context "sell.photos.row" with i=forloop.counter kb=photo.kb %}Photo {{ i }} — {{ kb }} KB{% endblocktranslate %}
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p>{% translate "One of the cover and one of the worst page helps a buyer decide." context "sell.photos.hint" %}</p>
+{% endif %}
+
+{% if room_for_more %}
+  <form method="post" action="/sell/{{ row.id }}/photos" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% comment %} Native `<input type="file" accept="image/*" capture>` —
+       ADR-001 §2.3 and SYSTEM §4.5. No library, no cropper, no drag target:
+       the OS picker is already localised, already accessible and already
+       known to the student. {% endcomment %}
+    {% translate "We remove the location and camera details from your photos." context "trust.exif" as exif_hint %}
+    {% include "_field.html" with field=form.photo hint=exif_hint %}
+    <button class="btn btn--secondary" type="submit">{% translate "Add this photo" context "sell.photos.submit" %}</button>
+  </form>
+  {% if repeated_failures %}
+    {% comment %} SYSTEM §4.5 `error`: after three failures the student is
+       offered the way out rather than left in a retry loop. The publish
+       control below is enabled at every count — this only names it. {% endcomment %}
+    <p class="notice notice--wait">
+      <span class="notice__label">{% translate "Still not working" context "sell.photos.stuck" %}</span>
+      {% translate "You can put the book on the list without this photo." context "sell.photos.skip" %}
+    </p>
+  {% endif %}
+{% else %}
+  {% comment %} `disabled`. The control is absent and the reason is the text,
+     because a greyed control with no stated reason is a defect (§2.2). {% endcomment %}
+  <p class="notice notice--wait">
+    <span class="notice__label">{% translate "No room for more" context "sell.photos.full.label" %}</span>
+    {% blocktranslate context "sell.photos.max" with n=max_photos %}This listing has {{ n }} photos, which is the most BookHop takes.{% endblocktranslate %}
+  </p>
+{% endif %}
+
+{% if row.status == "DRAFT" %}
+  <div class="section">
+    {% if not photos %}
+      {% comment %} `empty`, and it is not an error: photos are not required.
+         A statement of what a buyer will and will not have. {% endcomment %}
+      <p class="meta">{% translate "No photos. Buyers will only have your description." context "sell.photos.none" %}</p>
+    {% endif %}
+    <form method="post" action="/sell/{{ row.id }}/publish">
+      {% csrf_token %}
+      <input type="hidden" name="expected_version" value="{{ row.version }}">
+      <button class="btn btn--commit" type="submit">{% translate "Put this on the list" context "sell.publish" %}</button>
+    </form>
+    {% comment %} AC-S4.2/S4.3: the seller is told a listing is read before it
+       appears, with no accusation and no implication of guilt, and **the same
+       words whether or not `suspect_reproduction_flag` is set**. It is a
+       mechanism — only `moderate_listing` moves a listing to LIVE — and it
+       names no date, because `gate.closed.body`'s amendment in COPY-DECK v1.5
+       established that we say nothing where we do not know. {% endcomment %}
+    <p class="meta">{% translate "A listing goes on the list after someone at BookHop reads it. There is no date for when that happens." context "sell.review.body" %}</p>
+  </div>
+{% else %}
+  <p><a href="/sell">{% translate "Your books" context "sell.mine.h1" %}</a></p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,115 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET /sell` — the seller's own listings, and `PRD.md` AC-S1.3's resume point:
+  *"an abandoned listing stays DRAFT and is resumable from GET /sell with every
+  entered field and every uploaded photo intact."* Every row here is whatever
+  L1 last confirmed; nothing is cached and nothing is optimistic (SYSTEM §1
+  rule 9).
+
+  NO RAW STATE NAME APPEARS ON THIS PAGE. JOURNEYS Appendix A lists
+  `AWAITING_CONFIRMATION` by name as the thing a student is never shown and
+  AC-H1.4 makes it failable. The mapping is `STATUS_WORDS` in `web/views.py`,
+  and a status that is not in it renders **no chip at all** rather than its own
+  identifier — the template cannot print one because it never receives one.
+
+  THE NEGOTIABILITY SENTENCE SITS ONCE AT THE TOP OF THE LIST REGION, not on
+  every row. SYSTEM §4.15's final paragraph and COPY-DECK §1.6 rule 2: the
+  "once per flow" obligation is satisfied per flow, and in a dense list the row
+  shows `Asking ₹280` (`listing.price.row`) — never `₹280` alone and never
+  under a heading that is the bare word it is forbidden to be.
+
+  AC-S2.3 — *"changing the price requires withdrawing and relisting, and the UI
+  says so plainly at the point the seller looks for an edit button"* — is the
+  line inside each row's take-it-down disclosure. That is the point a seller
+  looks for an edit button, because it is the only control on the row.
+
+  THE DESTRUCTIVE CONTROL IS BEHIND `<details>`. Native disclosure: no
+  JavaScript, no modal, no focus trap, a 44px summary that announces its own
+  expanded state, and the real button never adjacent to a primary one
+  (SYSTEM §5.1, J2 step 11's "with a confirm").
+{% endcomment %}
+{% block title %}{% translate "Your books" context "sell.mine.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Your books" context "sell.mine.h1" %}</h1>
+
+{% if rows %}
+
+  {% comment %} B4 — COPY-DECK §3.1. `price.negotiable` + `price.not_recorded`,
+     once, above the figures. Both sentences are a limb of the s194-O position
+     and the schema cannot carry either of them. {% endcomment %}
+  <p class="sub">
+    {% translate "This is what the seller is asking. The two of you agree the actual price between yourselves." context "price.negotiable" %}
+    {% translate "BookHop does not know and does not record what you actually pay." context "price.not_recorded" %}
+  </p>
+
+  <ul class="rows">
+    {% for row in rows %}
+      <li>
+        {% if row.status_word %}<span class="chip chip--wait">{{ row.status_word }}</span>{% endif %}
+        <p class="biblio">{{ row.book.title }}</p>
+        <p class="sub">{{ row.book.authors }}{% if row.book.edition %} · {{ row.book.edition }}{% endif %}{% if row.book.year %} · {{ row.book.year }}{% endif %}</p>
+        {% if row.book.isbn %}<p class="mono">{{ row.book.isbn }}</p>{% endif %}
+
+        {% comment %} `listing.price.row` — the short form, permitted only in a
+           list row and only because the sentence above is on the page. {% endcomment %}
+        <p>{% blocktranslate context "listing.price.row" with amount=row.price %}Asking ₹{{ amount }}{% endblocktranslate %}</p>
+
+        {% comment %} A DRAFT is the only state with unfinished work in it, so
+           it is the only one that links to the photo step — AC-S1.3's resume
+           point. Every other state links to the listing page, which reads
+           through `get_own_listing` and so works for the seller's own row
+           whatever its status. Saying "finish this one" about a listing that
+           is already waiting to be read would be an instruction with nothing
+           behind it. {% endcomment %}
+        {% if row.status == "DRAFT" %}
+          <p><a href="/sell/{{ row.id }}/photos">{% translate "Finish this one" context "sell.resume" %}</a></p>
+        {% else %}
+          <p><a href="/listing/{{ row.id }}">{% translate "See it as another student sees it" context "sell.view" %}</a></p>
+        {% endif %}
+
+        {% if row.status == "DRAFT" %}
+          <form method="post" action="/sell/{{ row.id }}/publish">
+            {% csrf_token %}
+            <input type="hidden" name="expected_version" value="{{ row.version }}">
+            <button class="btn btn--primary" type="submit">{% translate "Put this on the list" context "sell.publish" %}<span class="vh"> — {{ row.book.title }}</span></button>
+          </form>
+        {% endif %}
+
+        {% if row.status == "DRAFT" or row.status == "PENDING_REVIEW" or row.status == "LIVE" %}
+          <details class="actions--separated">
+            <summary>{% translate "Take this down" context "sell.withdraw" %}</summary>
+            {% comment %} AC-S2.3, said where the seller looks for an edit
+               button. The second sentence is the one that stops immutability
+               reading as a price BookHop set (COMPLIANCE §4.3.1 trap 1). {% endcomment %}
+            <p class="meta">{% translate "To ask a different price, take this down and put it up again. You can still agree a different price when you meet." context "sell.price.relist" %}</p>
+            <form method="post" action="/sell/{{ row.id }}/withdraw">
+              {% csrf_token %}
+              <input type="hidden" name="expected_version" value="{{ row.version }}">
+              <button class="btn btn--destructive" type="submit">{% translate "Take this down" context "sell.withdraw" %}<span class="vh"> — {{ row.book.title }}</span></button>
+            </form>
+          </details>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+
+  <p><a class="btn btn--secondary" href="/sell/find-book">{% translate "List a book" context "sell.empty.cta" %}</a></p>
+
+{% else %}
+
+  {% comment %} SYSTEM §4.26: an empty state names the reason and offers exactly
+     one next action. Never an illustration. COPY-DECK §1.5 records why
+     "worth your while" was deleted rather than translated — it was a
+     prediction, and these three lines are facts and an instruction. {% endcomment %}
+  <p class="lede">{% translate "You haven't listed a book yet." context "sell.empty.title" %}</p>
+  <p>{% translate "It takes about two minutes: the ISBN from the back of the book, what's wrong with it, and your price." context "sell.empty.body" %}</p>
+  <p><a class="btn btn--primary" href="/sell/find-book">{% translate "List a book" context "sell.empty.cta" %}</a></p>
+
+{% endif %}
+
+<div class="section">
+  <h2>{% translate "Books you're looking for" context "wanted.h1" %}</h2>
+  <p><a href="/wanted">{% translate "Books you're looking for" context "wanted.h1" %}</a></p>
+</div>
+{% endblock %}

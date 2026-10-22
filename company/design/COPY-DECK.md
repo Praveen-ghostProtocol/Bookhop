@@ -605,6 +605,83 @@ of nothing on a metered connection), no "Welcome!", no counters, no "Join
 | `offer.decline` | Decline | வேண்டாம் என்று சொல் | — |
 | `offer.accepted.clock` | You have until {absolute_time} to agree a time and place. After that the book goes back on the list. | நேரமும் இடமும் முடிவு செய்ய {absolute_time} வரை அவகாசம். அதற்குப் பிறகு புத்தகம் மீண்டும் பட்டியலுக்குச் செல்லும். | The 48h reservation, as an absolute time |
 
+### 6.4 The S2 intake and listing strings — new in v1.7
+
+New in v1.7 for the sell flow, the listing page and the want form. Reasoning
+at §15; this is the table.
+
+**The four `condition` values and the four `annotation_level` values are the
+text that appears inside the seller's quotation, verbatim.** `listings` has no
+free-text condition column, so the enum **is** what the seller stated and the
+option text **is** the display text (§15.2, `SYSTEM.md` §4.14, AC-S3.1). Each
+is written as a complete statement a person could have made, because that is
+what a quotation needs. **Not drafted in Tamil** — they are newly minted and
+the English is provisional.
+
+| Key | English | Tamil | Note |
+|---|---|---|---|
+| `sell.mine.h1` | Your books | — **NOT DRAFTED** | `GET /sell`. Not "List a book": the page is a list of what you have put up, and it is AC-S1.3's resume point |
+| `sell.isbn.submit` | Find this book | — **NOT DRAFTED** | — |
+| `sell.isbn.checksum` | That ISBN doesn't look right — check the digits. | — **NOT DRAFTED** | `JOURNEYS.md` J2 step 2's own wording. The check digit is L1's rule (`catalog.validate_isbn13`) and is deliberately not re-implemented in the form; the **sentence** is ours so it stays inside the deny-list |
+| `sell.isbn.notfound.label` | Not in the catalogue yet | — **NOT DRAFTED** | The notice label beside `sell.isbn.notfound` |
+| `sell.addbook.h` | What does the book say? | — **NOT DRAFTED** | Heading over the add-a-book fields. A question about the object, not about the student |
+| `sell.title.label` · `sell.authors.label` · `sell.publisher.label` · `sell.year.label` | Title, exactly as it is on the cover · Author or authors · Publisher · Year it was published | — **NOT DRAFTED** | Only in the not-found branch |
+| **`sell.condition.pick`** | Which of these describes your copy? | — **NOT DRAFTED** | The four below answer it. A question, so the answer is grammatically the seller's |
+| **`sell.condition.AS_NEW`** · **`.GOOD`** · **`.FAIR`** · **`.HEAVILY_USED`** | As new · Good · Fair · Heavily used | — **NOT DRAFTED** | **Quoted verbatim on the listing and rendered nowhere else** (criterion 8). No badge, chip, star, letter or score ever sits beside one |
+| **`sell.annotation.pick`** | Has anyone written in it? | — **NOT DRAFTED** | — |
+| **`sell.annotation.NONE`** · **`.LIGHT_PENCIL`** · **`.HIGHLIGHTED`** · **`.HEAVY_NOTES`** | Nothing written in it · Some pencil marks · Highlighting in it · Notes written throughout | — **NOT DRAFTED** | **AC-S3.3: neutral fact, never a defect and never a feature.** A senior's pencil marks are the one thing a hand-me-down has that a new copy does not |
+| **`sell.damage.pick`** | Is anything damaged? | — **NOT DRAFTED** | — |
+| `sell.damage.hint` | Tick everything that applies, or tick that there is none. | — **NOT DRAFTED** | Names both halves of AC-S3.2 before the student can get it wrong |
+| **`sell.damage.WATER`** · **`.TORN_PAGES`** · **`.MISSING_PAGES`** · **`.BROKEN_SPINE`** · **`.LOOSE_PAGES`** · **`.COVER_DAMAGE`** | Water damage · Torn pages · Missing pages · Broken spine · Loose pages · Damage to the cover | — **NOT DRAFTED** | Quoted verbatim on the listing |
+| **`sell.damage.none`** | No damage to report | — **NOT DRAFTED** | **AC-S3.2's affirmative tick. A form value that is never stored** — `damage_flags` stays `[]` and `create_listing` refuses an empty list without `no_damage`. Written as a statement because it is quoted like everything else the seller said: silence would be the implied claim, and "no damage" in our voice would be our claim about their book |
+| `sell.damage.error` | Tick what is damaged, or tick "No damage to report". | — **NOT DRAFTED** | Nothing ticked is a refusal, not a default |
+| `sell.damage.contradiction` | You ticked "No damage to report" and also ticked damage. Leave only the one that is true. | — **NOT DRAFTED** | A contradiction we must not resolve on the seller's behalf |
+| `sell.language.label` · `.en` · `.ta` · `.hi` · `.other` | What language is this copy in? · English · Tamil · Hindi · Another language | — **NOT DRAFTED** | `listings.language` — the *physical copy's* language, which may differ from the catalogue row's |
+| `sell.category.label` · `.PRESCRIBED_TEXTBOOK` · `.REFERENCE` | What kind of book is it? · On a reading list · A reference book | — **NOT DRAFTED** | `GENERAL_READING` is **absent from the control**, not disabled in it (D-007) — a disabled option still discloses the choice |
+| **`sell.price.unit`** | in rupees | — **NOT DRAFTED** | **Visually hidden, inside the label.** The ₹ is outside the input (`SYSTEM.md` §4.4) and `aria-hidden`, because a screen reader announces it as "rupee sign" or as nothing; the unit has to reach the accessible name some other way. **B4 by prefix** |
+| **`sell.price.whole`** | Whole rupees only, no paise. Round it to the rupee yourself rather than letting BookHop round it for you. | — **NOT DRAFTED** | **B4.** `CLAUDE.md` rule 12: the column is an integer and PostgreSQL rounds `300.75` to `301` silently — *a rounded money value is a wrong value that looks right*, on the one money column ADR-003 §2.1 permits. Refused and named, never resolved in either direction |
+| **`sell.price.digits`** | Type the amount in rupees, in digits. | — **NOT DRAFTED** | **B4** |
+| **`sell.price.ceiling`** | The most a book can be listed at is ₹{max}. | — **NOT DRAFTED** | **B4.** The schema CHECK, said in a sentence |
+| **`sell.price.relist`** | To ask a different price, take this down and put it up again. You can still agree a different price when you meet. | — **NOT DRAFTED** | **B4. AC-S2.3 said at the point the seller looks for an edit button**, which is inside the take-it-down disclosure, because that is the only control on the row. The second sentence is what stops immutability reading as a price BookHop set (`COMPLIANCE.md` §4.3.1 trap 1) |
+| `sell.terms.label` | I have read the seller terms and this copy is the original, not a photocopy, a scan or a spiral-bound reproduction. | — **NOT DRAFTED** | **AC-S4.1, r.6(4)(a).** Not pre-ticked, guaranteed by `BooleanField(initial=False)` rather than by markup. States the one clause US-S4 exists for; the full terms are the notice, linked beside it |
+| `sell.terms.link` | Read the seller terms | — **NOT DRAFTED** | Links to `/legal/seller-terms`. **Outside the `<label>`** — a label may not contain interactive content, and with the link inside it the checkbox's accessible name computed as "on" |
+| `sell.terms.required` | BookHop cannot take a listing until you have read the seller terms. | — **NOT DRAFTED** | `403 SELLER_TERMS_NOT_ACCEPTED`, rendered as the terms screen again (J2 step 6), never an error page |
+| `sell.terms.missing.h` / `.body` | The seller terms aren't published yet / BookHop cannot take a listing until they are. | — **NOT DRAFTED** | A missing `notice_versions` row is a refusal, not a degrade: a `seller_terms_acceptances` row against a missing version is a defective legal record |
+| `sell.save` | Save this and add photos | — **NOT DRAFTED** | The commit button names the next step |
+| **`sell.published`** **(amended v1.7)** | Saved. | — **NOT DRAFTED** | **Was "It's on the list. We'll tell you when someone offers." Both halves were false** — §15.1. Nothing is claimed about where the listing went; the status word on `/sell` is read from what L1 returned, so **AC-S4.3's "the same copy either way" is satisfied structurally rather than by discipline** |
+| `sell.status.DRAFT` … `.REMOVED_LEGAL` | Not on the list yet · Waiting to be looked at · On the list · Someone is collecting this one · This one changed hands · Taken down · Not put on the list · Taken down after a legal notice | — **NOT DRAFTED** | Eight plain words for `listings.status`. **No raw state name ever reaches a student** (`JOURNEYS.md` Appendix A, AC-H1.4), and a value with no word here renders **no chip at all** rather than its own identifier |
+| `sell.review.body` | A listing goes on the list after someone at BookHop reads it. There is no date for when that happens. | — **NOT DRAFTED** | **AC-S4.2/S4.3: no accusation, no implication of guilt, and the same words whether or not `suspect_reproduction_flag` is set.** A mechanism — only `moderate_listing` moves a listing to `LIVE` — and **no date, because we do not have one**, which is `gate.closed.body`'s v1.5 ruling applied again |
+| `sell.resume` / `sell.view` | Finish this one / See it as another student sees it | — **NOT DRAFTED** | `DRAFT` is the only state with unfinished work in it, so it is the only one that links to the photo step |
+| `sell.photos.submit` · `.done` · `.row` | Add this photo · Uploaded · Photo {i} — {kb} KB | — **NOT DRAFTED** | The KB figure **rounds up**: it is a cost to the student, so the honest direction is the one that cannot understate it |
+| `sell.photos.none_chosen` | No photo was chosen. | — **NOT DRAFTED** | Overrides Django's *"This field is required."* — **a framework default is copy nobody reviewed**, and it is in Django's catalogue rather than ours, so the deny-list never sees it |
+| `sell.photos.unsupported` | BookHop couldn't read that file. It takes JPEG, PNG and WebP photos. | — **NOT DRAFTED** | J2 step 8 requires the format list to be given back |
+| `sell.photos.too_big` | That photo is {mb} MB. The most BookHop takes is 8 MB — your camera's own settings can make a smaller one. | — **NOT DRAFTED** | Says what to do, not only what is wrong. 8 MB over 3G is about a minute of the student's money, so it is refused before a byte is read |
+| `sell.photos.full.label` / `sell.photos.max` | No room for more / This listing has {n} photos, which is the most BookHop takes. | — **NOT DRAFTED** | `SYSTEM.md` §4.5 `disabled`: **the control is absent and the reason is the text.** A greyed control with no stated reason is a defect (§2.2) |
+| `sell.photos.stuck` | Still not working | — **NOT DRAFTED** | The label over `sell.photos.skip`, after three consecutive failures |
+| **`sell.photos.skip`** **(reworded v1.7)** | You can put the book on the list without this photo. | — **NOT DRAFTED** | Was a button label — *"Publish without this photo"* — but the publish control is already on the page and is enabled at every failure count, so a second button would be two buttons doing one thing. The string becomes the sentence that names it |
+| `sell.photos.none` | No photos. Buyers will only have your description. | — **NOT DRAFTED** | `SYSTEM.md` §4.5 `empty`. **Not an error** — photos are not required. Shown on the listing too, where it is what a buyer needs to know |
+| `listing.photos.pending` | The seller attached {n} photos. BookHop has no way to show them yet. | — **NOT DRAFTED** | **A fact about the product, in `help.no_channel`'s register.** `listing_photos.storage_key` exists and no route serves it (`API-CONTRACT.md` §5.2 has no `GET` for a photo), so the strip is unbuilt. A buyer should still be able to tell a listing with four photos from one with none |
+| `listing.no_offer_yet` | There is no way to offer on a listing from inside BookHop yet. | — **NOT DRAFTED** | Same register. `POST /offers` is S4; `offer.cta` waits for it |
+| `listing.state.label` | Not available | — **NOT DRAFTED** | The notice label over `listing.reserved` / `listing.withdrawn` |
+| `trust.scope.label` | What BookHop knows | — **NOT DRAFTED** | The notice label over `trust.not_checked` + `trust.check_yourself`, inside the **book** block. The label names the scope, which is what §3.2 asks a trust sentence to carry |
+| `trust.stale.label` | How old this is | — **NOT DRAFTED** | The label over `trust.stale_listing`. Names elapsed time, never the seller |
+| **`trust.attribution.today`** | — {name}, today | — **NOT DRAFTED** | **B2, and a new sibling of a blocking string — §15.2.** `trust.attribution` counts days and a listing written today is the modal case, so without this every fresh listing read "0 days ago" |
+| `sys.conflict.listing` | This listing changed while you were looking at it. Here it is as it stands now. | — **NOT DRAFTED** | `409 VERSION_CONFLICT` in J2 step 9's own words. Nothing the seller did was lost |
+| `sell.transition.no` | That isn't something this listing can do from where it is now. | — **NOT DRAFTED** | `422 TRANSITION_NOT_ALLOWED`. States the object's state, not the student's fault (`API-CONTRACT.md` §2.2's 403-vs-422 distinction, said in words) |
+| `sys.nav.sell` / `sys.nav.wanted` | Sell / Wanted | — **NOT DRAFTED** | `JOURNEYS.md` J2 and J4's named entry points. Rendered only when signed in |
+| `wanted.h1` | Books you're looking for | — **NOT DRAFTED** | — |
+| `wanted.isbn.label` / `.hint` | ISBN, if you have it / The 13 digits under the barcode, if the book is in front of you. | — **NOT DRAFTED** | — |
+| `wanted.title.label` | Title of the book | — **NOT DRAFTED** | Either this or the ISBN. An ISBN we do not recognise is carried as `free_text_title` (EC-17) |
+| `wanted.course.label` / `.hint` | Course code, if you know it / It helps staff see which reading lists have nothing behind them. | — **NOT DRAFTED** | The hint says what the field is **for**, which is true and is the only reason to ask |
+| `wanted.need_one` | Give either the ISBN or the title. | — **NOT DRAFTED** | The `book_requests` CHECK, said in a sentence |
+| `wanted.submit` | Add this to my list | — **NOT DRAFTED** | — |
+| **`wanted.no_notification`** | BookHop records this so staff can see which books nobody on your campus has. It does not tell you when a copy is listed — there is no way for it to yet. | — **NOT DRAFTED** | **This is the string `search.empty.cta` would have lied about.** J4 step 3 is blocked on CG-4, so the student is never told anything — and AC-B2.5 forbids promising a time, a probability or that the book will arrive. Two facts about the product, stated **before** the student types (the AC-H6.5 ordering). A hedged version would still be a promise (§14's third check) |
+| `wanted.recorded` | That is on your list below. BookHop does not tell you when a copy is listed — there is no way for it to yet. | — **NOT DRAFTED** | The same fact at the moment a student would most expect a promise |
+| `wanted.mine.h` / `wanted.empty` | On your list / Nothing on your list yet. Add a book above and staff can see it is missing. | — **NOT DRAFTED** | `SYSTEM.md` §4.26: the reason, and exactly one next action |
+| `wanted.close` | I don't need this any more | — **NOT DRAFTED** | J4 step 6's own wording. `close_request` writes `WITHDRAWN`, never `FULFILLED` |
+| `wanted.closed` | Taken off your list. | — **NOT DRAFTED** | — |
+| `wanted.status.OPEN` · `.FULFILLED` · `.WITHDRAWN` · `.EXPIRED` | Still looking · You got this one · You closed this · Closed at the end of term | — **NOT DRAFTED** | Four plain words for `book_requests.status`. Same rule as the listing states: an unknown value renders no chip |
+
 ---
 
 ## 7. Arranging a handover — B1, BLOCKING
@@ -892,6 +969,7 @@ remain open.
 
 | Version | Date | Change |
 |---|---|---|
+| **v1.7** | **2026-10-22** | **S2: the sell flow, the listing page and the want form ship, and §1.7 was applied to every string before it was written rather than after.** Three strings **withdrawn or held back for a mechanism that does not exist** — `sell.published` ("It's on the list. We'll tell you when someone offers."), `search.empty.cta` and `listing.reserved.cta` (both label a notification CG-4 means nobody sends). Two **restored because this slice earns them**: `trust.exif` and `trust.not_checked`, which §9a held back from the S1 help page — the EXIF strip is now `exif_stripped_at NOT NULL`, and "this book" now has a referent. One **held back**: `trust.isbn_match`, which describes a comparison nothing stores. Fourteen new rows in a new **§6.4**, including the four `condition` values as the seller's own words — **the option text IS the quoted text**, because `listings` has no free-text column. One new **B2** string, `trust.attribution.today`, with its reasoning. `sell.condition.hint` loses the word "trust". **And §1.1's Ban 2 is enforced more broadly than it is written** — see §15.3, which is a control defect rather than a copy one. Amended by `frontend-developer`; `design-director` is stood down. Reason in full at **§15** |
 | **v1.6** | **2026-10-22** | **The open item from v1.5 ruled, and the structural fix generalised.** New `help.a.checked` — *"BookHop does not check books."* — answers the help page's question with **a plain fact instead of a generically-scoped `trust.not_checked`**, whose "this book" has no referent off a listing page; `trust.not_checked` stays reserved for a listing. **Ruled by the coordinator** on an item `frontend-developer` escalated rather than decided, because minting a variant of a **B2 blocking** no-warranty string is a different risk class from filling a copy gap. **New §1.7** lifts §9a's "which slice a string becomes true in" out of the help surface and makes it a rule over the whole deck, with the `JOURNEYS.md` tense diagnosis and the note that all five withdrawn strings were green under the banned-word test throughout |
 | **v1.5** | **2026-10-22** | **Two more strings promised a service that does not exist; Code Review read for them, because no grep can.** `help.response` **withdrawn** (promised a same-day reply on a page where nothing stores a message — CG-2); `help.scope` **amended** to keep only its one true clause (the relay is S5, listings are S2); `gate.closed.body` **amended** (promised a note form and a notification — S2 and S3/S7). New `help.no_channel`. **New §9a** records the help surface in the deck for the first time. Two FAQ answers — `trust.recourse`, `trust.exif` — **held back to S6 and S2**; the strings are unchanged, the page they were on was wrong. Amended by `frontend-developer`. Reason in full at §14 |
 | **v1.4** | **2026-10-22** | **A string on the point-of-no-return screen was false, and a QA test forced it out.** `erase.confirm.rest` ("Everything else goes now.") is **withdrawn in both languages**; `erase.confirm.retained` loses its trailing clause; four new B3 strings name what actually survives — `erase.retained.email_hash`, `.account`, `.age`, `.audit`. **Amended by `frontend-developer`, not `design-director`, who is stood down for this phase** (recorded because §2's sign-off block and this log otherwise imply one author). Reason, in full, below the table |
@@ -1077,3 +1155,136 @@ WCAG 2.2, and `SYSTEM.md` §2.6 calls it *"the only mechanism we have for a
 student who gets stuck mid-handover"*), so the alternative is pointing it at a
 404. **A true page is not improved by deleting it.** What must not ship is a
 page that implies a channel — and that is now removed rather than reworded.
+
+---
+
+## 15. v1.7 in full — S2's copy, and one control that is wider than its rule
+
+**Owner of this amendment:** `frontend-developer`. `design-director` is stood
+down for this phase.
+
+S2 is the first slice with a book, a price and a seller on one screen, so it is
+the first slice where §3, §3.1 and §3.2 have a subject. It is also the first
+slice written *after* §1.7 existed, and the difference shows: three strings were
+withdrawn **before** they shipped rather than after Code Review found them.
+
+### 15.1 Withdrawn, held back, and restored — the §1.7 pass
+
+| String | Status | The code behind the verb |
+|---|---|---|
+| `sell.published` — *"It's on the list. We'll tell you when someone offers."* | **AMENDED to "Saved."** | **Both halves were false.** `LISTING_REVIEW_ALL=true` means publishing reaches `PENDING_REVIEW`, so it is *not* on the list; and `notify()`, the `notifications` table and every push kind are **S3** (amendment A-4), so nobody is told anything when an offer arrives — and `POST /offers` is **S4**, so no offer can arrive at all. The replacement says only what happened |
+| `search.empty.cta` — *"Tell me when someone lists it"* | **NOT USED** | A label on a notification. J4 step 3 is BLOCKED on **CG-4**: no `WANT_MATCHED` kind, no scan job. Returns with CG-4 |
+| `listing.reserved.cta` — *"Tell me if it comes back"* | **NOT USED** | Same mechanism, same slice. `SYSTEM.md` §4.11's `disabled` state ships the fact and no action |
+| `trust.isbn_match` — *"This ISBN matches the catalogue entry for this edition."* | **HELD BACK, no slice named** | **The comparison it describes is not stored and may never be.** A listing points at one `books` row that the typed ISBN resolved; when the seller created that row, the catalogue entry *is* the seller's entry. §1.7 rule 1 — approved for a meaning, wrong for this page |
+| `offer.cta`, `offer.message.*`, `offer.under_button`, `price.ask_in_messages` | **HELD BACK to S4** | `POST /offers` is `apps/transfers`. The listing page states the fact instead, in `help.no_channel`'s register: *"There is no way to offer on a listing from inside BookHop yet."* |
+| `trust.exif` — *"We remove the location and camera details from your photos."* | **RESTORED** | §9a held it back from the S1 help page because the step did not exist. `listing_photos.exif_stripped_at` is **NOT NULL** and `add_photo` writes the stripped bytes, so the row cannot exist without the strip. It is on the photo screen, **before** the student takes the photo — a photo of a book taken at home carries where home is |
+| `trust.not_checked` — *"BookHop hasn't checked this book."* | **RESTORED** | §3.2 rescoped it to the book in v1.2 precisely so it could sit in a listing's book block. This is the first slice with a block for it to sit in, and "this" finally has a referent |
+| `trust.recourse` — *"…Tell us and we'll take the listing down."* | **STILL HELD BACK** | §9a put it in S6. `moderate_listing` exists in S2 and can remove a listing — but **there is no channel for a student to tell us anything** (CG-2), so the first half of the sentence is still unbuilt. Both halves or neither |
+
+### 15.2 New in §6.4, and the one decision inside them
+
+The fourteen new rows are in §6.4. One is a design decision rather than a
+wording one and it is the reason the section exists:
+
+> **`listings` has no free-text condition column** (`DATA-MODEL.md` §3). The
+> four-value enum **is** what the seller stated. So the option text on the
+> intake form **is** the text quoted on the listing, verbatim, and BookHop
+> writes nothing between the quoted lines.
+
+`SYSTEM.md` §4.14 shows a prose quotation — *"Good — cover is bent, no writing
+inside, pages 40–44 have pencil marks"* — which no column can hold. The
+alternative to quoting the options was to stitch the three stored values into a
+sentence of our own and attribute it to the seller, which is BookHop's voice
+wearing the seller's name and is the worst available reading of §1.2. So each
+option is written as a complete statement a person could have made, and the
+listing renders them as three separate quoted lines inside one `<blockquote>`
+with one `<cite>`.
+
+**`sell.damage.none` — "No damage to report" — is a form value that is never
+stored.** AC-S3.2 requires damage to be affirmatively confirmed; `damage_flags`
+stays `[]`, and `create_listing` refuses an empty list unless `no_damage` is
+passed. The label is written as a statement because it is quoted like every
+other thing the seller said: an empty damage list rendered as silence is the
+implied no-damage claim AC-S3.2 exists to prevent, and rendered as BookHop's
+"no damage" it is our claim about their book.
+
+**`sell.condition.hint` loses one word.** *"Buyers trust a description that
+admits things"* becomes *"Buyers believe a description that admits things."*
+`trust` is an enumerated inflection of a banned word, and **TR-3 already
+invited the English to change**. `CLAUDE.md` rule 13 resort 1: this name is
+ours to rename, it costs one word, and the control keeps full strength.
+
+**`trust.attribution.today` is a new B2 string and the reviewer must read it
+like its parent.** `trust.attribution` counts days, and a listing written today
+is the modal case — so without a zero form every fresh listing read *"— Priya
+S, 0 days ago"*. §1.7 rule 3 prefers a plain fact to a variant of a blocking
+string, and that preference was written for a **scope** problem; this is an
+arithmetic one, where the alternative is not an absence but a sentence that
+reads as broken. Recorded rather than slipped in, because minting a B2 sibling
+is exactly the thing §1.7 rule 3 says to think twice about.
+
+### 15.3 Ban 2 is enforced more broadly than it is written, and this slice is where that bites
+
+**`tests/unit/test_forbidden_copy.py` now reports six findings and every one of
+them is the token `price` in prose that §3.1 mandates.** Zero findings across
+the eight vouching words. Zero across Ban 2's four phrases. Measured, not
+asserted.
+
+| Key | The string |
+|---|---|
+| `price.label.full` | Seller's asking price |
+| `price.negotiable` | This is what the seller is asking. The two of you agree the actual **price** between yourselves. |
+| `price.seller.hint` | This is the **price** you're asking for. … |
+| `sell.price.locked` | …You can still agree a different **price** when you meet. |
+| `sell.empty.body` | …what's wrong with it, and your **price**. |
+| `sell.price.relist` *(new)* | To ask a different **price**, take this down and put it up again. … |
+
+§1.1 bans **the bare label "Price"**. `SYSTEM.md` criterion 7b says the same
+thing in its own words and adds that the limb *"needs a rendered-DOM check as
+well as a grep"*. `apps/core/copy_rules.py` carries
+`BANNED_LABELS = ("price",)` and matches it as a whole word **anywhere in any
+translatable text** — so it bans the ordinary English noun, **including in the
+four strings §3.1 prescribes as the replacement for the banned label.** §10.2's
+own row points at `price.label.full` as the thing to use instead of "Price",
+and the test refuses it.
+
+`price.label.full` cannot move at all: Q9's statement of facts asserts to
+counsel that *"the asking price is labelled as the seller's asking price
+throughout"*, so renaming it makes a representation to counsel false.
+
+**Two strings were drafted with "amount" substituted for "price" and both were
+reverted.** Quietly editing mandated legal copy so an over-broad grep stays
+green is `CLAUDE.md` rule 13's exact failure, and it would have left a tax limb
+weaker in order to keep a suite green. The red is correct and it names a defect
+in the control.
+
+A narrowing is proposed as a **shape exemption** in
+`locale/FORBIDDEN_EXCEPTIONS.toml` — match `BANNED_LABELS` only against
+label-shaped text (no sentence-ending punctuation, at most four words) and
+permit it there only beside "asking". "Price" and "Max price" stay findings;
+prose stops being one. `BANNED_PHRASES` is untouched and independently catches
+every prose misuse anyone has named. `apps/core/copy_rules.py` and the test are
+**backend-developer's**, so the manifest can only propose; raised to cto with
+the slice.
+
+### 15.4 Tamil
+
+**Thirty-seven of this slice's strings carry a Tamil draft, all of them lifted
+verbatim from §3, §3.1 and §6.1. Every newly minted string is `NOT DRAFTED`**,
+which the `ta` catalogue's header already defines as *"the English is itself
+provisional"* — and with `design-director` stood down, it is.
+
+Counts, measured against `locale/ta/BLOCKING_CLASSES.toml`'s prefixes:
+**254 strings in the catalogue, 86 blocking-class, 60 of those with no Tamil
+draft.** S1's figures were 138 / 69 / 52.
+
+**The prefix rule did the job it was written for.** S2 added the first B4
+strings with a real figure beside them — `price.*`, `sell.price.*`,
+`listing.price.row` — and every one was blocking on arrival with nobody
+remembering to extend anything. An enumerated list would have needed an edit,
+and the edit is the step that gets skipped.
+
+`locale/ta/REVIEWED.toml` is still empty and **no agent has written a
+reviewer's name into it.** §2's sign-off block still needs a named native
+speaker, and this amendment adds 37 drafted and 60 undrafted strings to what
+they must read.

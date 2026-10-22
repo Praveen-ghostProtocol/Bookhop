@@ -27,6 +27,27 @@ urlpatterns = [
     path("account/export", views.account_export, name="account-export"),
     path("account/nominee", views.account_nominee, name="account-nominee"),
     path("account/delete", views.account_delete, name="account-delete"),
+    # S2 — catalogue and listings. API-CONTRACT §5.2's L3 column, exactly.
+    #
+    # `/sell` is one path answering GET and POST because the contract names one
+    # path for the seller's list and for creating a listing, and a no-JS
+    # browser posts back to where it came from.
+    #
+    # `/sell/find-book` is a GET with the ISBN in the query string. An ISBN
+    # identifies an edition, not a person, so the rule about personal data in
+    # URLs does not bite — and making it a URL is what lets a student reload,
+    # bookmark and back-button their way through a dropped 3G connection.
+    path("sell", views.sell, name="sell"),
+    path("sell/find-book", views.sell_find_book, name="sell-find-book"),
+    path("sell/<int:listing_id>/photos", views.sell_photos, name="sell-photos"),
+    path("sell/<int:listing_id>/publish", views.sell_publish, name="sell-publish"),
+    path("sell/<int:listing_id>/withdraw", views.sell_withdraw, name="sell-withdraw"),
+    path("listing/<int:listing_id>", views.listing_detail, name="listing"),
+    # S2 — the demand side. `GET /wanted` is JOURNEYS J4's named entry point;
+    # `GET /wanted/all` is the campus-wide list and is S3, so it is absent
+    # rather than stubbed.
+    path("wanted", views.wanted, name="wanted"),
+    path("wanted/<int:request_id>/close", views.wanted_close, name="wanted-close"),
     # Help — the footer link that is in the same place on every page (SC 3.2.6)
     path("help", views.help_page, name="help"),
     # Public notices

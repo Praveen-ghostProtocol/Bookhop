@@ -1,0 +1,224 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET /listing/{id}`.
+
+  TWO LABELLED BLOCKS, AND THE STRUCTURE IS A COMPLIANCE CONTROL RATHER THAN A
+  LAYOUT PREFERENCE — SYSTEM §4.11, COPY-DECK §3.2, COMPLIANCE §2.5a.
+  Compliance flagged that "Signed in with a college email address" beside an
+  unscoped "nothing here is checked by BookHop" reads as the product arguing
+  with itself, and that *a contradiction in trust copy is worse than either
+  string alone*. The fix is scope plus adjacency, not separation: pushing the
+  two sentences to opposite ends of the page leaves them contradicting, just
+  less visibly.
+
+  So: **no trust sentence appears outside the block whose scope it names.**
+  "BookHop hasn't checked this book" is in the book block, where "this" has a
+  referent — which is the whole reason COPY-DECK §9a would not let it onto the
+  help page. "That's all BookHop knows about them" is in the seller block,
+  directly after the sentence it limits, because putting the limit immediately
+  after the claim converts an apparent contradiction into one coherent
+  statement, and the pair is stronger copy than either half alone.
+
+  THE CONDITION ENUM IS NEVER RENDERED OUTSIDE THE QUOTATION (SYSTEM §4.14,
+  AC-S3.1). `listings` has no free-text description column, so the enum IS
+  what the seller stated: the words below are the exact option text the seller
+  picked in `web/forms.py`, returned by `seller_words()`, with **nothing of
+  BookHop's written between them**. No badge, no chip, no star, no letter
+  grade, no colour-coded quality marker, and the string "BookHop" never
+  appears adjacent to a condition value.
+
+  The quotation marks are real characters inside `<blockquote><p>` with
+  `<cite>`, not CSS decoration — §4.14 requires them to survive a screen
+  reader and reader mode.
+
+  THERE IS NO OFFER FORM ON THIS PAGE AND THAT IS NOT AN OMISSION. `POST
+  /offers` is `apps/transfers`, slice S4. A button that posted nowhere is the
+  shape COPY-DECK §14 withdrew five strings for, and COPY-DECK §1.7 rule 2 is
+  explicit: name the code behind the verb, and if the answer is a slice number
+  the string waits. So the page states a fact about the product in the
+  register `help.no_channel` established, and `offer.under_button`,
+  `offer.cta` and `price.ask_in_messages` all wait for S4 — correct strings,
+  wrong slice.
+
+  `trust.isbn_match` IS DELIBERATELY ABSENT. It says *"this ISBN matches the
+  catalogue entry for this edition"*, and no comparison of that shape is
+  stored: the listing points at one `books` row that was resolved by the typed
+  ISBN, and when the seller created that row the catalogue entry IS the
+  seller's entry. The sentence would describe a check that did not happen.
+  Approved for a meaning, wrong for this page — §1.7 rule 1.
+{% endcomment %}
+{% block title %}{{ row.book.title }}{% endblock %}
+
+{% block main %}
+<h1 class="biblio">{{ row.book.title }}</h1>
+
+{% if row.status == "RESERVED" %}
+  {% comment %} SYSTEM §4.11 `disabled`. There is no "tell me if it comes back"
+     control: it would create a `wanted` request and then promise a
+     notification that CG-4 means nobody sends. `/wanted` is linked instead,
+     and that page says plainly what it does and does not do. {% endcomment %}
+  <p class="notice notice--wait">
+    <span class="notice__label">{% translate "Not available" context "listing.state.label" %}</span>
+    {% translate "Someone else is collecting this one." context "listing.reserved" %}
+  </p>
+{% elif row.status == "WITHDRAWN" %}
+  <p class="notice notice--wait">
+    <span class="notice__label">{% translate "Not available" context "listing.state.label" %}</span>
+    {% translate "The seller took this down." context "listing.withdrawn" %}
+  </p>
+{% endif %}
+
+<section>
+  <h2>{% translate "About this book" context "listing.book.label" %}</h2>
+
+  <p class="sub">{{ row.book.authors }}{% if row.book.edition %} · {{ row.book.edition }}{% endif %}{% if row.book.publisher %} · {{ row.book.publisher }}{% endif %}{% if row.book.year %} · {{ row.book.year }}{% endif %}</p>
+  {% if row.book.isbn %}<p class="mono">{{ row.book.isbn }}</p>{% endif %}
+
+  {% comment %} SYSTEM §4.15's three-part anatomy, and the label is a legal
+     control. `price.label.full` on first appearance in the component; the
+     figure is the one `--t-2xl` numeral on the page with the ₹ outside it;
+     then `price.negotiable` and `price.not_recorded`, which COPY-DECK
+     `listing.price.note` makes mandatory together here rather than optional.
+
+     Never `₹280` alone, never under a heading that is the bare word, never a
+     struck-through value, never a was/now, never an MRP, never a "% off"
+     (E-Com r.4(13), API-CONTRACT §5.3). {% endcomment %}
+  <p class="price__label">{% translate "Seller's asking price" context "price.label.full" %}</p>
+  <p class="price"><span class="price__sym" aria-hidden="true">₹</span>{{ row.price }}<span class="vh"> {% translate "in rupees" context "sell.price.unit" %}</span></p>
+  <p class="sub">
+    {% translate "This is what the seller is asking. The two of you agree the actual price between yourselves." context "price.negotiable" %}
+    {% translate "BookHop does not know and does not record what you actually pay." context "price.not_recorded" %}
+  </p>
+
+  {% comment %} §4.14, the trust primitive. The `empty` state —
+     `trust.seller_words.empty` — cannot occur in S2 and that is specification
+     rather than silence: condition, annotation level and damage are all
+     required by `ListingForm`, and damage is affirmatively confirmed both
+     ways (AC-S3.2), so a listing with nothing said about it cannot be
+     created. If a fixture ever makes one, `seller_words()` returns an empty
+     list and the block below renders nothing — which is wrong, and the string
+     to restore is `trust.seller_words.empty`. {% endcomment %}
+  {% if row.words %}
+    <h3>{% translate "Condition, in the seller's words" context "trust.seller_words.label" %}</h3>
+    <blockquote>
+      {% comment %} The marks are literal characters in the source, not
+         `&ldquo;` entities and not CSS `::before` — §4.14 says "real
+         characters in the markup", and that is what survives reader mode and
+         a copy-paste into a support ticket. {% endcomment %}
+      {% for word in row.words %}<p>“{{ word }}”</p>{% endfor %}
+    </blockquote>
+    {% comment %} `created_at`, not `published_at`: the attribution says when
+       the seller wrote this, which is true the moment they typed it. Using
+       the publication time would drop the <cite> from every unpublished
+       listing — and §4.14's whole point is that a human claim carries who
+       made it and when. {% endcomment %}
+    {% comment %} THE ZERO CASE IS ITS OWN STRING, AND IT IS A B2 SIBLING THE
+       REVIEWER MUST READ. `trust.attribution` counts days, and a listing
+       written today is the modal case — so without this every fresh listing
+       said "— Priya S, 0 days ago", which is a visibly wrong number rather
+       than a missing one. COPY-DECK §1.7 rule 3 prefers a plain fact to a
+       variant of a blocking string, and that preference is for a SCOPE
+       problem; this is an arithmetic one, where the alternative is not an
+       absence but a sentence that reads as broken. Recorded in the amendment
+       as a new B2 string needing the same word-by-word review as its
+       parent. {% endcomment %}
+    {% if seller.name and row.wrote_days_ago == 0 %}
+      <p class="meta"><cite>{% blocktranslate context "trust.attribution.today" with name=seller.name %}— {{ name }}, today{% endblocktranslate %}</cite></p>
+    {% elif seller.name and row.wrote_days_ago %}
+      <p class="meta"><cite>{% blocktranslate context "trust.attribution" with name=seller.name n=row.wrote_days_ago %}— {{ name }}, {{ n }} days ago{% endblocktranslate %}</cite></p>
+    {% endif %}
+  {% endif %}
+
+  {% if row.stale %}
+    {% comment %} Not a warning about the seller; a statement about elapsed
+       time. Listing staleness is the category's oldest failure mode
+       (COMPETITORS §3.5). {% endcomment %}
+    <p class="notice notice--stale">
+      <span class="notice__label">{% translate "How old this is" context "trust.stale.label" %}</span>
+      {% blocktranslate context "trust.stale_listing" with n=row.days_old %}Listed {{ n }} days ago — this may be gone.{% endblocktranslate %}
+    </p>
+  {% endif %}
+
+  {% comment %} PHOTOS — THE STRIP IS NOT BUILT AND THE REASON IS A GAP, NOT A
+     CHOICE. SYSTEM §4.16 specifies up to 3 thumbs at 320px, `loading="lazy"`,
+     explicit width/height, `<picture>` with webp + jpeg, tap opening the full
+     image as a page navigation; and criterion 9 forbids any `<img>` under
+     `Save-Data: on`, replaced by a link naming the real byte cost.
+
+     **No route serves a stored photo.** `listing_photos.storage_key` exists,
+     `API-CONTRACT.md` §5.2 has no GET for a photo, and inventing a media URL
+     is not L3's to do. So no `<img>` is emitted on this page under any header
+     — which means criterion 9 is satisfied VACUOUSLY today and must not be
+     reported as passing (`CLAUDE.md` rule 10). Escalated with the slice.
+
+     What IS honest is to say the photos exist and what they would cost, so a
+     buyer can tell a listing with four photos from one with none — and the
+     byte figure is computed from the stored sizes, not estimated, which is
+     the number §4.16's gate will name when the route lands. {% endcomment %}
+  {% if photos %}
+    <p class="meta">{% blocktranslate context "listing.photos.pending" count n=photos|length %}The seller attached {{ n }} photo. BookHop has no way to show it yet.{% plural %}The seller attached {{ n }} photos. BookHop has no way to show them yet.{% endblocktranslate %}</p>
+  {% else %}
+    <p class="meta">{% translate "No photos. Buyers will only have your description." context "sell.photos.none" %}</p>
+  {% endif %}
+
+  {% comment %} B2, and rescoped to the book in COPY-DECK v1.2 precisely so it
+     can sit here with a referent for "this". A statement about what we did
+     NOT do cannot be a warranty; the instruction beside it is the student's
+     action, not ours. {% endcomment %}
+  <p class="notice notice--wait">
+    <span class="notice__label">{% translate "What BookHop knows" context "trust.scope.label" %}</span>
+    {% translate "BookHop hasn't checked this book." context "trust.not_checked" %}
+    {% translate "Look at the book before you hand over any money." context "trust.check_yourself" %}
+  </p>
+
+  {% comment %} A fact about the product, in `help.no_channel`'s register. The
+     mechanism it describes — `POST /offers` — is S4. Shown to the seller too,
+     and not hidden behind an "is this mine" test: a seller looking at their
+     own listing needs to know that nobody can act on it yet, and that is the
+     most useful sentence on the page for them today. {% endcomment %}
+  <p class="meta">{% translate "There is no way to offer on a listing from inside BookHop yet." context "listing.no_offer_yet" %}</p>
+</section>
+
+<section>
+  <h2>{% translate "About this seller" context "listing.seller.label" %}</h2>
+
+  {% comment %} `display_name` and campus, and nothing else (API-CONTRACT §5.2,
+     COMPLIANCE §2.4(i)). No address, no phone, no email, no precise location
+     — there is no such field and no screen may imply one. {% endcomment %}
+  {% if seller.name or seller.campus %}
+    <p>{{ seller.name }}{% if seller.name and seller.campus %} · {% endif %}{{ seller.campus }}</p>
+  {% endif %}
+
+  {% comment %} CONDITION 3 / CRITERION 7h, AND IT IS AN ENGINEERING GATE.
+     `seller.college_email_signin` is true only when the seller's
+     `campus_verifications.method` is `INSTITUTIONAL_EMAIL` **and** the
+     disclosure is live in the privacy notice (criterion 7g). The decision is
+     `web/views.py _seller_block`, which fails closed on NULL, on
+     `STAFF_MANUAL` and on any unknown value.
+
+     WHEN IT IS FALSE, BOTH LINES ARE ABSENT AND NOTHING IS SAID ABOUT THE
+     ABSENCE. No "not available", no greyed placeholder, no tooltip, and above
+     all no "Verified by BookHop staff" — a student re-verified by staff
+     (ADR-001 §2.5) is `campus_verified = true` and did NOT sign in with a
+     college email address, so the string would be a false statement about a
+     person, and a substitute would be BookHop asserting something about one,
+     which is the worst string that could exist in this product
+     (COPY-DECK §3.2).
+
+     Residual risk, flagged and not solved: at one campus almost every seller
+     is `INSTITUTIONAL_EMAIL`, so a rare absence is more conspicuous than a
+     common one and may read as a negative signal we did not intend. Every
+     alternative is worse. Revisit if staff re-verification becomes common.
+
+     NO DOMAIN IS RENDERED, EVER (criterion 7f). The string has no {domain}
+     placeholder and this template interpolates none: a multi-domain campus
+     would leak student-versus-staff status, department or intake year through
+     what looks like a trust badge. {% endcomment %}
+  {% if seller.college_email_signin %}
+    <p>{% translate "Signed in with a college email address." context "trust.campus_mail" %}</p>
+    <p>{% translate "That's all BookHop knows about them. We haven't checked who they are." context "trust.account_only" %}</p>
+  {% endif %}
+
+  <p class="meta">{% translate "There are no ratings on BookHop." context "trust.no_ratings" %}</p>
+</section>
+{% endblock %}

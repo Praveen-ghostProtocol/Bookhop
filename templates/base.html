@@ -61,6 +61,16 @@
            lang="{{ code }}">{% if code == "ta" %}தமிழ்{% else %}English{% endif %}</a>
       {% endfor %}
     {% endif %}
+    {% comment %} JOURNEYS J2's entry point is "GET /sell from the main
+       navigation", and J4's is "GET /wanted". They render only when signed
+       in: both routes redirect to sign-in otherwise, and a nav item that
+       bounces the student is worse than one that is not there. Not shown in
+       `offline_mode` for the same reason the footer links are not — they need
+       the network and a dead link is not a link. {% endcomment %}
+    {% if signed_in and not offline_mode %}
+      <a class="lang" href="/sell">{% translate "Sell" context "sys.nav.sell" %}</a>
+      <a class="lang" href="/wanted">{% translate "Wanted" context "sys.nav.wanted" %}</a>
+    {% endif %}
     <a class="lang" href="/help">{% translate "Help" context "sys.help" %}</a>
   </nav>
 </header>

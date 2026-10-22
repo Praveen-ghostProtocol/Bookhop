@@ -20,16 +20,26 @@
 // may have changed, with no as-of time, which is the stale-data defect
 // students would not notice.
 
-const VERSION = 'bookhop-s1-1';
+// THE CACHE NAME IS THE SHELL'S CONTENT, NOT A STRING SOMEBODY TYPED.
+//
+// This was `'bookhop-s1-1'`, and the comment two lines below claimed a stale
+// asset could not outlive a deploy — which was true only while someone
+// remembered to edit the constant. It failed the first time it was tested:
+// an `app.css` change in S2 was invisible in the browser because this worker
+// kept serving the precached copy, and a student with the PWA installed would
+// have kept the old stylesheet indefinitely. CLAUDE.md rule 9: the claim and
+// the check are one artefact, or they drift.
+//
+// `web/views.py shell_version()` hashes every file behind the list below, so
+// changing any of them changes this name, `activate` deletes every other
+// cache, and the new bytes are fetched. The list itself comes from the same
+// place, so the precache set and the name it is stored under cannot disagree.
+const VERSION = '{{ version }}';
 
 const SHELL = [
-  '{% static "css/tokens.css" %}',
-  '{% static "css/app.css" %}',
-  '{% static "js/sw-register.js" %}',
-  '{% static "icons/bookhop.svg" %}',
-  '/offline',
-  '/manifest.webmanifest'
-];
+{% for name in shell_static %}  '{% static name %}',
+{% endfor %}{% for route in shell_routes %}  '{{ route }}'{% if not forloop.last %},{% endif %}
+{% endfor %}];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
