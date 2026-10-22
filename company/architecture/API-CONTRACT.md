@@ -784,10 +784,45 @@ agent knows exactly what it owns.
 >   `Content-Type` from the stored type, never from the request.
 > - **404, not 403**, for a photo outside scope — consistent with §2.2, so the
 >   route cannot be used to confirm a listing exists on another campus.
-> - EXIF is already absent by construction: `exif_stripped_at` is `NOT NULL`,
->   so no row can exist for an unstripped file (`DATA-MODEL.md` §3).
+> - ~~EXIF is already absent by construction: `exif_stripped_at` is `NOT NULL`,
+>   so no row can exist for an unstripped file.~~ **Struck by A-25.** Red Team
+>   measured a file on disk carrying a GPS tag *with `exif_stripped_at` set*:
+>   the column records that the stripper ran, never that it succeeded. A
+>   `NOT NULL` timestamp is a **state** guarantee and cannot detect a **bad
+>   input** (rule 12). When an explanation and a measurement disagree, the
+>   explanation goes (rule 9).
 >
 > **Slice: S2**, with the listing surface it completes.
+
+> #### A-25 — the photo route, as it actually ships (2026-10-22, cto)
+>
+> Red Team's S2 pass (`REDTEAM-S2.md` F51/F52) found the shipped route
+> diverging from the clause above in three ways, one of which is load-bearing.
+> Ratified and corrected here **before** any S2 rework, so backend and
+> frontend are not building against different contracts:
+>
+> - **Path — ratified as shipped**: `GET /api/v1/listings/{id}/photos/{sha256}`,
+>   with the HTML twin `GET /listing/{id}/photo/{sha256}`. Content-addressing
+>   is the better identifier and the `/media/` spelling invited exactly the
+>   public-static reading that F51 found in two deployment documents. The
+>   `/media/listing-photo/{photo_id}` spelling is **withdrawn, not unrouted.**
+> - **Cache — corrected to the clause**: `private, max-age=86400`. The route
+>   serves `3600`.
+> - **The storage key must not be derivable from any response.** `add_photo`
+>   builds `listings/{id}/{sha256[:32]}.{fmt}` while `listing_payload`
+>   publishes both the id and the full `sha256`, so any authorised reader can
+>   compute the on-disk path and pass it to anyone. The stored filename gains
+>   a component that appears in **no** response — a per-photo random token,
+>   stored on the row. The URL keeps the `sha256`; the disk does not.
+>
+>   *This is the layer that matters.* The Django authorisation decision is the
+>   other layer, and it holds — but F51's whole point is that the two
+>   deployment documents route `/media/` publicly, and against that
+>   arrangement an underivable filename is the only remaining control
+>   (rule 12: name the other layer, or it is a widening).
+> - **`ADR-001.md` §2.6 and `INFRA.md` §1 are amended by their owners** to
+>   describe the `internal` location. Until both do, the deployment is
+>   specified two ways and the one an operator reads is the wrong one.
 | `POST /api/v1/listings/{id}/publish` | `POST /sell/{id}/publish` |
 | `POST /api/v1/listings/{id}/withdraw` | `POST /sell/{id}/withdraw` |
 | `GET /api/v1/listings/mine` | `GET /sell` |
@@ -1011,6 +1046,7 @@ four contract guarantees:
 | **A-22** | 2026-10-22 | **§2.5 precondition 7 narrowed: the discovery gate is a READ control.** A listing created on a closed campus is the "private intake form feeding a record" compliance explicitly says is **not** a platform (A0) — the r.3(1)(b) trigger is the browsable surface. **Blocking the write protects nothing and guarantees R-01**, because the campus would open with zero supply. Permitted pre-gate: create a listing, upload its photos, record a want, read your own rows. Still gated: all discovery, and `→ OFFERED`. **A required disclosure string routed to design**, and the create flow may surface no other user's row **including a count** | QA S2 contradiction | cto |
 | **A-21** | 2026-10-22 | **§3 procedural fix after a THIRD naming drift.** A read the interface needs is a **§3 amendment first, then an implementation** — rule 6 applied to signatures, not just files. Backend's four shipped names win and are recorded on receipt | S2 frontend pass | cto |
 | **A-20** | 2026-10-22 | **`GET /media/listing-photo/{photo_id}` added** — the storage key existed and nothing served it, so **the data-saver criterion was passing vacuously and must not be reported as passing** (rule 10). Gate- and scope-checked in Django, bytes served by nginx via `X-Accel-Redirect`, 404 not 403 out of scope | S2 frontend pass | cto |
+| **A-25** | 2026-10-22 | **The photo route as it ships.** Path ratified as `/api/v1/listings/{id}/photos/{sha256}`; `/media/listing-photo/{photo_id}` withdrawn. Cache corrected to `max-age=86400`. **Storage key gains a component published in no response** - it was `sha256[:32]`, which every listing payload hands out. The `exif_stripped_at` bullet is struck: it records that the stripper ran, not that it worked | REDTEAM-S2 F47/F51/F52 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
