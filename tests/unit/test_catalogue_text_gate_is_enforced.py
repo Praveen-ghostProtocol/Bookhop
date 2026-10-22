@@ -42,7 +42,31 @@ cannot see, and the layer for each:
 3. **`values()` / `values_list()` naming the columns as strings.** Nothing in
    the tree does, and that would be a query the service layer composed — it
    would show up as a `.values(` with those names rather than as an
-   attribute. Not covered here, and no instance exists.
+   attribute. **Covered elsewhere now, and measured**:
+   `tests/contract/test_catalogue_text_gate_blind_spots.py::test_no_sealed_column_is_named_as_a_string_to_the_orm`
+   is QA's walk over string arguments to `values`/`only`/`F`/`annotate`.
+4. **A derived copy of a sealed column, and a lookup written as a keyword
+   argument rather than a string.** This is **A-34, and it cost ten digits of
+   a phone number.** `title_norm` is `normalise_title(title)` — the seller's
+   own words in a different shape — and it is not a sealed *name*, so
+   `base.filter(title_norm__contains=needle)` named no sealed attribute, no
+   sealed string, and nothing in this file or in QA's walk could see it **even
+   in principle**. A value you may not read is still a value you may match
+   against.
+
+   Two changes rather than a note. `SEALED` now imports
+   `DERIVED_FROM_SELLER_TEXT` as well, so a read of `book.title_norm` fails
+   here by name; and `test_no_sealed_column_is_matched_on_outside_the_gate`
+   below walks **keyword-argument names** on query methods, which is the shape
+   QA's string walk cannot reach and the shape the extraction used.
+
+   **What is still outside all three walks**, declared rather than discovered:
+   raw SQL (`cursor.execute`, `RawSQL`, a migration body) naming either column.
+   The layer is `tests/unit/test_forbidden_source.py`'s raw-SQL rules plus the
+   behavioural measurement, which is the one that does not depend on a name at
+   all: `tests/unit/test_catalog.py::test_a_needle_in_withheld_text_selects_nothing_for_a_reader_who_may_not_read_it`
+   runs Red Team's own digit walk through `search_books` on both engines and
+   asserts no digit comes out.
 """
 
 import ast
@@ -50,14 +74,44 @@ import pathlib
 
 import pytest
 
-from apps.catalog.services import SELLER_WRITTEN_TEXT
+from apps.catalog.services import DERIVED_FROM_SELLER_TEXT, SELLER_WRITTEN_TEXT
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 #: The attribute names the gate owns. **Imported, not copied** — a fifth
 #: seller-written column added to `SELLER_WRITTEN_TEXT` is sealed here the
 #: same day, with no edit to this file (`CLAUDE.md` rule 11).
+#:
+#: **A-34's derived columns are deliberately NOT in here, and the reason is
+#: rule 13's order of resort.** `tests/contract/test_catalogue_text_gate_blind_spots.py`
+#: imports this set and matches string arguments by their last `__` segment, so
+#: adding `title_norm` would turn QA's walk red on `F("title_norm")` inside
+#: `search_books` — the gated predicate's own expression, which is the code
+#: the control exists to protect. The derived names get their own set and their
+#: own match rule below instead, each entry matched on its own terms rather
+#: than folded into a flat list (`CLAUDE.md` rule 11).
 SEALED = set(SELLER_WRITTEN_TEXT)
+
+#: **A-34.** The sealed columns *plus* every derived copy of one. Used by
+#: `test_no_sealed_column_is_matched_on_outside_the_gate`, which asks about
+#: **matching**, not about reading a value — `filter(title_norm__contains=…)`
+#: reads nothing and discloses everything.
+MATCHABLE = SEALED | set(DERIVED_FROM_SELLER_TEXT)
+
+#: QuerySet methods whose **keyword arguments are column lookups**. Narrower
+#: than QA's `COLUMN_NAMERS` on purpose: a projection carries a value out, and
+#: these carry a *needle in*, which is the half nothing measured. Writes
+#: (`create`, `update`) are not here — `title_norm=normalise_title(title)` in
+#: `create_book` is the derivation itself, and writing a column is not
+#: disclosing it.
+LOOKUP_CALLS = ("filter", "exclude", "get", "get_or_create", "Q")
+
+#: `(path, qual) -> the lookups that allowance covers`. One entry, and it is
+#: the gate: `search_books` must match `title_norm`, which is the whole point
+#: of A-34 putting `readable_text_rows` in front of it.
+ALLOWED_LOOKUPS = {
+    ("apps/catalog/services.py", "search_books"): frozenset({"title_norm"}),
+}
 
 #: `(path, qualname) -> the reason that read is not the gate's business`.
 #:
@@ -710,6 +764,89 @@ def test_a_want_carrying_a_book_fk_is_idempotent_on_the_book_and_the_course(
 
 
 @pytest.mark.django_db
+def test_the_bare_line_can_be_replaced_by_going_back_and_typing_a_title(
+    requester, unverified_book
+):
+    """**F56, folded into A-34.** A-32's idempotency clause re-created F51.
+
+    Walk the journey A-32's remedy exists for. A student resolves an ISBN,
+    types no title (the form does not require one), and is shown the bare
+    `ISBN 978…` line. They do the one thing that screen invites: they go back
+    and type the title. Before the fix the same `(book, course_code)` key
+    returned the existing row, their words were dropped under a flash saying
+    it was already on their list, and — with no `update_request` — **that row
+    stayed bare for as long as it existed.**
+
+    `create_request` now fills `free_text_title` on an existing row when it is
+    NULL. No new endpoint, no second row.
+    """
+    from apps.accounts.sessions import SESSION_USER_KEY
+    from apps.listings.models import BookRequest
+    from django.test import Client
+
+    client = Client()
+    session = client.session
+    session[SESSION_USER_KEY] = requester.id
+    session.save()
+    bare = {"isbn": unverified_book.isbn13, "title": "", "course_code": ""}
+    assert client.post("/wanted", bare).status_code == 302
+    assert f"ISBN {unverified_book.isbn13}" in client.get("/wanted").content.decode(), (
+        "the bare line is gone, so this test's premise is retired"
+    )
+
+    assert client.post("/wanted", {**bare, "title": MY_WORDS}).status_code == 302
+    rows = list(BookRequest.all_objects.filter(book=unverified_book))
+    assert len(rows) == 1, "A-32's idempotency no longer collapses the retry"
+    assert rows[0].free_text_title == MY_WORDS, (
+        "F56: the student typed a title to replace the bare line and the row "
+        f"still carries free_text_title={rows[0].free_text_title!r}"
+    )
+    body = client.get("/wanted").content.decode()
+    assert MY_WORDS in body
+    assert f"ISBN {unverified_book.isbn13}" not in body
+    assert unverified_book.title not in body, (
+        "A-29 §1 is unchanged by F56: the backfill writes the reader's own "
+        "words, never the catalogue row's"
+    )
+
+
+@pytest.mark.django_db
+def test_the_backfill_cannot_overwrite_a_title_or_reach_another_students_row(
+    requester, student, unverified_book
+):
+    """**Both sides of F56's fix are rows** (rule 10's corollary). The fill is
+    NULL-only and own-row-only, and a fix that wrote on every retry would pass
+    the test above and fail both of these.
+
+    The second clause is `create_request`'s existing shape filter, which keys
+    on `requester_pseudonym` — so this asserts a property the fix *inherits*
+    rather than one it adds, which is the half that silently breaks if
+    somebody ever widens that filter.
+    """
+    from apps.listings.models import BookRequest
+    from apps.listings.services import create_request
+
+    first = create_request(requester, book=unverified_book, free_text_title=MY_WORDS)
+    again = create_request(
+        requester, book=unverified_book, free_text_title="something else entirely"
+    )
+    assert again.id == first.id
+    again.refresh_from_db()
+    assert again.free_text_title == MY_WORDS, (
+        "the backfill overwrote a title the student already had; it fills "
+        "NULL and nothing else"
+    )
+
+    # `student` is a second student on the same campus with no row yet. Their
+    # post must create their own row, not touch `requester`'s.
+    theirs = create_request(student, book=unverified_book, free_text_title="my own")
+    assert theirs.id != first.id
+    first.refresh_from_db()
+    assert first.free_text_title == MY_WORDS
+    assert BookRequest.all_objects.filter(book=unverified_book).count() == 2
+
+
+@pytest.mark.django_db
 def test_the_substitution_is_the_requests_and_cannot_reach_a_listing(
     requester, unverified_book
 ):
@@ -756,3 +893,145 @@ def test_the_substitution_is_the_requests_and_cannot_reach_a_listing(
         "A-32 substitutes a student's own words on the **request** surface "
         f"only, and these functions read `free_text_title`: {sorted(readers)}"
     )
+
+
+# --- A-34: the half that matches rather than reads -------------------------
+
+
+def _sealed_lookups(source):
+    """`[(lineno, qualname, lookup, call)]` — every keyword-argument lookup on
+    a `MATCHABLE` column in one module.
+
+    The shape A-34 is about: `base.filter(title_norm__contains=needle)` names
+    no attribute and no string, so the attribute walk above and QA's string
+    walk are both green while ten digits of a phone number come out one
+    signed-in `200` at a time.
+
+    Matched on **any** `__` segment, so a traversal into the column
+    (`book__title_norm__contains`) is seen as well as the column itself. The
+    first draft read only the first segment and QA's walk reads only the last,
+    which left `book__title_norm` outside both — a gap found by writing the
+    both-sides parametrisation below, which is what that convention is for.
+    Measured cost of the wider rule: **zero** extra sites in the tree.
+    """
+    tree = ast.parse(source)
+    found = []
+
+    def visit(node, qual):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(
+                child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                visit(child, qual + [child.name])
+                continue
+            where = ".".join(qual) or "<module>"
+            if isinstance(child, ast.Call):
+                func = child.func
+                name = (
+                    func.attr if isinstance(func, ast.Attribute)
+                    else func.id if isinstance(func, ast.Name)
+                    else None
+                )
+                if name in LOOKUP_CALLS:
+                    for kw in child.keywords:
+                        if set((kw.arg or "").split("__")) & MATCHABLE:
+                            found.append((child.lineno, where, kw.arg, name))
+            visit(child, qual)
+
+    visit(tree, [])
+    return found
+
+
+def test_no_sealed_column_is_matched_on_outside_the_gate():
+    """**A-34 as a property.** The test that would have caught the oracle.
+
+    `search_books` did `base.filter(title_norm__contains=needle)` with no row
+    gate in front of it, and every control in this repository was green:
+    `title_norm` is not a sealed attribute name, nothing read it as an
+    attribute, and no string argument named it in a projection. This walk
+    names it with its line.
+
+    The one allowance is `search_books` itself, and it is legitimate **only
+    because `readable_text_rows` runs first** — which is a property of the
+    function body, not of this list, so it is measured separately in
+    `tests/unit/test_catalog.py::test_a_needle_in_withheld_text_selects_nothing_for_a_reader_who_may_not_read_it`.
+    """
+    unknown = {}
+    live = set()
+    for root in ("apps", "web"):
+        for path in sorted((ROOT / root).rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            for lineno, qual, lookup, call in _sealed_lookups(
+                path.read_text(encoding="utf-8")
+            ):
+                permitted = ALLOWED_LOOKUPS.get((rel, qual), frozenset())
+                if set(lookup.split("__")) & permitted:
+                    live.add((rel, qual))
+                else:
+                    unknown.setdefault((rel, qual), []).append((lineno, lookup, call))
+    # **A guard for the guard**, the same one `test_every_allowance_matches_a_live_access`
+    # is for the attribute walk: an allowance that matches nothing is not
+    # harmless, it silently exempts the next function somebody gives that name
+    # in that file. `ALLOWED_LOOKUPS` is its own namespace and not a subset of
+    # `ALLOWED` — `search_books` reads no sealed *attribute*, which is exactly
+    # why this walk had to exist.
+    assert set(ALLOWED_LOOKUPS) == live, (
+        f"`ALLOWED_LOOKUPS` permits {sorted(set(ALLOWED_LOOKUPS) - live)}, "
+        "which match no live lookup. Delete the stale entries."
+    )
+    assert not unknown, (
+        "A-34: these match a needle against seller-written catalogue text, or "
+        "against a derived copy of it, without narrowing the rows to the ones "
+        "the actor may read. A value you may not print is still a value you "
+        "may match against — this is the predicate the phone number came out "
+        "of.\n\n"
+        + "\n".join(
+            f"  {path}:{lineno} in {qual}() — {call}({lookup}=…)"
+            for (path, qual), hits in sorted(unknown.items())
+            for lineno, lookup, call in hits
+        )
+        + "\n\nPut `apps.catalog.services.readable_text_rows(qs, actor)` in "
+        "front of the match and thread the actor down to it."
+    )
+
+
+@pytest.mark.parametrize(
+    ("snippet", "why"),
+    [
+        ('qs.filter(title_norm__contains=n)', "the derived copy — the A-34 defect itself"),
+        ('qs.filter(title_norm=n)', "the derived copy, exact"),
+        ('qs.filter(title__icontains=n)', "the sealed column directly"),
+        ('qs.exclude(publisher=n)', "`exclude` is a match too"),
+        ('Q(edition_label__startswith=n)', "a bare `Q`, which composes into one"),
+        ('qs.get(authors__contains=n)', "`get` narrows by the same predicate"),
+        ('qs.filter(book__title_norm=n)', "a traversal into the derived copy — outside both earlier rules"),
+        ('def f():\n    return qs.filter(title_norm__contains=n)', "inside a function"),
+    ],
+)
+def test_the_lookup_walk_sees_each_match_shape(snippet, why):
+    """Rule 10's fourth disguise, for the new half: the instrument asserts its
+    own reach before any clean run of it means anything."""
+    assert _sealed_lookups(snippet), f"the walk does not see {why}: {snippet!r}"
+
+
+@pytest.mark.parametrize(
+    ("snippet", "why"),
+    [
+        ('qs.filter(isbn13=d)', "an ISBN is published deliberately (A-29 §1)"),
+        ('qs.filter(merged_into__isnull=True)', "not a seller-written column"),
+        ('Book.objects.create(title_norm=normalise_title(t))', "the derivation: a write, not a match"),
+        ('x = {"title_norm": t}', "a dict key is not a lookup"),
+        ('qs.order_by("title")', "ordering by a column does not put it in the result set"),
+    ],
+)
+def test_the_lookup_walk_does_not_fire_on_these(snippet, why):
+    """**Both sides are rows** (rule 10's corollary): the permitted side is
+    asserted, because a walk that fired on `isbn13=` or on the derivation
+    itself would be edited rather than obeyed (rule 13).
+
+    `order_by("title")` is here for the reason QA's file records against its
+    own narrowing: ordering by a column does not carry it out and does not
+    match a needle against it, so firing there would be wrong rather than
+    inconvenient.
+    """
+    assert not _sealed_lookups(snippet), f"the walk fires on {why}: {snippet!r}"

@@ -225,7 +225,7 @@ definition: they cannot run here.
 |---|---|---|---|
 | S1 | `citext` for `users.email` | absent | normalise in the service layer (see §2.9) |
 | S1 | `gen_random_uuid()` as a column DEFAULT (`users.person_pseudonym`) | absent | generate in Python (`default=uuid.uuid4`), which works on both; the DB-side default in `DATA-MODEL.md` §2 will not exist on SQLite |
-| S2 | `pg_trgm` + `GIN (title_norm gin_trgm_ops)` | absent | the trigram index cannot be created locally. The migration must branch, and **title search relevance is untestable on this machine**; exact ISBN-13 lookup is testable |
+| S2 | `pg_trgm` + `GIN (title_norm gin_trgm_ops)` | absent | the trigram index cannot be created locally. The migration must branch, and **title search relevance is untestable on this machine**; exact ISBN-13 lookup is testable. **A substring or prefix fallback for short needles is the natural fix for the row below and must not be written without reading §6.1 first** |
 | S3 | trigram similarity ranking (`API-CONTRACT.md` §5.3) | absent | S3's ranking tests are Postgres-only. The gate and pagination tests are not |
 | S7 | `percentile_cont(...) WITHIN GROUP`, `date_trunc`, `interval`, `::numeric`, `NULLIF` — i.e. **all of `DATA-MODEL.md` §9's queries** | absent or different | **`apps/analytics/sql/**` cannot run on SQLite at all.** Every metric view, the §9.2 repeat-transfer query, the §9.3 match rate and the §9.4 support-minutes queries are Postgres-only. S7 cannot be verified on this machine in any form |
 | ADR-002 §6 step 2 | row-level security | absent | post-v1 |
@@ -233,6 +233,45 @@ definition: they cannot run here.
 
 **This is the strongest single argument for getting a local Postgres before
 S7, and a reasonable one for getting it before S2.**
+
+### 6.1 The one divergence that decided whether a disclosure gate held
+
+**Recorded because it was not, and that omission is the finding.** This
+document had the `pg_trgm` row above since S0 and classified the difference as
+*search quality* — a misspelling finds nothing locally. It is also the row
+that decided whether **gated seller-written text was recoverable**, and
+nothing said so.
+
+`GET /api/v1/books?q=` matched `title_norm`, which is `normalise_title(title)`
+— a derived copy of the seller's own words, in a column that is not in
+`SELLER_WRITTEN_TEXT` and was therefore sealed by no instrument. Measured by
+Red Team, same probe, both engines, on a row with `staff_verified_at IS NULL`
+and **no listing in existence**:
+
+| engine | `?q=call 9840012345` | digits of a phone number recovered |
+|---|---|---|
+| SQLite 3.45.1 | `title_norm__contains` selects the row | **10 of 10**, one signed-in `200` per digit |
+| PostgreSQL 16 | `similarity(title_norm, needle) >= 0.3` selects nothing | 0 — no foothold |
+
+**The shipping engine was the safe one, and that is not a mitigation.** It held
+by trigram arithmetic nobody chose: a 15-character needle cannot reach the 0.3
+cut-off against a 53-character title. `search_books`' own docstring fixes the
+contract as *"the weaker one — substring — so nothing above this function may
+assume fuzziness"*, so **the weaker contract is the oracle** and the sentence
+in `API-CONTRACT.md` A-29 §3 was false against the documented contract and
+true only against one engine's implementation of it. The substring fallback the
+row above schedules for S3 would have reopened it on both.
+
+**Closed by A-34, and closed in a way this row can no longer decide.**
+`search_books` now calls `apps.catalog.services.readable_text_rows(qs, actor)`
+**before** the needle is matched — verified rows, plus the actor's own and
+staff's — so the row is gone from the queryset before either engine's
+predicate runs. `VERIFIED ON BOTH`:
+`tests/unit/test_catalog.py::test_a_needle_in_withheld_text_selects_nothing_for_a_reader_who_may_not_read_it`
+runs the ten-digit walk with no engine branch and no skip, because a property
+that holds whichever predicate runs must not be asserted per engine. Related
+and still live: §7.3 — Django's `__contains` behaves like `__icontains` on
+SQLite, so a *case* assertion about search still diverges.
 
 ---
 

@@ -31,6 +31,7 @@ import re
 import unicodedata
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from apps.core.errors import DuplicateIsbn, NotFound, NotPermitted, ValidationFailed
 from apps.core.services import record_audit
@@ -50,7 +51,9 @@ __all__ = [
     "prescribed_for_course",
     "served_book_text",
     "may_read_unverified_text",
+    "readable_text_rows",
     "SELLER_WRITTEN_TEXT",
+    "DERIVED_FROM_SELLER_TEXT",
 ]
 
 #: Anything that is not a letter, a digit or a space, stripped from
@@ -77,6 +80,22 @@ TRIGRAM_THRESHOLD = 0.3
 #: **no text rule on catalogue text at all** — not an empty one (A-29 §3).
 SELLER_WRITTEN_TEXT = ("title", "authors", "edition_label", "publisher")
 
+#: **API-CONTRACT A-34.** `column -> the SELLER_WRITTEN_TEXT column it copies`.
+#: A derived column holds the seller's own words in a different shape, so every
+#: rule about the original is a rule about this too — and the gate's instrument
+#: could not see it, because `title_norm` is not a sealed *name* and the
+#: extraction that recovered ten digits of a phone number never named one.
+#:
+#: **Ceiling, declared here because this is a list and a list can only hold
+#: what somebody noticed** (`CLAUDE.md` rule 11): nothing in the schema marks a
+#: column as derived, so there is no property to ask of the model. What makes
+#: the list complete is a measurement rather than this comment —
+#: `tests/unit/test_catalog.py::test_every_column_that_carries_the_sellers_own_words_is_declared`
+#: writes a distinctive token into a title and asks the *stored row* which
+#: columns came back carrying it. A fifth derived column fails there by name on
+#: the day it ships, with no edit to this line.
+DERIVED_FROM_SELLER_TEXT = {"title_norm": "title"}
+
 
 def _withheld():
     """What a withheld row reads as. **Built per call, not a module constant**:
@@ -95,6 +114,14 @@ def may_read_unverified_text(book, reader) -> bool:
     `queue_rows` and `review_listings --listing` are the two readers that
     exist. **The book's own author may read it**, so a seller is never shown
     a label in place of words they typed. Everybody else is served the ISBN.
+
+    **`readable_text_rows` is the same three clauses as SQL**, because a Python
+    predicate cannot be handed to the database and a `Q` cannot be asked of an
+    unsaved object. Two expressions is one more than `CLAUDE.md` rule 11 wants,
+    so the agreement is **measured, not asserted**:
+    `tests/unit/test_catalog.py::test_the_two_expressions_of_one_rule_agree`
+    walks every verified-state × reader-kind pair and fails on the first
+    disagreement.
     """
     if getattr(book, "staff_verified_at", None) is not None:
         return True
@@ -102,6 +129,33 @@ def may_read_unverified_text(book, reader) -> bool:
         return True
     reader_id = getattr(reader, "id", None)
     return reader_id is not None and getattr(book, "created_by_id", None) == reader_id
+
+
+def readable_text_rows(qs, reader):
+    """`qs` narrowed to the rows whose seller-written text `reader` may read.
+
+    **API-CONTRACT A-34 — the gate asked at the *predicate*.** A value you may
+    not read is still a value you may match against: `?q=` matched
+    `title_norm`, a derived copy of the seller's words, and ten signed-in
+    `200`s recovered a phone number out of a column the same response refuses
+    to print, with no listing in existence. *If we will not print it, we will
+    not match on it.*
+
+    **A missing `reader` means verified-only, never everything.** `None` is
+    what an unthreaded caller passes, and a default that fails open is how this
+    class of defect comes back — so the neutral catalogue-identity read that
+    `served_book_text` describes gets the published rows and nothing else.
+    `find_book_by_isbn` is deliberately *not* routed through here: an ISBN is
+    an identifier A-29 §1 publishes, and an exact-identifier read is not an
+    oracle.
+    """
+    if getattr(reader, "is_staff_member", False):
+        return qs
+    readable = Q(staff_verified_at__isnull=False)
+    reader_id = getattr(reader, "id", None)
+    if reader_id is not None:
+        readable |= Q(created_by_id=reader_id)
+    return qs.filter(readable)
 
 
 def served_book_text(book, reader=None):
@@ -252,8 +306,26 @@ def resolve_merge(book, _depth=0):
     return book
 
 
-def search_books(q: str, limit: int = 20):
-    """API-CONTRACT §3. Title search over `title_norm`.
+def search_books(q: str, limit: int = 20, *, actor=None):
+    """API-CONTRACT §3 + **A-34**. Title search over `title_norm`, gated.
+
+    ### THE PREDICATE IS GATED, NOT ONLY THE VALUE
+
+    `title_norm` is a **derived copy of the seller's words**
+    (`DERIVED_FROM_SELLER_TEXT`), so matching on it published text the gate
+    withholds: Red Team recovered ten digits of a phone number in ten
+    signed-in `200`s, one per digit, with **zero listings in existence** — so
+    neither A-29 §2's structural gate nor the sealed-set AST walk was a layer
+    over this path, the second because the extraction never names a sealed
+    attribute. A-34: `readable_text_rows` narrows the rows **before** the
+    needle is matched, so the needle can only select a row whose text `actor`
+    could have been served anyway.
+
+    **`actor` is keyword-only and `None` means verified-only.** The signature
+    in API-CONTRACT §3 reads `(q, limit)` and this adds a third parameter
+    rather than changing the two — but a caller that forgets it gets the
+    *published* catalogue, not the whole of it. Escalated in the slice note:
+    §3 line 373 is cto's to amend.
 
     **Engine-divergent and the difference is stated, not assumed**
     (`CLAUDE.md` rule 17, VERIFIED HERE on both engines by
@@ -269,6 +341,15 @@ def search_books(q: str, limit: int = 20):
     nothing above this function may assume fuzziness. S3's ranking
     (`published_at DESC` within an exact-ISBN match, then trigram similarity)
     is where the difference becomes visible, and it is recorded there.
+
+    **The gate above does not depend on which of those two it is**, and that is
+    the point of putting it on the rows. Before A-34 the sentence *"no
+    seller-written catalogue text reaches another student"* held on PostgreSQL
+    by trigram arithmetic — a short needle cannot reach `similarity() >= 0.3`
+    against a long title — and failed on SQLite. The substring fallback for
+    short needles that `ENGINE-DIVERGENCE.md` §6 schedules for S3 would have
+    reopened it on both. It cannot now: the row is gone from `base` before
+    either branch runs.
     """
     from django.db import connection
     from django.db.models import F, Func, Value
@@ -278,7 +359,9 @@ def search_books(q: str, limit: int = 20):
     if not needle:
         return []
     limit = max(1, min(int(limit or 20), 50))
-    base = Book.objects.filter(merged_into__isnull=True)
+    base = readable_text_rows(
+        Book.objects.filter(merged_into__isnull=True), actor
+    )
     if connection.vendor == "postgresql":
         # `similarity()` rather than the `%` operator, so this needs neither
         # `django.contrib.postgres` in INSTALLED_APPS nor a custom lookup.

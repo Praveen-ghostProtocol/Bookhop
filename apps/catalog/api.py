@@ -99,7 +99,15 @@ def books(request, body, user):
         found = services.find_book_by_isbn(isbn)
         return 200, {"items": [book_payload(found)] if found else [], "next_cursor": None}
     if query:
-        rows = services.search_books(query, limit=request.GET.get("limit") or 20)
+        # **A-34: `actor=user`, and the keyword is not optional here.** The
+        # needle is matched against `title_norm`, a derived copy of the
+        # seller's words, so the row set has to be the one this student may
+        # read before the match happens. Omitting it would silently narrow the
+        # search to verified rows — wrong, but safe, which is the direction a
+        # default on a disclosure path has to fail.
+        rows = services.search_books(
+            query, limit=request.GET.get("limit") or 20, actor=user
+        )
         return 200, {"items": [book_payload(b) for b in rows], "next_cursor": None}
     raise ValidationFailed(
         "Enter an ISBN or a title.",

@@ -370,7 +370,12 @@ def log_personal_data_access(staff, subject_pseudonym, fields: list[str], purpos
 
 # apps/catalog/services.py
 def find_book_by_isbn(isbn13: str) -> Book | None              # IsbnInvalid
-def search_books(q: str, limit: int) -> list[Book]
+def search_books(q: str, limit: int, *, actor: User | None = None) -> list[Book]
+>
+> **`actor` added by A-34.** It is keyword-only and defaults to `None`, and
+> `None` means **verified rows only** - never everything. A caller that
+> forgets it loses results; a default that failed open would have restored
+> the oracle A-34 closed, which is the whole reason the parameter exists.
 def create_book(actor, **fields) -> Book                       # DuplicateIsbn
 def merge_books(staff, source: Book, target: Book) -> None
 

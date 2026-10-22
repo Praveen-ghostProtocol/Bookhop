@@ -173,11 +173,20 @@ def test_search_finds_an_exact_title_on_both_engines(book):
 
 
 def test_search_excludes_a_merged_row(staff, student, book):
+    """**`actor=staff`, so the merge is the only reason the row is absent.**
+
+    Without it A-34's row gate would exclude the duplicate too — it is
+    unverified — and this test would pass while saying nothing about merges,
+    which is rule 10's "passes for the wrong reason".
+    """
     duplicate = services.create_book(
         student, isbn13="9780131103627", title="Engineering Mathematics copy"
     )
+    assert duplicate in services.search_books("engineering mathematics", actor=staff)
     services.merge_books(staff, duplicate, book)
-    assert duplicate not in services.search_books("engineering mathematics")
+    assert duplicate not in services.search_books(
+        "engineering mathematics", actor=staff
+    )
 
 
 def test_a_misspelling_is_found_on_postgres_and_not_on_sqlite(engine, book):
@@ -213,6 +222,223 @@ def test_an_empty_query_returns_nothing_rather_than_everything(book):
     assert services.search_books("") == []
     assert services.search_books("   ") == []
     assert services.search_books(None) == []
+
+
+# --- A-34: the gate on the predicate --------------------------------------
+
+#: What a seller who wants to skip the app writes into a **global** `books`
+#: row. Red Team's string, kept verbatim: the walk below is linear in digits
+#: and the ten digits are the whole point.
+POISONED = "Higher Engineering Mathematics call 9840012345 anytime"
+
+
+def _poisoned(author):
+    book = services.create_book(
+        author, isbn13="9789387432147", title=POISONED,
+        authors=["B S Grewal"], edition_label="43rd edition",
+        publisher="Khanna", language="en",
+    )
+    assert book.staff_verified_at is None, "fixture no longer exercises the gate"
+    return book
+
+
+def _stranger(like):
+    """A second **real** student on the same campus, owning nothing. Saved, so
+    the id clause of the gate is exercised by a reader who has one — an
+    unsaved user would collapse into the `actor=None` case and the row would
+    be a copy of it.
+    """
+    from apps.accounts.models import User
+
+    return User.objects.create(
+        email="arun@example.ac.in", display_name="Arun K",
+        campus_id=like.campus_id, city_id=like.city_id,
+        status="ACTIVE", adult_verified=True, campus_verified=True,
+        is_seed=like.is_seed,
+    )
+
+
+def test_a_needle_in_withheld_text_selects_nothing_for_a_reader_who_may_not_read_it(
+    engine, student, staff, book
+):
+    """**A-34, measured as Red Team measured it, on both engines.**
+
+    Their probe recovered ten digits of a phone number out of `title_norm` in
+    ten signed-in `200`s — one request per digit, no listing in existence, no
+    staff member in the loop — and every name-based control was green,
+    because `title_norm` is a derived copy of the seller's words and the
+    extraction never named a sealed attribute.
+
+    This runs the same walk through the service and asserts **nothing comes
+    out**. It is the layer the AST walk cannot be: the walk answers *which
+    code names the column*, and this answers *whether the column answers*. No
+    skip and no engine branch — the whole point of gating rows rather than
+    the predicate's shape is that it holds whichever predicate runs, so an
+    engine branch here would hide the property it is meant to pin.
+    """
+    poisoned = _poisoned(student)
+    stranger = _stranger(student)
+
+    # **Membership of the poisoned row, not a non-empty result.** On
+    # PostgreSQL `similarity()` is a whole-string measure, so the verified
+    # `book` fixture answers fuzzily to needles the attacker never aimed at
+    # it — a truthiness check would call that a foothold and this test would
+    # be measuring trigram noise instead of the gate.
+    recovered = ""
+    for _ in range(10):
+        found = next(
+            (
+                d for d in "0123456789"
+                if poisoned in services.search_books(
+                    f"call {recovered}{d}", actor=stranger
+                )
+            ),
+            None,
+        )
+        if found is None:
+            break
+        recovered += found
+    assert recovered == "", (
+        f"FINDING (engine={engine}): {len(recovered)} digit(s) recovered as "
+        f"{recovered!r} through `search_books` out of a column "
+        "`served_book_text` refuses to print"
+    )
+
+    # **Both sides are rows** (rule 10's corollary), twice over: the row is
+    # findable by its author, so the walk above closed on the gate and not on
+    # a broken search; and the verified row is findable by the stranger, so it
+    # is not a closed catalogue either.
+    #
+    # The author's needle is the full title and **not** the attacker's short
+    # one, because a short needle reaches nobody on PostgreSQL — that is §6's
+    # functional divergence, which is the half this test must not depend on.
+    assert poisoned in services.search_books(
+        "higher engineering mathematics", actor=student
+    ), "the author cannot find their own row, so the walk above proves nothing"
+    assert book in services.search_books("engineering mathematics", actor=stranger)
+
+
+def test_an_unverified_row_is_findable_by_its_author_and_by_staff_and_by_nobody_else(
+    student, staff, book
+):
+    """**A-34's three clauses, each as a row.** The permitted side is asserted
+    too, because a predicate that matched nothing for anybody would pass the
+    finding test above and break the product.
+    """
+    poisoned = _poisoned(student)
+    needle = "higher engineering mathematics"
+
+    assert poisoned in services.search_books(needle, actor=student), "its author"
+    assert poisoned in services.search_books(needle, actor=staff), "staff"
+    assert poisoned not in services.search_books(needle, actor=_stranger(student)), (
+        "a row's text is matchable by a signed-in student who is neither its "
+        "author nor staff — which is Red Team's actor exactly"
+    )
+    # And the verified row is still findable by title by everybody, which is
+    # the whole product: a gate that closed the catalogue would be a different
+    # defect with the same test.
+    assert book in services.search_books("engineering mathematics", actor=student)
+
+
+def test_a_missing_actor_means_verified_only_and_not_everything(student, book):
+    """**The default fails closed.** A-34 is explicit: an unthreaded caller
+    gets the published catalogue, because a default that fails open is how
+    this class of defect comes back. `find_book_by_isbn` is the deliberate
+    exception and A-29 §1 publishes the identifier it reads on.
+    """
+    poisoned = _poisoned(student)
+    # `not in`, not `== []`: on PostgreSQL the verified `book` answers this
+    # needle fuzzily, and emptiness would be an assertion about `pg_trgm`.
+    assert poisoned not in services.search_books("higher engineering mathematics")
+    assert book in services.search_books("engineering mathematics")
+    # Unchanged, and deliberately so: an exact identifier is not an oracle.
+    assert services.find_book_by_isbn(poisoned.isbn13) == poisoned
+
+
+@pytest.mark.parametrize("verified", [True, False], ids=["verified", "unverified"])
+@pytest.mark.parametrize(
+    "reader_kind", ["author", "staff", "stranger", "none"]
+)
+def test_the_two_expressions_of_one_rule_agree(
+    db, student, staff, verified, reader_kind
+):
+    """**One rule, two expressions, and the agreement is measured.**
+
+    `may_read_unverified_text` is Python over an object; `readable_text_rows`
+    is SQL over a queryset. Neither can be derived from the other — a `Q`
+    cannot be asked of an unsaved object and a predicate cannot be handed to
+    the database — so `CLAUDE.md` rule 11's "one definition" is bought here by
+    measurement instead of by structure. Eight rows, every combination, and
+    the first disagreement names itself.
+    """
+    from apps.catalog.models import Book
+
+    book = _poisoned(student)
+    if verified:
+        services.verify_book(staff, book)
+        book.refresh_from_db()
+    reader = {
+        "author": student,
+        "staff": staff,
+        "none": None,
+        "stranger": _stranger(student),
+    }[reader_kind]
+
+    predicate = services.may_read_unverified_text(book, reader)
+    in_rows = book in services.readable_text_rows(Book.objects.all(), reader)
+    assert predicate == in_rows, (
+        f"the two expressions of A-29 §1 disagree for a {reader_kind} on a "
+        f"{'verified' if verified else 'unverified'} row: "
+        f"may_read_unverified_text={predicate}, readable_text_rows={in_rows}"
+    )
+
+
+def test_every_column_that_carries_the_sellers_own_words_is_declared(student):
+    """**A-34's instrument ceiling, closed by measurement rather than by a
+    list.**
+
+    `DERIVED_FROM_SELLER_TEXT` is a hand-written list and a list can only hold
+    what somebody noticed — which is exactly how `title_norm` went four
+    rulings without being noticed. Nothing in the schema marks a column as
+    derived, so there is no property to ask of the model; there **is** one to
+    ask of a stored row. Write a distinctive token into the title, then ask
+    the row which columns came back carrying it, raw or normalised.
+
+    A fifth derived column — a search vector, a sort key, a title prefix —
+    fails here by name on the day it ships, and the AST walk in
+    `test_catalogue_text_gate_is_enforced.py` seals it the same day because
+    `MATCHABLE` imports this dict.
+    """
+    token = "zqxjvbrr"
+    book = services.create_book(
+        student, isbn13="9789387432147", title=f"Algebra {token} Notes",
+        authors=["B S Grewal"], language="en",
+    )
+    book.refresh_from_db()
+
+    carriers = {
+        f.name
+        for f in book._meta.concrete_fields
+        if token in str(getattr(book, f.name, "") or "").casefold()
+    }
+    # **The instrument asserts its own reach** (rule 10's fourth disguise): a
+    # token that landed in no column at all would make the assertion below
+    # vacuous.
+    assert "title" in carriers, (
+        "the seller's own token is not in `title`, so this test measured "
+        f"nothing — carriers={sorted(carriers)}"
+    )
+    declared = set(services.SELLER_WRITTEN_TEXT) | set(
+        services.DERIVED_FROM_SELLER_TEXT
+    )
+    assert carriers <= declared, (
+        f"{sorted(carriers - declared)} carry the seller's own words and are "
+        "neither in `SELLER_WRITTEN_TEXT` nor declared in "
+        "`DERIVED_FROM_SELLER_TEXT`. A-34: a copy of the seller's words under "
+        "another column name is the seller's words, and every rule about the "
+        "original is a rule about the copy — including that `search_books` "
+        "may not match on it outside `readable_text_rows`."
+    )
 
 
 # --- prescribed texts: R-01's measurement ----------------------------------

@@ -1272,6 +1272,27 @@ def create_request(actor, *, book=None, free_text_title=None, course_code=None) 
             **shape,
         ).first()
         if existing is not None:
+            # **A-34 / F56.** The clause above is A-32's and it is right, but
+            # on the retry path it re-created the defect A-32 fixed: a student
+            # who resolves an ISBN, types no title, sees the bare `ISBN 978…`
+            # line and then goes back and types the title hits the same
+            # `(book, course_code)` key, gets this row, and their words are
+            # dropped under a flash saying it is already on their list. There
+            # is no `update_request`, so that row's line stayed bare forever.
+            #
+            # **Only when NULL**, so a title the student already has cannot be
+            # overwritten by a later submission; and only on a row the filter
+            # above already matched on `requester_pseudonym`, so this cannot
+            # reach somebody else's row. One column, in the same transaction
+            # as its audit row.
+            if title and existing.free_text_title is None:
+                existing.free_text_title = title
+                existing.save(update_fields=["free_text_title"])
+                record_audit(
+                    actor, "listings.request_titled", existing,
+                    before={"free_text_title": None},
+                    after={"free_text_title": title},
+                )
             return existing
         row = BookRequest.all_objects.create(
             requester=actor,
