@@ -827,8 +827,8 @@ msgstr ""
 
 #: templates/sell_find.html
 msgctxt "sell.condition.hint"
-msgid "Torn pages, writing, a bent cover, a missing CD — say it plainly. Buyers believe a description that admits things."
-msgstr "கிழிந்த பக்கங்கள், எழுதியிருப்பது, வளைந்த அட்டை, இல்லாத CD — தெளிவாகச் சொல்லுங்கள். குறைகளைச் சொல்லும் விவரிப்பையே வாங்குபவர்கள் நம்புவார்கள்."
+msgid "Torn pages, writing, a bent cover, a missing CD — say it plainly. A buyer sees your answers quoted, with your name on them."
+msgstr ""
 
 #: templates/sell_find.html
 msgctxt "sell.condition.label"
@@ -927,7 +927,7 @@ msgstr "ஒரு புத்தகத்தைப் பட்டியலி�
 
 #: web/views.py
 msgctxt "sell.isbn.checksum"
-msgid ""
+msgid "That ISBN doesn't look right — check the digits."
 msgstr ""
 
 #: web/forms.py
@@ -1030,6 +1030,11 @@ msgctxt "sell.photos.none"
 msgid "No photos. Buyers will only have your description."
 msgstr ""
 
+#: web/forms.py
+msgctxt "sell.photos.none_chosen"
+msgid "No photo was chosen."
+msgstr ""
+
 #: templates/sell_photos.html
 msgctxt "sell.photos.partial"
 msgid "%(i)s of %(n)s photos attached."
@@ -1057,18 +1062,24 @@ msgstr ""
 
 #: web/forms.py
 msgctxt "sell.photos.too_big"
-msgid "That photo is %(mb)s MB. The most BookHop takes is 8 MB — "
+msgid "That photo is %(mb)s MB. The most BookHop takes is 8 MB — your camera's own settings can make a smaller one."
 msgstr ""
 
 #: web/views.py
 msgctxt "sell.photos.unsupported"
-msgid ""
+msgid "BookHop couldn't read that file. It takes JPEG, PNG and WebP photos."
 msgstr ""
 
 #: web/forms.py
 #. BLOCKING CLASS B4 (COPY-DECK §2)
 msgctxt "sell.price.ceiling"
 msgid "The most a book can be listed at is ₹%(max)s."
+msgstr ""
+
+#: web/forms.py
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.commas"
+msgid "Check the commas, or type the amount without them — 1200 rather than 1,200."
 msgstr ""
 
 #: web/forms.py
@@ -1117,6 +1128,11 @@ msgctxt "sell.published"
 msgid "Saved."
 msgstr ""
 
+#: web/views.py
+msgctxt "sell.published.gate_closed"
+msgid "Saved. Nobody can see this yet — BookHop opens listings one campus at a time, and yours isn't open."
+msgstr ""
+
 #: web/forms.py
 msgctxt "sell.publisher.label"
 msgid "Publisher"
@@ -1159,7 +1175,7 @@ msgstr ""
 
 #: web/views.py
 msgctxt "sell.transition.no"
-msgid ""
+msgid "That isn't something this listing can do from where it is now."
 msgstr ""
 
 #: templates/sell.html
@@ -1171,6 +1187,11 @@ msgstr ""
 msgctxt "sell.withdraw"
 msgid "Take this down"
 msgstr "இதை நீக்கு"
+
+#: web/views.py
+msgctxt "sell.withdrawn.done"
+msgid "Taken down."
+msgstr ""
 
 #: web/forms.py
 msgctxt "sell.year.label"
@@ -1254,6 +1275,11 @@ msgctxt "sys.required"
 msgid "required"
 msgstr ""
 
+#: web/forms.py
+msgctxt "sys.required.error"
+msgid "This needs an answer."
+msgstr ""
+
 #: templates/offline.html
 msgctxt "sys.retry"
 msgid "Try again"
@@ -1275,6 +1301,12 @@ msgstr "BookHop அவரைப் பற்றி அறிந்திரு�
 msgctxt "trust.attribution"
 msgid "— %(name)s, %(n)s days ago"
 msgstr "— %(name)s, %(n)s நாட்களுக்கு முன்"
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.attribution.today"
+msgid "— %(name)s, today"
+msgstr ""
 
 #: templates/account.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)

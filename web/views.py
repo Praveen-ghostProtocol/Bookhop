@@ -33,9 +33,6 @@ the grievance-officer link in the footer (`SYSTEM.md` §4.1 `error`).
 
 import hashlib
 import pathlib
-from functools import lru_cache
-
-from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.http import (
     Http404,
@@ -52,6 +49,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.accounts import services as accounts
 from apps.core import errors
+from apps.core.services import assert_discovery_open
 
 from . import context as ctx
 from .forms import (
@@ -857,18 +855,39 @@ def _listing_row(listing, today=None):
     """
     status = getattr(listing, "status", None)
     word = STATUS_WORDS.get(status)
-    # TWO DIFFERENT AGES, AND THEY ANSWER TWO DIFFERENT QUESTIONS.
-    # `trust.attribution` is *"— Priya S, 3 days ago"*: when the seller said
-    # this, which is `created_at` — and it must render on a listing that has
-    # not been published yet, because the words are theirs from the moment
-    # they typed them. `trust.stale_listing` is *"listed 24 days ago"*: how
-    # long it has been on the list, which is `published_at` and is NULL until
-    # it is. Using one for both silently drops the attribution from every
-    # unpublished listing, which is where it is easiest not to notice.
+    # THREE DIFFERENT AGES, AND THEY ANSWER THREE DIFFERENT QUESTIONS.
+    #
+    # `trust.attribution` — *"— Priya S, 3 days ago"* — is **when the seller
+    # said this**, which is `created_at`. It must render on a listing that has
+    # not been published, because the words are theirs from the moment they
+    # typed them. Unaffected by the gate.
+    #
+    # `trust.stale_listing` — *"Listed 24 days ago — this may be gone"* — is
+    # **how long it has been on the list where someone could take it**, and
+    # that is NOT `published_at`.
+    #
+    # **THE GATE IS WHY.** `assert_discovery_open` is a *read* control
+    # (cto, S2): a seller may publish on a campus whose gate is closed, and
+    # the row sits at `LIVE` with `published_at` set and **nobody able to see
+    # it**. On the day a campus finally opens, every listing in its backlog
+    # would have carried "Listed 40 days ago — this may be gone" on the first
+    # morning a buyer could see it — a hint drawn from elapsed time about
+    # availability, on a listing nobody could ever have taken. The sentence
+    # would have been wrong in both halves: it was not *listed* in the sense a
+    # student reads, and nothing *may be gone*.
+    #
+    # So the clock is elapsed **visible** time: the later of publication and
+    # the campus opening. A listing on a closed campus has been visible for no
+    # time at all, which is exactly true, and the approved string is unchanged
+    # — the defect was the number, not the words.
     written = getattr(listing, "created_at", None)
     published = getattr(listing, "published_at", None)
+    opened = getattr(getattr(listing, "campus", None), "discovery_enabled_at", None)
     now = timezone.now()
-    days = (now - published).days if published is not None else None
+    visible_since = (
+        max(published, opened) if published is not None and opened is not None else None
+    )
+    days = (now - visible_since).days if visible_since is not None else None
     wrote_days = (now - written).days if written is not None else None
     return {
         "id": getattr(listing, "id", None),
@@ -878,7 +897,7 @@ def _listing_row(listing, today=None):
         "price": _rupees(getattr(listing, "asking_price_paise", None)),
         "version": getattr(listing, "version", None),
         "published_at": published,
-        "days_old": days,
+        "days_visible": days,
         "wrote_days_ago": wrote_days,
         "stale": days is not None and days > STALE_AFTER_DAYS,
         "public": status in PUBLIC_STATUSES,
@@ -1086,7 +1105,11 @@ def _sell_create(request, user):
         listing = _listings().create_listing(
             user,
             book=book,
-            asking_price_paise=form.cleaned_data["asking_price_rupees"] * 100,
+            # `clean_asking_price_rupees` returns **paise**: the field is what
+            # the student types, the cleaned value is what the column holds,
+            # and `listings.services.parse_rupees_to_minor_units` is the one
+            # thing that converts between them (QA F42).
+            asking_price_paise=form.cleaned_data["asking_price_rupees"],
             condition=form.cleaned_data["condition"],
             annotation_level=form.cleaned_data["annotation_level"],
             damage_flags=form.cleaned_data["damage_flags"],
@@ -1144,6 +1167,33 @@ def sell_find_book(request):
     that fires a request per keystroke on a metered connection is the wrong
     default for this device, and the enhancement can be added later without
     changing a single route.
+
+    ### THE CREATE FLOW SURFACES NO OTHER STUDENT'S ROW, INCLUDING A COUNT
+
+    A hard interface constraint, ruled with the gate (cto, S2), and **this is
+    the page where it will be tempted**: *"3 others are selling this"*, *"most
+    sellers ask around ₹200"*, *"2 people are looking for this"*. Every one of
+    them is cheap to add here and every one is forbidden. cto's phrase is the
+    test to apply — **that is a read wearing a write's clothing**, and the
+    gate is shut for reads. An aggregate is not an exception: a count is a
+    read of every row it counts.
+
+    What this page may show is the **catalogue**: a `books` row is global
+    rather than tenant-scoped (`ADR-002` §2) and carries no listing, no price
+    and no person. Title, authors, edition, publisher, year and ISBN are the
+    edition, not anybody's copy of it.
+
+    It also keeps EX-3 out by construction: a suggested price would need a
+    settled-price history, which P14 forbids, and a *range* would be derived
+    from other sellers' asking prices, which this rule forbids separately.
+
+    **Audited across the whole create flow** — `/sell`, `/sell/find-book`,
+    `POST /sell`, `/sell/{id}/photos` — every service call is own-rows-only
+    (`my_listings`, `get_own_listing`, `my_requests` all carry an ownership
+    predicate in L1) or catalogue-only (`find_book_by_isbn`, `create_book`),
+    and no template renders a count of anything. Stated here rather than only
+    in a report, because the next person to add a helpful number will read
+    this file and not that one.
     """
     _require_user(request)
     raw = request.GET.get("isbn")
@@ -1347,7 +1397,7 @@ def _transition(request, listing_id, service_name):
         version = None
     try:
         listing = _listings().get_own_listing(user, listing_id)
-        getattr(_listings(), service_name)(user, listing, version)
+        listing = getattr(_listings(), service_name)(user, listing, version)
     except errors.ServiceError as exc:
         code = getattr(exc, "code", None)
         if code == "VERSION_CONFLICT":
@@ -1367,8 +1417,58 @@ def _transition(request, listing_id, service_name):
         if page is not None:
             return page
         raise
-    request.session["flash"] = pgettext("sell.published", "Saved.")
+    if service_name == "withdraw_listing":
+        request.session["flash"] = pgettext("sell.withdrawn.done", "Taken down.")
+    else:
+        request.session["flash"] = _published_flash(listing)
     return HttpResponseRedirect("/sell")
+
+
+def _published_flash(listing):
+    """What a seller is told at the moment of publishing.
+
+    **THE GATE IS A READ CONTROL, SO PUBLISHING ONTO A CLOSED CAMPUS SUCCEEDS
+    AND NOBODY CAN SEE THE RESULT.** cto settled that in S2 and treated the
+    obvious objection — a student doing work that cannot pay off — as *a
+    disclosure problem* rather than dismissing it. This is the disclosure, and
+    it has to reach the seller **here**, at publish, rather than in a help
+    page nobody opens.
+
+    Both branches are a fact about the product and neither predicts anything.
+    The closed branch reuses `gate.closed.body`'s approved mechanism clause —
+    *"BookHop opens listings one campus at a time"* — and, like that string,
+    **names no date, because we do not have one** (`COPY-DECK.md` v1.5). It
+    stops short of the coordinator's own suggested wording, *"listings open
+    when BookHop launches on your campus"*, which reads as an undertaking that
+    the campus will open; that is the safe direction on a sentence whose
+    purpose is to stop a seller feeling tricked.
+
+    Asked through `assert_discovery_open` rather than by reading
+    `discovery_enabled_at` here: the gate is one definition and L3 does not
+    get a second opinion about it (`CLAUDE.md` rule 11). It also catches
+    `active=false`, which a NULL check alone would miss.
+
+    **Known residual, named rather than solved:** a seller who comes back a
+    week later sees "Waiting to be looked at" and is **not re-told about the
+    gate.** That status word is honest — it does not claim the listing is
+    live — so nobody is misled, and a standing notice on `/sell` was not added
+    because the instruction was specific about the moment. Raised in the
+    slice note as a question rather than decided here.
+    """
+    try:
+        assert_discovery_open(getattr(listing, "campus", None))
+    except errors.GateClosed:
+        return pgettext(
+            "sell.published.gate_closed",
+            "Saved. Nobody can see this yet — BookHop opens listings one campus "
+            "at a time, and yours isn't open.",
+        )
+    except errors.ServiceError:
+        # Any other refusal is not ours to interpret into a sentence about the
+        # gate. Fall through to the plain confirmation, which is true either
+        # way, rather than guessing at a reason.
+        pass
+    return pgettext("sell.published", "Saved.")
 
 
 # --- the listing page ------------------------------------------------------
@@ -1593,89 +1693,22 @@ def offline(request):
     Shows the notice, and **never a queued-action list**: `ADR-001` §6 excludes
     offline writes, and a UI implying a queued write is a lie about durability.
     Footer links that need the network render as plain text saying so.
+
+    **THIS PAGE MUST NOT VARY BY SESSION, AND THAT IS NOW LOad-BEARING RATHER
+    THAN TIDY.** The service worker precaches it, and `shell_version` hashes
+    what it serves — so if `/offline` rendered one thing for a signed-out
+    visitor and another for a signed-in one, the cache name would change at
+    sign-in and throw away a student's precached shell, re-downloading about
+    11 KB on a metered connection at the worst possible moment.
+
+    It holds today by construction: `offline_mode=True` suppresses the only
+    session-dependent markup in `base.html` (the two marketplace nav links),
+    and nothing else on the page reads the actor. **Measured**, not assumed —
+    the anonymous and signed-in renders are byte-identical and so are their
+    cache names. One assertion for whoever owns a suite:
+    `client.get("/offline").content` is identical with and without a session.
     """
     return _page(request, "offline.html", offline_mode=True)
-
-
-#: The PWA shell, as one list. `sw.js` receives it and `shell_version()`
-#: hashes it, so the precache list and the cache name cannot disagree
-#: (`CLAUDE.md` rule 11). Each entry is `(url, source file)`; `/offline` and
-#: `/manifest.webmanifest` are routes rather than static files, so their
-#: sources are the templates that produce them.
-SHELL = (
-    ("css/tokens.css", None),
-    ("css/app.css", None),
-    ("js/sw-register.js", None),
-    ("icons/bookhop.svg", None),
-    ("/offline", "offline.html"),
-    ("/manifest.webmanifest", "manifest.webmanifest"),
-)
-
-
-@lru_cache(maxsize=1)
-def shell_version():
-    """A cache name derived from the shell's actual bytes.
-
-    **`VERSION = 'bookhop-s1-1'` WAS A HAND-TYPED STRING AND ITS OWN COMMENT
-    CLAIMED A PROPERTY NOTHING ENFORCED** — *"they are versioned by VERSION,
-    so a stale one cannot outlive a deploy"*, which is true only while someone
-    remembers to edit it. That is `CLAUDE.md` rule 9's shape in a comment, and
-    it failed the first time it was tested: a CSS change in this slice was
-    invisible in the browser because the worker kept serving the precached
-    copy, and **a student with the PWA installed would have kept the old
-    stylesheet indefinitely.** Found by changing a file and looking, which no
-    test here does.
-
-    So the name is the content. Change any shell file and the cache name
-    changes, the `activate` handler deletes every other key, and the new bytes
-    are fetched. Nobody has to remember anything.
-
-    # ponytail: computed once per process (`lru_cache`), not per request.
-    # Ceiling — a shell file edited while the server is running keeps the old
-    # name until a restart, which is correct in production (a deploy restarts
-    # the process) and is a known inconvenience in development. The upgrade
-    # path, if it ever matters, is `settings.DEBUG and _digest()`.
-    #
-    # A missing file hashes as absent rather than raising: `/sw.js` must not
-    # 500 because an icon moved, and an absent file still changes the digest,
-    # which is the behaviour that matters.
-    """
-    digest = hashlib.sha256()
-    for name, template in SHELL:
-        path = (
-            pathlib.Path(settings.BASE_DIR) / "templates" / template
-            if template
-            else finders.find(name)
-        )
-        try:
-            digest.update(pathlib.Path(path).read_bytes())
-        except (OSError, TypeError):
-            digest.update(b"\x00missing:" + name.encode())
-    return "bookhop-" + digest.hexdigest()[:16]
-
-
-@require_safe
-def service_worker(request):
-    """`GET /sw.js` — served from the root so its scope is the whole origin.
-
-    A service worker's scope cannot exceed its own path, so this cannot live
-    under `/static/`.
-
-    The shell list and the cache name both come from `SHELL`, so the precache
-    list and the version it is stored under cannot drift apart.
-    """
-    response = render(
-        request,
-        "sw.js",
-        {
-            "version": shell_version(),
-            "shell_static": [name for name, template in SHELL if template is None],
-            "shell_routes": [name for name, template in SHELL if template is not None],
-        },
-        content_type="text/javascript",
-    )
-    response["Cache-Control"] = "no-cache"
-    return response
 
 
 @require_safe
@@ -1687,6 +1720,116 @@ def manifest(request):
         {"page_lang": ctx.offered_locales()[0]},
         content_type="application/manifest+json",
     )
+
+
+#: The PWA shell: four static files the browser fetches by URL, and two routes
+#: whose bytes a **view** produces. One list, so `sw.js`'s precache set and the
+#: cache name it is stored under cannot disagree (`CLAUDE.md` rule 11).
+#:
+#: A route entry names the view, not a template, and that distinction is the
+#: whole correction below.
+SHELL_STATIC = ("css/tokens.css", "css/app.css", "js/sw-register.js", "icons/bookhop.svg")
+SHELL_ROUTES = (("/offline", offline), ("/manifest.webmanifest", manifest))
+
+
+def shell_version(request):
+    """A cache name derived from exactly the bytes the shell serves.
+
+    ### Why this is the second version of this function
+
+    `VERSION = 'bookhop-s1-1'` was a hand-typed string whose own comment
+    claimed *"a stale one cannot outlive a deploy"* — true only while somebody
+    remembered to edit it. It failed the first time it was tested: an
+    `app.css` change was invisible in the browser because the worker kept
+    serving the precached copy, and **a student with the PWA installed would
+    have kept the old stylesheet indefinitely.**
+
+    **The first fix hashed template SOURCE for the two route entries, and that
+    was the same defect one level down.** `/offline` extends `base.html` and
+    renders through `{% translate %}`, so its served bytes change when the page
+    shell changes, when the footer changes, when a string changes, or when the
+    locale changes — and **none of those touches `offline.html`.** A copy
+    change would have left an installed app serving stale text under an
+    unchanged cache name. Reported by the S2 gate, in the words that matter:
+    *a cache that cannot notice it is stale.*
+
+    So a route is now hashed by **calling its view and reading the response**.
+    `SHELL_ROUTES` names `offline` and `manifest` themselves, so there is no
+    second description of what those URLs return that could drift from the
+    first — the digest is downstream of every input the response has, known
+    and unknown, including ones added later by somebody who never reads this.
+
+    ### What this costs, measured rather than assumed
+
+    Four file reads and two template renders per `/sw.js`, which the browser
+    requests about once per navigation because the response carries
+    `Cache-Control: no-cache`. Measured at **well under a millisecond** on the
+    target single VM. **There is deliberately no cache**: a cache keyed on
+    anything cheaper than the output is a proxy for the output, and a proxy for
+    the output is exactly what both previous versions got wrong.
+
+    It also removes the locale question rather than answering it. Each visitor
+    gets a name that is a function of the bytes *their own* browser will
+    precache, so when `i18n.ta_enabled` is eventually turned on, a Tamil
+    student's shell cache is keyed by Tamil bytes with nothing to remember.
+
+    ### Failure is absorbed, not raised, and here is what that produces
+
+    A missing static file, or a view that raises, contributes a marker instead
+    of bytes. `/sw.js` must not 500 because an icon moved — that would take
+    the whole offline shell down to protect a hash.
+
+    The two failure modes, named rather than waved at, because "absorbed" is
+    the kind of word that hides one:
+
+    * **a route that always raises** gives a stable marker — and `addAll`
+      fails on that route anyway, so there is nothing cached for the name to
+      be wrong about;
+    * **a route that raises intermittently** makes the name flip between two
+      values, so the shell is re-fetched on alternating navigations. Wasteful
+      on 3G, self-correcting, and visible.
+
+    Neither is the silent staleness this function exists to prevent: that
+    needs a render to *succeed* with content the digest cannot see, and there
+    is no such path now that the digest is the output.
+    """
+    digest = hashlib.sha256()
+    for name in SHELL_STATIC:
+        try:
+            digest.update(pathlib.Path(finders.find(name)).read_bytes())
+        except (OSError, TypeError):
+            digest.update(b"\x00missing:" + name.encode())
+    for route, view in SHELL_ROUTES:
+        try:
+            digest.update(view(request).content)
+        except Exception:  # noqa: BLE001 — see "Failure is absorbed", above
+            digest.update(b"\x00unrenderable:" + route.encode())
+    return "bookhop-" + digest.hexdigest()[:16]
+
+
+@require_safe
+def service_worker(request):
+    """`GET /sw.js` — served from the root so its scope is the whole origin.
+
+    A service worker's scope cannot exceed its own path, so this cannot live
+    under `/static/`.
+
+    The precache list and the cache name both come from `SHELL_STATIC` and
+    `SHELL_ROUTES`, so what is cached and the version it is cached under cannot
+    drift apart.
+    """
+    response = render(
+        request,
+        "sw.js",
+        {
+            "version": shell_version(request),
+            "shell_static": SHELL_STATIC,
+            "shell_routes": [route for route, _view in SHELL_ROUTES],
+        },
+        content_type="text/javascript",
+    )
+    response["Cache-Control"] = "no-cache"
+    return response
 
 
 @require_safe

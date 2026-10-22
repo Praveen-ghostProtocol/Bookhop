@@ -132,10 +132,17 @@
   {% if row.stale %}
     {% comment %} Not a warning about the seller; a statement about elapsed
        time. Listing staleness is the category's oldest failure mode
-       (COMPETITORS §3.5). {% endcomment %}
+       (COMPETITORS §3.5).
+
+       `days_visible` counts from the LATER of publication and the campus
+       gate opening, not from `published_at` — see `_listing_row`. A listing
+       published onto a closed campus has been visible for no time at all, and
+       without that the whole of a campus's backlog would have read "Listed 40
+       days ago — this may be gone" on the first morning a buyer could see
+       it. {% endcomment %}
     <p class="notice notice--stale">
       <span class="notice__label">{% translate "How old this is" context "trust.stale.label" %}</span>
-      {% blocktranslate context "trust.stale_listing" with n=row.days_old %}Listed {{ n }} days ago — this may be gone.{% endblocktranslate %}
+      {% blocktranslate context "trust.stale_listing" with n=row.days_visible %}Listed {{ n }} days ago — this may be gone.{% endblocktranslate %}
     </p>
   {% endif %}
 

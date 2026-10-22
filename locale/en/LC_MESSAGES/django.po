@@ -821,8 +821,8 @@ msgstr "Heavily used"
 
 #: templates/sell_find.html
 msgctxt "sell.condition.hint"
-msgid "Torn pages, writing, a bent cover, a missing CD — say it plainly. Buyers believe a description that admits things."
-msgstr "Torn pages, writing, a bent cover, a missing CD — say it plainly. Buyers believe a description that admits things."
+msgid "Torn pages, writing, a bent cover, a missing CD — say it plainly. A buyer sees your answers quoted, with your name on them."
+msgstr "Torn pages, writing, a bent cover, a missing CD — say it plainly. A buyer sees your answers quoted, with your name on them."
 
 #: templates/sell_find.html
 msgctxt "sell.condition.label"
@@ -921,8 +921,8 @@ msgstr "List a book"
 
 #: web/views.py
 msgctxt "sell.isbn.checksum"
-msgid ""
-msgstr ""
+msgid "That ISBN doesn't look right — check the digits."
+msgstr "That ISBN doesn't look right — check the digits."
 
 #: web/forms.py
 msgctxt "sell.isbn.error"
@@ -1024,6 +1024,11 @@ msgctxt "sell.photos.none"
 msgid "No photos. Buyers will only have your description."
 msgstr "No photos. Buyers will only have your description."
 
+#: web/forms.py
+msgctxt "sell.photos.none_chosen"
+msgid "No photo was chosen."
+msgstr "No photo was chosen."
+
 #: templates/sell_photos.html
 msgctxt "sell.photos.partial"
 msgid "%(i)s of %(n)s photos attached."
@@ -1051,19 +1056,25 @@ msgstr "Add this photo"
 
 #: web/forms.py
 msgctxt "sell.photos.too_big"
-msgid "That photo is %(mb)s MB. The most BookHop takes is 8 MB — "
-msgstr "That photo is %(mb)s MB. The most BookHop takes is 8 MB — "
+msgid "That photo is %(mb)s MB. The most BookHop takes is 8 MB — your camera's own settings can make a smaller one."
+msgstr "That photo is %(mb)s MB. The most BookHop takes is 8 MB — your camera's own settings can make a smaller one."
 
 #: web/views.py
 msgctxt "sell.photos.unsupported"
-msgid ""
-msgstr ""
+msgid "BookHop couldn't read that file. It takes JPEG, PNG and WebP photos."
+msgstr "BookHop couldn't read that file. It takes JPEG, PNG and WebP photos."
 
 #: web/forms.py
 #. BLOCKING CLASS B4 (COPY-DECK §2)
 msgctxt "sell.price.ceiling"
 msgid "The most a book can be listed at is ₹%(max)s."
 msgstr "The most a book can be listed at is ₹%(max)s."
+
+#: web/forms.py
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "sell.price.commas"
+msgid "Check the commas, or type the amount without them — 1200 rather than 1,200."
+msgstr "Check the commas, or type the amount without them — 1200 rather than 1,200."
 
 #: web/forms.py
 #. BLOCKING CLASS B4 (COPY-DECK §2)
@@ -1111,6 +1122,11 @@ msgctxt "sell.published"
 msgid "Saved."
 msgstr "Saved."
 
+#: web/views.py
+msgctxt "sell.published.gate_closed"
+msgid "Saved. Nobody can see this yet — BookHop opens listings one campus at a time, and yours isn't open."
+msgstr "Saved. Nobody can see this yet — BookHop opens listings one campus at a time, and yours isn't open."
+
 #: web/forms.py
 msgctxt "sell.publisher.label"
 msgid "Publisher"
@@ -1153,8 +1169,8 @@ msgstr "Title, exactly as it is on the cover"
 
 #: web/views.py
 msgctxt "sell.transition.no"
-msgid ""
-msgstr ""
+msgid "That isn't something this listing can do from where it is now."
+msgstr "That isn't something this listing can do from where it is now."
 
 #: templates/sell.html
 msgctxt "sell.view"
@@ -1165,6 +1181,11 @@ msgstr "See it as another student sees it"
 msgctxt "sell.withdraw"
 msgid "Take this down"
 msgstr "Take this down"
+
+#: web/views.py
+msgctxt "sell.withdrawn.done"
+msgid "Taken down."
+msgstr "Taken down."
 
 #: web/forms.py
 msgctxt "sell.year.label"
@@ -1248,6 +1269,11 @@ msgctxt "sys.required"
 msgid "required"
 msgstr "required"
 
+#: web/forms.py
+msgctxt "sys.required.error"
+msgid "This needs an answer."
+msgstr "This needs an answer."
+
 #: templates/offline.html
 msgctxt "sys.retry"
 msgid "Try again"
@@ -1269,6 +1295,12 @@ msgstr "That's all BookHop knows about them. We haven't checked who they are."
 msgctxt "trust.attribution"
 msgid "— %(name)s, %(n)s days ago"
 msgstr "— %(name)s, %(n)s days ago"
+
+#: templates/listing.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.attribution.today"
+msgid "— %(name)s, today"
+msgstr "— %(name)s, today"
 
 #: templates/account.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)

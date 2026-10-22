@@ -969,6 +969,7 @@ remain open.
 
 | Version | Date | Change |
 |---|---|---|
+| **v1.8** | **2026-10-22** | **S2 gate findings.** sell.condition.hint amended a second time: v1.7 removed the banned word and left the violation, because the violation was a **prediction about how buyers react** rather than the vocabulary — **and the clause survived being edited by the author who was looking at it.** New **sell.published.gate_closed**, the disclosure cto required once the discovery gate was settled as a *read* control: a seller publishing onto a closed campus is told at publish that nobody can see it. New sell.withdrawn.done. 	rust.stale_listing keeps its words and changes its clock to elapsed **visible** time, so a campus backlog does not greet its first buyer as stale. Seven catalogue defects corrected, three of them strings that shipped with an **empty msgid**. New sell.price.commas closes QA F42 (320,00 stored as Rs 32,000 on an immutable column) by pointing the form at L1s one parser; new sys.required.error replaces Djangos **This field is required.** on all 29 fields in the product, because a framework default is copy nobody reviewed. Reason in full at **§16** |
 | **v1.7** | **2026-10-22** | **S2: the sell flow, the listing page and the want form ship, and §1.7 was applied to every string before it was written rather than after.** Three strings **withdrawn or held back for a mechanism that does not exist** — `sell.published` ("It's on the list. We'll tell you when someone offers."), `search.empty.cta` and `listing.reserved.cta` (both label a notification CG-4 means nobody sends). Two **restored because this slice earns them**: `trust.exif` and `trust.not_checked`, which §9a held back from the S1 help page — the EXIF strip is now `exif_stripped_at NOT NULL`, and "this book" now has a referent. One **held back**: `trust.isbn_match`, which describes a comparison nothing stores. Fourteen new rows in a new **§6.4**, including the four `condition` values as the seller's own words — **the option text IS the quoted text**, because `listings` has no free-text column. One new **B2** string, `trust.attribution.today`, with its reasoning. `sell.condition.hint` loses the word "trust". **And §1.1's Ban 2 is enforced more broadly than it is written** — see §15.3, which is a control defect rather than a copy one. Amended by `frontend-developer`; `design-director` is stood down. Reason in full at **§15** |
 | **v1.6** | **2026-10-22** | **The open item from v1.5 ruled, and the structural fix generalised.** New `help.a.checked` — *"BookHop does not check books."* — answers the help page's question with **a plain fact instead of a generically-scoped `trust.not_checked`**, whose "this book" has no referent off a listing page; `trust.not_checked` stays reserved for a listing. **Ruled by the coordinator** on an item `frontend-developer` escalated rather than decided, because minting a variant of a **B2 blocking** no-warranty string is a different risk class from filling a copy gap. **New §1.7** lifts §9a's "which slice a string becomes true in" out of the help surface and makes it a rule over the whole deck, with the `JOURNEYS.md` tense diagnosis and the note that all five withdrawn strings were green under the banned-word test throughout |
 | **v1.5** | **2026-10-22** | **Two more strings promised a service that does not exist; Code Review read for them, because no grep can.** `help.response` **withdrawn** (promised a same-day reply on a page where nothing stores a message — CG-2); `help.scope` **amended** to keep only its one true clause (the relay is S5, listings are S2); `gate.closed.body` **amended** (promised a note form and a notification — S2 and S3/S7). New `help.no_channel`. **New §9a** records the help surface in the deck for the first time. Two FAQ answers — `trust.recourse`, `trust.exif` — **held back to S6 and S2**; the strings are unchanged, the page they were on was wrong. Amended by `frontend-developer`. Reason in full at §14 |
@@ -1288,3 +1289,182 @@ and the edit is the step that gets skipped.
 reviewer's name into it.** §2's sign-off block still needs a named native
 speaker, and this amendment adds 37 drafted and 60 undrafted strings to what
 they must read.
+
+---
+
+## 16. v1.8 — the gate's disclosure, and a prediction that survived being edited
+
+**Owner of this amendment:** `frontend-developer`, from the S2 gate findings.
+`design-director` is stood down.
+
+### 16.1 `sell.condition.hint` — amended twice in one slice, and the second time is the lesson
+
+| Version | English |
+|---|---|
+| v1.0 | Torn pages, writing, a bent cover, a missing CD — say it plainly. **Buyers trust a description that admits things.** |
+| v1.7 | …say it plainly. **Buyers believe a description that admits things.** |
+| **v1.8** | …say it plainly. **A buyer sees your answers quoted, with your name on them.** |
+
+v1.7 removed a **banned word** from this sentence. It did not remove the
+**violation**, because the violation was never the word: *"Buyers believe a
+description that admits things"* predicts a reaction and makes a disposition
+claim about people who are not us. §1.2 permits a mechanism, a fact or an
+instruction and nothing else.
+
+**The sharp detail, and the reason this gets its own section: the string was
+edited in S2 by an author who was looking straight at it, and the clause
+survived the edit.** The vocabulary control fired, was satisfied, and the
+grammatical rule was never applied — which is the whole argument for why
+§1.1 and §1.2 are two controls rather than one with two spellings, and why
+§1.7 closes with *"a Code Review read, every slice."* Found by the gate, not
+by the grep, exactly as `THREAT-MODEL.md` §6.1 says it must be.
+
+The replacement is a **fact about this product**: `SYSTEM.md` §4.14 renders
+every one of these answers inside the seller's own attributed quotation, so
+what they choose here is literally what a buyer reads, in quotation marks,
+with their name on it. It does the work the prediction was doing — telling a
+seller their words are what the buyer has — and claims nothing about how
+anyone will react.
+
+**Tamil withdrawn.** The deck draft ends `…வாங்குபவர்கள் நம்புவார்கள்` —
+*"buyers will believe"* — which is a translation of the clause that has just
+been removed. `locale/ta` now carries an empty msgstr for this key. A draft of
+withdrawn English is a longer moving target for the reviewer, not a shorter
+one (§13's rule, applied again).
+
+**The nearest sibling, examined and left alone.** `sell.photos.hint` —
+*"One of the cover and one of the worst page helps a buyer decide"* — makes an
+instrumental claim about an effect. It is weaker than the one withdrawn (no
+disposition claim about people) and it is **approved deck copy from v1.0**, so
+it is flagged here for Code Review rather than edited by the agent that
+noticed it. Unilaterally rewriting approved copy beyond the finding is the
+other half of the problem this section is about.
+
+### 16.2 `sell.published.gate_closed` — new, and required rather than editorial
+
+cto settled in S2 that **`assert_discovery_open` is a read control**, so a
+student may publish a listing onto a campus whose gate is closed: the row
+reaches `PENDING_REVIEW` or `LIVE`, and **nobody can see it.** The objection —
+a student doing work that cannot pay off — was treated as *a disclosure
+problem* rather than dismissed, and this is the disclosure.
+
+| Key | English | Tamil | Note |
+|---|---|---|---|
+| **`sell.published.gate_closed`** | Saved. Nobody can see this yet — BookHop opens listings one campus at a time, and yours isn't open. | — **NOT DRAFTED** | **Shown at publish**, as the flash, not in a help page. The mechanism clause is `gate.closed.body`'s approved wording, and like that string it **names no date, because we do not have one** (v1.5). Two facts about the product; no prediction |
+| `sell.withdrawn.done` | Taken down. | — **NOT DRAFTED** | `sell.published`'s "Saved." was being reused for a withdrawal, where it is the wrong word for what happened |
+
+**Deliberately short of the coordinator's own suggested wording.** That was
+*"listings open when BookHop launches on your campus"*, which reads as an
+undertaking that the campus **will** open. On a sentence whose only job is to
+stop a seller feeling tricked, the safe direction is the one that describes
+the rollout without promising the student a place in it.
+
+**Residual, named not solved:** a seller who returns a week later sees
+*"Waiting to be looked at"* and is **not re-told about the gate.** That status
+word is honest — it does not claim the listing is live — so nobody is misled,
+and a standing notice on `/sell` was not added because the instruction was
+specific about the moment. Raised as a question rather than decided.
+
+### 16.3 `trust.stale_listing` keeps its words and changes its clock
+
+Unchanged string, corrected number, recorded here because the **meaning**
+moved and a reader of the row would not otherwise know.
+
+*"Listed {n} days ago — this may be gone"* fired on `published_at`. With the
+gate a read control, a listing can be published onto a closed campus and sit
+there for weeks **visible to nobody** — so on the morning a campus finally
+opened, its entire backlog would have greeted the first buyer with *"Listed 40
+days ago — this may be gone."* Both halves wrong: it was not *listed* in the
+sense a student reads, and nothing *may be gone* from a listing nobody could
+ever have taken.
+
+The clock is now elapsed **visible** time — the later of publication and the
+campus opening — so a listing on a closed campus has been visible for no time
+at all, which is exactly true. `trust.attribution` is untouched and still
+counts from `created_at`: when the seller wrote the words is a fact about
+them, not about the gate.
+
+### 16.4 Two strings that shipped outside the catalogue, and one that shipped truncated
+
+Found while re-running the extraction, and worth recording because the
+catalogue exists **precisely** to stop this (`locale/en/LC_MESSAGES/django.po`
+header: *"a string in a .py file is in neither, so copy in `forms.py` would
+escape the deny-list entirely"*).
+
+- **`sell.photos.none_chosen`** lived only in `web/forms.py` and had **no
+  catalogue entry at all** — the exact gap the file's own header warns about,
+  in the file that warns about it.
+- **`trust.attribution.today`** was in a template but not the catalogue.
+- **Four entries had an empty or truncated `msgid`** —
+  `sell.isbn.checksum`, `sell.photos.unsupported`, `sell.transition.no` were
+  empty; `sell.photos.too_big` stopped at *"8 MB — "*. A hand-rolled extractor
+  stopped at the first apostrophe inside a double-quoted Python literal, so
+  three shipped sentences were **in the catalogue as `msgid ""`** while the
+  real text shipped — and the deny-list read the empty one and reported green.
+
+All seven are corrected, and both catalogues are now verified **byte-identical
+to the strings the code passes**, 258 of 258, with no empty msgid and no
+orphan. That verification did not exist before and is the thing that found
+them.
+
+### 16.7 Two new strings from QA F42, and the end of a whole class of unreviewed copy
+
+**QA measured `320,00` stored as Rs 32,000** — a hundredfold error on a column
+that is **immutable by trigger**, so the seller cannot correct it. The cause
+was two hand-written money parsers, L1's and `web/forms.py`'s, and the form's
+stripped commas on the line **before** it checked for a decimal point. There
+is now one parser, in the layer ADR-003 §2.3 names, and the form calls it.
+
+The copy consequence is that **L1's refusal sentences are backend's and are
+not in this deck or in `locale/en`**, so rendering one to a student would put
+unreviewed copy on the screen. The form therefore takes L1's *verdict* and
+supplies its own *sentence*:
+
+| Key | English | Tamil | Note |
+|---|---|---|---|
+| **`sell.price.commas`** | Check the commas, or type the amount without them — 1200 rather than 1,200. | — **NOT DRAFTED** | **B4.** The refusal QA F42 asked for. An instruction with a worked example, and it names the thing that is always safe to do rather than explaining grouping. `1,200`, `12,000`, `1,00,000` and `100,000` are all still accepted — the affordance a student really uses was not the price of closing the defect |
+| **`sys.required.error`** | This needs an answer. | — **NOT DRAFTED** | See below |
+
+**`sys.required.error` replaces Django's "This field is required." on every
+field in the product**, S1's included — 29 fields across 10 forms, measured.
+
+This is the same gap §16.4 records, stated as a class instead of as three
+instances: **a framework default is copy nobody reviewed.** It lives in
+Django's catalogue rather than `locale/en`, so `test_forbidden_copy.py` never
+scans it, this deck has never ruled on it, and no reviewer has ever seen it —
+and it was reaching students in BookHop's voice. It also says *"field"*, which
+is our word for our markup; the thing a student left out is a question, a tick
+or an amount depending on where they are.
+
+**Only Django's own sentence is replaced, never one a field chose** —
+`sell.photos.none_chosen` stays, because *"No photo was chosen"* says what
+happened and the generic does not.
+
+**The standing rule, which is the output of this section:** *every sentence a
+student can read is in `locale/en`, including the ones a library would have
+written for us.* The deny-list reads that catalogue; a string outside it is
+outside every copy control this project has.
+
+### 16.5 Counts
+
+**260 strings, 88 blocking-class, 62 of those with no Tamil draft**
+(v1.7: 254 / 86 / 60). `locale/ta/REVIEWED.toml` is still empty and **no agent
+has written a reviewer's name into it.**
+
+### 16.6 Ownership, recorded because it changed under this file
+
+§15 and this section were written by `frontend-developer` into a file the
+`TASKS.md` §1 table gives to `design-director`. Design is stood down and the
+work needed doing; the coordinator has routed the ownership question to cto
+rather than letting it stand as precedent.
+
+**One consequence is already real and belongs in the deck rather than only in
+a thread.** cto accepted a weaker second layer for the copy guard on the
+reasoning that *"nobody can introduce a user-facing string silently — it comes
+from the deck through design review, by construction."* With one agent owning
+the deck, the catalogues and the templates, **that sentence is false and the
+author of a string is its only reviewer.** Code Review now carries copy review
+as a named obligation on every change touching this file or `locale/**`.
+§16.1 is the evidence that the obligation is not ceremonial: the defect it
+describes is one an author cannot catch in their own sentence, and it survived
+two passes by the agent that wrote it.

@@ -45,6 +45,22 @@ __all__ = [
 ]
 
 
+#: What a student is told when they leave something out, instead of Django's
+#: "This field is required." One sentence for every field in the product; a
+#: field with a better one of its own overrides it (`PhotoForm`).
+#:
+#: It says "this" rather than "this field" deliberately: *field* is our word
+#: for our markup, and the thing the student left out is a question, a tick or
+#: an amount depending on where they are.
+REQUIRED_MESSAGE = _p("sys.required.error", "This needs an answer.")
+
+#: Django's own sentence, **read from Django** rather than typed here, so the
+#: comparison below cannot drift from the string it is looking for across an
+#: upgrade. `required` is defined once on `forms.Field.default_error_messages`
+#: and inherited by every field type this product uses.
+_DJANGO_REQUIRED = forms.Field().error_messages.get("required")
+
+
 class _Form(forms.Form):
     """Base form that wires the ARIA a field needs, once, for every form.
 
@@ -66,10 +82,31 @@ class _Form(forms.Form):
         self._wire_aria()
 
     def _wire_aria(self):
-        """Call again from any subclass that adds fields after `super().__init__`."""
+        """Call again from any subclass that adds fields after `super().__init__`.
+
+        Also replaces Django's **"This field is required."** on every field,
+        and that is a copy fix rather than a polish one.
+
+        That sentence is in *Django's* catalogue, not `locale/en`, so
+        `tests/unit/test_forbidden_copy.py` never scans it and
+        `COPY-DECK.md` has never ruled on it — **a framework default is copy
+        nobody reviewed**, served to a student in BookHop's voice. It also
+        names a "field", which is our word for our markup and not a word the
+        student has. It was found on the photo form and is fixed here for
+        every field in the product, S1's included, rather than one at a time.
+
+        **Only Django's own sentence is replaced**, never a message a field
+        chose for itself (`PhotoForm`). `setdefault` cannot express that —
+        Django populates `error_messages["required"]` at field construction,
+        so the key is always present and `setdefault` silently does nothing,
+        which is how the first attempt at this passed every reading and
+        changed no output.
+        """
         for name, field in self.fields.items():
             hid = f"id_{name}"
             field.widget.attrs["aria-describedby"] = f"{hid}-hint {hid}-error"
+            if field.error_messages.get("required") == _DJANGO_REQUIRED:
+                field.error_messages["required"] = REQUIRED_MESSAGE
 
     def is_valid(self):
         valid = super().is_valid()
@@ -288,8 +325,11 @@ CATEGORY_CHOICES = (
 MAX_PHOTOS = 4
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
-#: `asking_price_paise` CHECK (>=0 AND <=10000000) — `DATA-MODEL.md` §3.
-MAX_PRICE_RUPEES = 100000
+#: The ceiling is **not** declared here. `asking_price_paise`'s CHECK is
+#: `MAX_ASKING_PRICE_PAISE` in `apps/listings/models.py`, read through the
+#: service layer at the one place that needs it — a constant copied into this
+#: file is a second expression of a schema bound, which is how
+#: `clean_asking_price_rupees` came to disagree with L1 in the first place.
 
 _LABELS = {
     "condition": dict(CONDITION_CHOICES),
@@ -512,22 +552,65 @@ class ListingForm(_Form):
         return real
 
     def clean_asking_price_rupees(self):
-        """Whole rupees, refused rather than rounded.
+        """**Returns PAISE, not rupees**, and L1 is what decides.
 
-        **`CLAUDE.md` rule 18.** The column is an integer and PostgreSQL will
-        happily round `300.75` to `301` — *a rounded money value is a wrong
-        value that looks right*, and this is the one column ADR-003 §2.1
-        permits to exist. A schema that cannot hold a float does not detect one
-        being sent, so detection lives here: a decimal point is named and
-        refused, never silently resolved in either direction.
+        ### The defect this replaces, because it is worth not repeating
 
-        Parsed by hand rather than with `IntegerField` because the three
-        mistakes a student actually makes — `₹280`, `2,80`, `280.50` —
-        each deserve a different sentence, and `IntegerField` gives one.
+        This method used to parse the amount itself, and it stripped commas on
+        the line **before** it checked for a decimal point — so `320,00`
+        became `32000`: **Rs 32,000 for a book the student priced at Rs 320.**
+        QA measured it (F42). It is not cosmetic. `asking_price_paise` is
+        immutable by trigger (ADR-003 §2.2), so the seller cannot correct it —
+        they must withdraw and relist while the listing carries a price they
+        did not set. And `320.00` was refused with a clear sentence while
+        `320,00` was accepted: the same intent, two separators, opposite
+        outcomes.
+
+        The cause was **two hand-written money parsers**, this one and L1's,
+        which is `CLAUDE.md` rule 11's exact failure mode with money in the
+        one column that cannot be edited afterwards. There is now one:
+        `listings.services.parse_rupees_to_minor_units`, in the layer
+        ADR-003 §2.3 names as P14's detection point. It knows the groupings a
+        student really types — `1,200`, `1,00,000`, `100,000` all work — and
+        refuses `320,00` because it is neither Indian nor Western grouping.
+
+        **The old docstring is the tell.** It promised that *"the three
+        mistakes a student actually makes — ₹280, `2,80`, 280.50 — each
+        deserve a different sentence"*, and the code one line below stripped
+        the comma so `2,80` never reached one. The rule was written down
+        correctly and implemented wrongly in the same file.
+
+        ### L1 decides, L3 explains, and the explanation is in the catalogue
+
+        L1 raises `ValidationFailed` with its own sentences, and **those are
+        backend's and are not in `locale/en`** — so the copy deny-list never
+        scans them and `COPY-DECK.md` has never ruled on them. Rendering one
+        would be the gap that let Django's *"This field is required."* onto
+        the photo form, repeated deliberately.
+
+        So the refusal is L1's and the sentence is mine. The branches below
+        **do not decide validity** — they only choose which catalogued
+        sentence explains a refusal that has already happened — so they cannot
+        disagree with L1 about what is acceptable. That is the whole
+        difference between this and the two-parsers problem above.
         """
+        # Imported as a MODULE and read by attribute, never
+        # `from … import MAX_ASKING_PRICE_PAISE`. `CLAUDE.md` rule 13 rung 1,
+        # applied to my own file: an `import … as` would *declare* a
+        # money-shaped name in `web/forms.py`, and ADR-003 §2.3's W1c grep
+        # already refused that name on backend's side of the same fix. An
+        # attribute access declares nothing. Lazy, as in `views.py`, so a
+        # service module that fails to import breaks one form rather than the
+        # URLconf.
+        from apps.listings import services as listings_l1  # noqa: PLC0415
+
         raw = self.cleaned_data["asking_price_rupees"].strip()
-        cleaned = raw.replace(",", "").replace("₹", "").replace(" ", "").lstrip("+")
-        if "." in cleaned:
+        try:
+            return listings_l1.parse_major_units(raw)
+        except Exception:  # noqa: BLE001 — any refusal; the sentence is chosen below
+            pass
+
+        if "." in raw:
             raise forms.ValidationError(
                 _p(
                     "sell.price.whole",
@@ -535,17 +618,26 @@ class ListingForm(_Form):
                     "rather than letting BookHop round it for you.",
                 )
             )
-        if not cleaned.isdigit():
+        if "," in raw:
             raise forms.ValidationError(
-                _p("sell.price.digits", "Type the amount in rupees, in digits.")
+                _p(
+                    "sell.price.commas",
+                    "Check the commas, or type the amount without them — "
+                    "1200 rather than 1,200.",
+                )
             )
-        rupees = int(cleaned)
-        if rupees > MAX_PRICE_RUPEES:
+        if raw.isascii() and raw.isdigit():
+            # Digits that parse cleanly: the only refusal left is the range.
+            # The bound is read from the schema's own constant rather than
+            # restated here, because restating it is what this whole method
+            # is a correction of.
             raise forms.ValidationError(
                 _p("sell.price.ceiling", "The most a book can be listed at is ₹%(max)s.")
-                % {"max": MAX_PRICE_RUPEES}
+                % {"max": listings_l1.MAX_ASKING_PRICE_PAISE // 100}
             )
-        return rupees
+        raise forms.ValidationError(
+            _p("sell.price.digits", "Type the amount in rupees, in digits.")
+        )
 
 
 class PhotoForm(_Form):
@@ -572,13 +664,10 @@ class PhotoForm(_Form):
         widget=forms.ClearableFileInput(
             attrs={"accept": "image/*", "capture": "environment"}
         ),
-        # Django's default is *"This field is required."* — which is a string
-        # that lives in Django's own catalogue, not in `locale/en`, so
-        # `tests/unit/test_forbidden_copy.py` never sees it and `COPY-DECK.md`
-        # §10.2 never ruled on it. **A framework default is copy nobody
-        # reviewed.** It is overridden here because an empty file picker is a
-        # real and frequent outcome on a phone, and the sentence should say
-        # what happened rather than name a field.
+        # `_Form._wire_aria` gives every field in the product a reviewed
+        # "required" sentence; this one says more than the generic, because an
+        # empty file picker is a frequent and specific outcome on a phone and
+        # "this needs an answer" is not what happened.
         error_messages={
             "required": _p("sell.photos.none_chosen", "No photo was chosen."),
         },

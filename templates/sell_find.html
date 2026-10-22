@@ -86,7 +86,23 @@
   {% endif %}
 
   <h2>{% translate "What's wrong with it?" context "sell.condition.label" %}</h2>
-  <p class="meta">{% translate "Torn pages, writing, a bent cover, a missing CD — say it plainly. Buyers believe a description that admits things." context "sell.condition.hint" %}</p>
+  {% comment %} The second sentence used to be "Buyers believe a description
+     that admits things" — and before that, "Buyers trust…". **Both were
+     violations and the second one survived being edited**, in this slice, by
+     an author who was looking straight at the string while removing a banned
+     word from it. It predicts a reaction and makes a disposition claim about
+     people who are not us; COPY-DECK §1.2 allows a mechanism, a fact or an
+     instruction and nothing else. That it passed the grep both times is the
+     whole argument for why the vocabulary control and the grammatical rule
+     are two different controls (COPY-DECK §1.7, THREAT-MODEL §6.1).
+
+     What replaces it is a fact about this product: SYSTEM §4.14 renders every
+     one of these answers inside the seller's own attributed quotation, so
+     what they write here is literally what a buyer reads, in quotation marks,
+     with their name on it. That does the same work the prediction was doing —
+     it tells a seller their words are what the buyer has — without claiming
+     anything about how anyone will react. {% endcomment %}
+  <p class="meta">{% translate "Torn pages, writing, a bent cover, a missing CD — say it plainly. A buyer sees your answers quoted, with your name on them." context "sell.condition.hint" %}</p>
 
   {% include "_group.html" with field=form.condition required=True %}
   {% comment %} AC-S3.3: annotation is a NEUTRAL FACT, never a defect and never
@@ -150,10 +166,20 @@
 
      The hint keeps its id, because the input's `aria-describedby` names it. A
      description containing a link is announced as text, and the link is still
-     in the tab order on its own. {% endcomment %}
+     in the tab order on its own.
+
+     **THE REQUIRED MARKER IS BACK INSIDE THE LABEL, AND THAT IS THE OTHER
+     HALF.** Moving the link out took it with it, so the fix that corrected an
+     unlabelled required control left the control unmarked — a fix that traded
+     one defect for a smaller one. It is a word, never an asterisk (SYSTEM
+     §4.4), it is plain text so it cannot re-create the problem it sits beside,
+     and because it is inside the label it joins the computed name rather than
+     only the pixels. Same shape as `_field.html` and `_group.html`, so all
+     three mark required the same way. {% endcomment %}
   <div class="check">
     {{ form.seller_terms }}
-    <label class="check__text" for="id_seller_terms">{{ form.seller_terms.label }}</label>
+    <label class="check__text" for="id_seller_terms">{{ form.seller_terms.label }}
+      <span class="field__req">({% translate "required" context "sys.required" %})</span></label>
   </div>
   <span class="field__hint" id="id_seller_terms-hint"><a href="/legal/seller-terms">{% translate "Read the seller terms" context "sell.terms.link" %}</a></span>
   <span class="field__error" id="id_seller_terms-error">{% if form.seller_terms.errors %}{{ form.seller_terms.errors.0 }}{% endif %}</span>
