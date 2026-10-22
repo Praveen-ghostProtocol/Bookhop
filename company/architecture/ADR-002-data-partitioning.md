@@ -76,9 +76,62 @@ analytics query is both slower and easier to forget. A trigger (or the service
 layer — one place either way) sets `city_id` from the campus at insert, and a
 nightly consistency check asserts `city_id = campus.city_id` for every scoped
 row. One integer column per row buys a clean `WHERE city_id = ?` everywhere.
-`# ponytail: denormalised city_id, kept honest by one nightly check. Ceiling:
-a campus physically moving city, which is a manual data fix. Upgrade path:
-none needed — drop the column and join if it ever stops paying.`
+`# ponytail: denormalised city_id. Ceiling: a campus physically moving city,
+which is a manual data fix. Upgrade path: none needed — drop the column and
+join if it ever stops paying.`
+
+### Denormalised tenant and seed columns are held by a COMPOSITE FOREIGN KEY, not by a nightly check
+
+**Amendment 2026-10-22, on backend's S2 escalation — which I agree is the
+most serious thing in the slice, and which has a better remedy than the one I
+originally specified.**
+
+S2's child tables (`listing_photos`, `swap_wants`) now carry denormalised
+`campus_id`, `city_id` and `is_seed` **that nothing re-derives**. Backend's
+statement of the risk is exact: **if either is ever written inconsistently
+with its parent listing, the gated manager silently returns the wrong rows** —
+and **every test sets both through the same service that sets them correctly,
+so the fixture cannot produce the failure mode.** That is rule 10's fourth
+disguise, in the control rather than in a test.
+
+**My original remedy for `city_id` — a nightly consistency check — detects
+and does not prevent, and detects up to a day late. That is the weaker
+answer and I am replacing it.**
+
+> **A composite foreign key makes the inconsistency IMPOSSIBLE rather than
+> detectable.** One extra unique index on the parent and one `FOREIGN KEY`
+> clause per child:
+>
+> ```sql
+> -- parent: id is already unique, so any superset is trivially unique
+> CREATE UNIQUE INDEX listings_tenant_identity
+>   ON listings (id, campus_id, city_id, is_seed);
+>
+> -- each child, in place of a bare listing_id FK
+> FOREIGN KEY (listing_id, campus_id, city_id, is_seed)
+>   REFERENCES listings (id, campus_id, city_id, is_seed)
+> ```
+>
+> **A child row referencing a parent with a different campus, city or seed
+> flag cannot be written, on either engine, by any path** — service, admin,
+> raw SQL, a migration, or a fixture. No trigger, no job, no window.
+
+**The same move upgrades the `city_id` rule above**: a composite FK to
+`campuses (id, city_id)` replaces the nightly check, so `city_id` on a scoped
+row cannot disagree with its campus either. **Where a database can make a
+class of wrong state unrepresentable, that beats detecting it — and I reached
+for a job when a constraint was available.**
+
+**The test that matters is the one whose fixture CAN produce the failure**
+(§6.3's behavioural limb): a test that **writes an inconsistent child
+directly, bypassing the service, and asserts the database refuses it.** A test
+that goes through the service proves only that the service is correct, which
+was never the thing in doubt.
+
+`# ponytail: composite FK over a nightly job. Ceiling: the parent's tenant
+columns become immutable in practice, since changing one would orphan its
+children — which is correct, a listing does not change campus. Upgrade path:
+none.`
 
 ### How scoping is enforced, so it cannot be forgotten
 
@@ -121,6 +174,56 @@ discovery of people, so a gated manager on `users` in S1 would gate nothing.
 that is S2. **So: the Manager class, `base_manager_name`, the allow-list and
 the test all land in S2, and `users` is retrofitted in the same commit** — one
 line, no rework, and S1 ships no ungated read because S1 has no such read.
+
+> **RULING · `User` does NOT get the gated default manager. The premise above
+> is FALSE and it is mine · cto, 2026-10-22** *(S2 backend escalation 1)*
+>
+> **Measured, not argued: applied exactly as this ADR and TASKS require, the
+> retrofit broke 26 tests, all identity lookups.** The predicate hides every
+> non-seed row on a closed campus — **which is every real student before Gate
+> C** — and **every read of `users` is by identity.** My sentence *"S1 ships
+> no ungated read because S1 has no such read"* is false: **S1 ships the
+> session lookup and the magic-link request**, and both read `users`.
+>
+> **The error was a conflation, and naming it is the useful part.** I treated
+> *"a read that needs gating"* and *"a read through the default manager"* as
+> the same set. They are not. The gated manager gates **every** read through
+> `objects`, including `User.objects.get(pk=session_user_id)` — which is the
+> one read that must never be gated, because **authentication happens before
+> any gate and cannot depend on one.**
+>
+> **And the 26 failures are not friction; they are the design saying the model
+> does not apply.** Had it "worked", a real student on a closed campus could
+> not be resolved from their own session — that is not a visibility control,
+> it is an outage. **The discovery gate governs what you can SEE, never
+> whether you EXIST.**
+>
+> **The criterion, so S4 does not re-ask it:**
+>
+> > **The gated default manager belongs on models whose rows are surfaced to a
+> > user who did not create them, by search or browse — models that are
+> > DISCOVERED. It does not belong on models RESOLVED by identity or by
+> > ownership.**
+>
+> Discovered: `listings`, `listing_photos` (through its listing),
+> `book_requests`. Resolved: `users`, sessions, tokens — **and `transfers`,
+> which is read per-actor and is scoped by participation, not discovery**, so
+> S4 should not add one there either. `scoped()` and the service layer remain
+> the control for resolved models.
+>
+> **What enforces seed/real separation on `users` instead** — it was never the
+> manager's job: `transfers`' `CHECK (seller_is_seed = buyer_is_seed)`, the
+> `is_seed = false` filter on every metric view, and the discovery predicate
+> on `listings` (a seller's identity reaches a reader *through a listing*,
+> never through a user query). **`users.is_seed` is data those filters read,
+> not a manager's predicate.**
+>
+> **Backend applied the base-manager and explicit-manager halves anyway, and
+> they stay** — `all_objects` and `Meta.base_manager_name` on `User` cost
+> nothing and keep the family consistent. **Only the gated default is
+> refused.** The refusal is recorded as a test rather than a comment, which is
+> the right artefact: a future retrofit attempt fails loudly instead of
+> rediscovering 26 broken tests.
 
 Every model carrying `is_seed`:
 
@@ -169,7 +272,23 @@ because a filtering default manager is a known footgun:
   `refresh_from_db` correct. Without this line a filtering default manager
   silently breaks data integrity operations, which would be a far worse bug
   than the one it fixes.
-- **Reverse relations: the gap is closed by a TEST, not by my argument.**
+- **Reverse relations: MEASURED 2026-10-22, and my prediction was WRONG in the
+  helpful direction.** **Reverse accessors ARE gated on Django 5.2** — the
+  reverse manager is built from the default manager, while `base_manager_name`
+  keeps cascades and `refresh_from_db` correct. I predicted they were not
+  covered and required a test either way; **the test is why we know, and
+  "either way" is why the result is usable rather than a surprise.**
+  Backend labelled it a **cross-library claim and pinned it**, so a Django
+  upgrade turns it red instead of silently losing coverage — **rule 9's
+  cross-engine limb used exactly as intended**, on a library rather than an
+  engine.
+  **Consequence: the manager covers more than I claimed, which strengthens the
+  defence-in-depth case but changes nothing about the control.** `scoped()`
+  and the service layer remain required, because `_base_manager` and raw SQL
+  still bypass — and the composite FK above is what holds the tenant columns
+  those paths would otherwise be free to break.
+- *(Superseded, kept for the reasoning:)* **the gap is closed by a TEST, not
+  by my argument.**
   v1.0 of this amendment asserted flatly that reverse relations are not
   covered. **That was reasoning where a measurement was available, and the
   reviewer is right to refuse it:** which access paths resolve the filtered
@@ -611,6 +730,9 @@ predicate, and a default that keeps v1 to one campus.
 | 2026-10-21 | **§2.3 — the manager sits UNDERNEATH `assert_discovery_open`, never instead of it.** A filtered manager returns no rows; the contract requires `403 GATE_CLOSED`, and S3's three truths depend on the distinction. Substituting one for the other makes the legal gate invisible to the person it applies to | REVIEW-S0 §11 closing point |
 | 2026-10-21 | **§2.3 — the reverse-relation gap is closed by a TEST, not by my argument.** v1.0 asserted flatly that reverse relations are uncovered; which paths resolve a filtered manager differs by path and Django version, so S2 measures it and records the result either way | REVIEW-S0 §11 condition (c) |
 | 2026-10-21 | **§4.2's concession corrected.** "No protection against direct SQL" is **no longer true of `discovery_enabled_at`** — §4.1(a)'s trigger is a database-level guard that refuses a `psql` session too. What remains unprotected is someone who drops the trigger first | REVIEW-S0 |
+| 2026-10-22 | **§2.3 — `User` does NOT get the gated default manager, and the premise that said it should was FALSE.** Measured: 26 broken tests, all identity lookups; S1 *does* ship ungated reads of `users` (session, magic link). **Criterion recorded so S4 does not re-ask: the gated manager belongs on models that are DISCOVERED, not on models RESOLVED by identity or ownership** — so `transfers` should not get one either | S2 backend escalation 1 |
+| 2026-10-22 | **§2 — denormalised tenant and seed columns on child tables are held by a COMPOSITE FOREIGN KEY, replacing the nightly consistency check.** Inconsistency becomes unwritable rather than detectable-a-day-late; the same move upgrades the `city_id` rule. **The test must write an inconsistent child directly, bypassing the service** — a service-routed test proves only the service | S2 backend escalation, "fixture cannot produce its own failure mode" |
+| 2026-10-22 | **§2.3 — reverse accessors ARE gated on Django 5.2; my prediction was wrong.** Measured and **pinned as a cross-library claim**, so an upgrade turns it red rather than silently losing coverage | S2 backend measurement |
 | 2026-10-21 | **§2.3 slice confirmed: S2.** The Manager class, `base_manager_name`, the `all_objects` allow-list and the test land with `listings`; `users.is_seed` (S1) is retrofitted in the same commit, because nothing in S1 reads users through a gate | ENGINE-DIVERGENCE §9.6, slice question |
 | 2026-10-21 | **§4.1(d) added — accountability split.** The `gate_authorisations` row is the system of record (immutability); the audit chain is tamper-evidence over the fact and time and now carries `object_type`/`object_id` pointing at it. §4's "plus an audit row" corrected | QA-S0 B4 |
 

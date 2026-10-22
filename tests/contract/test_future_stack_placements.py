@@ -155,20 +155,21 @@ RULED = [
         "app": "apps.accounts",
         "slice": "S1+",
         "stack": "S",
-        "body": {"field": "display_name", "value": "A Corrected Name"},
-        "open_finding": (
-            "QA-S1 F24: §2.5 names `POST /account/correction` twice — in the "
-            "Stack S row with its (s12(1)-(2)) citation, and again as the "
-            "justification for putting `display_name` in Stack M ('the right is "
-            "satisfied by POST /account/correction, which is in S, "
-            "staff-reviewed and logged'). It does not exist: no route in "
-            "apps/accounts/urls.py, no handler, and no slice in TASKS.md. So a "
-            "suspended student can neither change their display name (Stack M "
-            "refuses, correctly) nor use the correction route (absent), and "
-            "DPDP s12(1)-(2) has no path at all. strict=True: this goes RED the "
-            "day the endpoint is mounted, which is when the row stops being a "
-            "reminder and becomes a live assertion."
-        ),
+        "body": {"stated_problem": "My display name is wrong."},
+        #: **QA-S1 F24 is CLOSED in S2.** The row kept a `strict=True` xfail
+        #: carrying the finding, and the strictness did its job: the day the
+        #: endpoint was mounted the row **XPASSed** and the suite went red,
+        #: which is the signal that the reminder is spent. The xfail is
+        #: removed and the assertion is now live — with one change to the
+        #: body, because the shipped signature is §3's
+        #: `request_correction(actor, *, stated_problem)` and the
+        #: `{field, value}` shape this row guessed four slices early was
+        #: withdrawn by the contract itself ("the separate `subject` argument
+        #: is withdrawn: redundant with free text").
+        #:
+        #: What it now asserts is what it always meant to: a **suspended**
+        #: student can still exercise s12(1)–(2). That is also what makes
+        #: §2.5's `display_name`-in-Stack-M reasoning quotable again.
         "why": (
             "s12(1)–(2). §2.5 names it twice: once in the S row, and again in "
             "the `display_name` judgement call, where it is **the thing that "
@@ -462,58 +463,183 @@ def test_both_sides_of_each_split_endpoint_are_covered():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("number", sorted(UNEXERCISED_M_PRECONDITIONS))
-def test_a_stack_m_precondition_s1_cannot_exercise(number):
-    """§2.5 preconditions 6 and 7, recorded as unexercised rather than assumed.
+@pytest.fixture
+def s2_actor(db, privacy_notice):
+    """A **real** (non-seed) fully-qualified student. Factory by campus.
 
-    Every S1 endpoint is about the caller's own account, so **no S1 request can
-    be out of scope and none reads a listing**. These two are therefore the
-    preconditions most likely to be forgotten by the first endpoint that needs
-    them, and they are the two with the largest consequences — one leaks the
-    catalogue, the other is the discovery gate.
-
-    This is a skip rather than a silence: `CLAUDE.md` rule 12 says a property
-    that cannot be tested skips with a reason naming the slice, and the reason
-    here names the precondition verbatim so the S2 developer reading the skip
-    reads the rule.
+    Non-seed is the whole point: ADR-002 §4.1(c)'s subject is *"a real
+    student on a closed campus"*, and every fixture in `tests/conftest.py` is
+    `is_seed=True` because that is the only actor the slice could lawfully be
+    built with. Preconditions 6 and 7 are the two that only a real student
+    can exercise.
     """
-    rule, why = UNEXERCISED_M_PRECONDITIONS[number]
-    if not _app_installed("apps.listings"):
-        pytest.skip(
-            f"NOT EXERCISABLE IN S1 (slice=S2, precondition={number}): §2.5 "
-            f"Stack M precondition {number} — {rule}. No tenant-scoped object "
-            f"exists for a request to be out of scope of, and nothing reads a "
-            f"listing, so there is no subject. Why it matters: {why}. QA's "
-            "gate journey in tests/e2e/test_gate_journey.py covers the gate "
-            "itself; this is about the gate being part of the *standing* "
-            "preconditions on every marketplace write."
+    import itertools
+
+    from apps.accounts.models import User
+    from apps.accounts.services import grant_consent
+
+    counter = itertools.count()
+
+    def build(campus, **overrides):
+        fields = dict(
+            email=f"real{next(counter)}-{uuid.uuid4().hex[:6]}@example.test",
+            display_name="A Real Student",
+            campus=campus, city_id=campus.city_id, status="ACTIVE",
+            adult_verified=True, campus_verified=True, is_seed=False,
         )
-    pytest.fail(
-        f"`apps.listings` exists, so §2.5 precondition {number} is now "
-        "exercisable and this placeholder must become a real assertion: "
-        f"{rule}"
-    )
+        fields.update(overrides)
+        user = User.objects.create(**fields)
+        for purpose in ("account", "listing_publication"):
+            grant_consent(user, purpose, privacy_notice, "SIGNUP_FORM", None, "qa")
+        user.refresh_from_db()
+        return user
+
+    return build
 
 
-def test_the_unexercised_list_shrinks_rather_than_being_deleted():
-    """When S2 lands, the test above **fails** rather than silently continuing
-    to skip — that is the point of the `pytest.fail` branch. This asserts the
-    branch exists, so nobody converts the placeholder into a permanent skip by
-    deleting the condition.
+def test_precondition_6_a_cross_campus_object_is_404_and_never_403(
+    sign_in, s2_actor, s2_listing, legal_entity, privacy_notice
+):
+    """§2.5 precondition 6 — **now exercisable, so now asserted.**
+
+    > *object is in actor's visible campus scope (ADR-002 §2) → else `404`*
+
+    The code is the assertion, not just the refusal: §2.2 requires *"the same
+    body either way"* because **a 403 would confirm the object exists and leak
+    the catalogue.** So a 403 here is as much a finding as a 200.
+
+    Both tenant-scoped reads S2 exposes are driven, because a rule enforced on
+    one route and forgotten on the sibling is this project's most-repeated
+    defect.
     """
-    import inspect
+    from apps.core.models import Campus
 
-    source = inspect.getsource(test_a_stack_m_precondition_s1_cannot_exercise)
-    assert "pytest.fail" in source, (
-        "the placeholder no longer fails when its slice arrives, so it will "
-        "skip forever"
+    other = Campus.objects.create(
+        city_id=s2_listing.city_id, name="Elsewhere", slug="elsewhere",
+        legal_entity=legal_entity, email_domains=["elsewhere.ac.in"],
     )
+    outsider = sign_in(s2_actor(other))
+
+    for path in (
+        f"/api/v1/listings/{s2_listing.id}",
+        f"/api/v1/listings/{s2_listing.id}/photos/{'0' * 64}",
+    ):
+        response = outsider.get(path)
+        assert response.status_code == 404, (
+            f"§2.5 precondition 6 on {path}: a cross-campus object answered "
+            f"{response.status_code} {_code(response)}. {UNEXERCISED_M_PRECONDITIONS[6][1]}"
+        )
+        assert response.status_code != 403, "403 confirms the object exists"
+
+
+def test_precondition_7_the_gate_on_a_stack_m_write(
+    sign_in, s2_actor, signup_campus, book, seller_terms_notice
+):
+    """§2.5 precondition 7 — **exercisable now, and the contract and the code
+    disagree about it. This is an escalation to cto, not a build defect.**
+
+    *7. campus discovery gate open, or both parties are seed (ADR-002 §4) →
+    else `403 GATE_CLOSED`*
+
+    §2.5 states its eight preconditions as **standing** — *"TWO stacks …
+    checked in L1 in this order"* — and its membership table puts *"listings
+    and photos, `book_requests`"* in Stack M with no carve-out. Read
+    literally, a real student on a campus with `discovery_enabled_at IS NULL`
+    must be refused `403 GATE_CLOSED` when they create a listing.
+
+    **Measured: they get `201`.**
+
+    And the other frozen contract says the implementation is right. ADR-002
+    §4 describes the gate as *"data, plus a server-side guard on **reads**,
+    plus a database write guard"* — the write guard being the one on
+    `discovery_enabled_at` itself, not on marketplace writes — and §4.1(c)
+    defines the closed state as *"the **discovery query** is additionally
+    restricted to `is_seed = true`"*. `INCORPORATION-AND-BLOCKERS` fixes the
+    trigger at *"the moment participants can **browse each other's**
+    listings"*, which a `DRAFT` nobody can see is not.
+
+    So this is `CLAUDE.md` rule 10's second disguise, named in the rule
+    itself: **a criterion broader than its own rationale, which the main
+    journey must violate to work** — and it surfaced, as the rule predicts,
+    *"only when someone tried to build against it"*.
+
+    **QA does not resolve it.** Either §2.5 is amended to scope precondition 7
+    to discovery reads, or the listing writes start refusing — and the second
+    reading has a real cost worth stating: accepting a listing means taking
+    the seller's r.6(4)(a) prior written contract, which is a thing BookHop
+    does with a seller before Gate C opens. The test asserts the
+    contradiction, so it cannot be forgotten, and names both readings.
+    """
+    import json
+
+    assert signup_campus.discovery_enabled_at is None, (
+        "this test is about a CLOSED campus"
+    )
+    actor = s2_actor(signup_campus)
+    from apps.accounts.models import NoticeVersion
+    from apps.accounts.services import accept_seller_terms
+
+    terms = NoticeVersion.objects.filter(kind="SELLER_TERMS").order_by("-id").first()
+    if terms:
+        accept_seller_terms(actor, terms, None)
+
+    client = sign_in(actor)
+    response = client.post(
+        "/api/v1/listings",
+        data=json.dumps({
+            "accept_seller_terms": True, "book_id": book.id,
+            "asking_price_paise": 30000, "condition": "GOOD",
+            "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+            "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+        }),
+        content_type="application/json",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+    )
+
+    pytest.fail(
+        "ESCALATION TO CTO — API-CONTRACT §2.5 and ADR-002 §4 disagree, and "
+        "this is a compliance-derived control so QA does not pick a side.\n\n"
+        f"Measured: a real (is_seed=false) ACTIVE, adult- and campus-verified, "
+        f"consented student on campus {signup_campus.slug!r} with "
+        f"`discovery_enabled_at IS NULL` posted to /api/v1/listings and got "
+        f"**{response.status_code} {_code(response)}**.\n\n"
+        "§2.5 reading: precondition 7 is standing on every Stack M action and "
+        "the table puts listings in M, so this must be 403 GATE_CLOSED.\n"
+        "ADR-002 §4 reading: the gate is a guard on **reads** and §4.1(c) "
+        "restricts the **discovery query**; a DRAFT nobody can browse is not "
+        "the moment INCORPORATION-AND-BLOCKERS names, so 201 is right.\n\n"
+        "Whichever way it is ruled, one document needs amending in the same "
+        "commit as the test. `book_requests` behaves identically (measured: "
+        "201), so a ruling covers both."
+    )
+
+
+def test_the_unexercised_list_is_now_empty_or_still_named():
+    """The guard that stopped the placeholders skipping forever has done its
+    job, so this is what replaces it: both preconditions have a real test
+    above, and the set is asserted so a third one cannot be added as a
+    comment.
+    """
     assert set(UNEXERCISED_M_PRECONDITIONS) == {6, 7}, (
         "§2.5 has preconditions 1-8; 1-5 are exercised by "
         "test_standing_preconditions_matrix.py and 8 by the idempotency "
         "contract tests. If this set changed, say which test covers the "
         "difference."
     )
+    for number, test in (
+        (6, test_precondition_6_a_cross_campus_object_is_404_and_never_403),
+        (7, test_precondition_7_the_gate_on_a_stack_m_write),
+    ):
+        assert callable(test), number
+        def flatten(text):
+            return " ".join(text.replace("`", "").replace("*", "").split())
+
+        doc = flatten(test.__doc__ or "")
+        rule = flatten(UNEXERCISED_M_PRECONDITIONS[number][0])
+        assert rule in doc, (
+            f"precondition {number}'s test no longer quotes the contract rule "
+            f"it is about, so the two can drift. Expected: {rule!r}"
+        )
 
 
 # --------------------------------------------------------------------------

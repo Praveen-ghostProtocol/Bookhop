@@ -238,6 +238,29 @@ design-director.
 
 ## 3. Service layer (L1) — the signatures both agents code against
 
+> **§3 IS THE CONTRACT, AND IT HAS NOW DRIFTED THREE TIMES. Procedural fix,
+> 2026-10-22.**
+>
+> S2 found **four reads the interface needs that this section does not name**,
+> and **backend shipped all four under different names than frontend
+> proposed.** That is the third instance of one pattern: *frontend proposes a
+> name, backend ships another, the contract names neither* — after
+> `test_forbidden_source.py` and the `INSTITUTIONAL_EMAIL`/`EMAIL_DOMAIN`
+> split. **Three times is a process defect, not three accidents.**
+>
+> **The rule, which is only `CLAUDE.md` rule 6 applied to signatures rather
+> than to files: a read the interface needs is a §3 amendment FIRST, then an
+> implementation.** "Contracts before parallel work" is not satisfied by a
+> contract that the work then overtakes. Neither agent invents a name: frontend
+> requests the read, cto names it here, backend implements that name.
+>
+> **For the four that already exist: backend's shipped names win**, on the
+> same reasoning as the `test_forbidden_source.py` ruling — the code is live,
+> tests import it, and renaming to match a document that named nothing would
+> turn green tests red to no purpose. **Backend supplies the four signatures
+> and they are recorded here on receipt**; until then §3 is knowingly short of
+> the code, which is a state this section should never be in again.
+
 Abbreviated to signature + raises. Full docstrings live in the code; **these
 names and arguments are frozen.** `actor` is always a `User` or the sentinel
 `SYSTEM`.
@@ -287,7 +310,13 @@ def merge_books(staff, source: Book, target: Book) -> None
 # apps/listings/services.py
 def create_listing(actor, *, book, asking_price_paise, condition,
                    annotation_level, damage_flags, language, category,
-                   intent='SELL') -> Listing                   # SellerTermsNotAccepted, ValidationFailed
+                   intent='SELL',
+                   seller_terms_accepted: bool = False) -> Listing
+#   SellerTermsNotAccepted, ValidationFailed. The explicit field is recorded
+#   2026-10-22: r.6(4)(a)'s prior written contract is accepted AT listing
+#   time, so it is an input to this call and not an ambient account state —
+#   a seller who accepted v1 terms has not accepted v2 (DATA-MODEL
+#   `seller_terms_acceptances`).
 def add_photo(actor, listing, upload) -> ListingPhoto          # TooManyPhotos, UnsupportedImage  (strips EXIF, else no row)
 def publish_listing(actor, listing, expected_version) -> Listing   # TransitionNotAllowed, VersionConflict
 #   AMENDMENT A-4 (CG-4): enqueues `requests.match_scan` on commit.
@@ -295,6 +324,18 @@ def withdraw_listing(actor, listing, expected_version) -> Listing
 def moderate_listing(staff, listing, action, legal_basis, reason, work_seconds) -> Listing
 def create_request(actor, *, book=None, free_text_title=None, course_code=None) -> BookRequest
 def close_request(actor, request) -> BookRequest
+# Recorded 2026-10-22 under A-21's procedure — backend's shipped names, which
+# win because the code is live and tests import them. §3 was short of the code.
+def my_listings(actor, cursor=None, limit=20) -> Page
+def get_own_listing(actor, listing_id) -> Listing        # NotFound if not theirs
+def my_requests(actor, cursor=None, limit=20) -> Page
+def seller_block(listing) -> dict
+#   {display_name, campus_name, pseudonym, signed_in_with_college_email}
+#   The ONLY shape in which a seller's identity reaches a reader. No email, no
+#   phone, no address, no domain (§5.2, A-17). `signed_in_with_college_email`
+#   is the campus-email trust string and is TRUE only for
+#   campus_verifications.method = 'INSTITUTIONAL_EMAIL' (DATA-MODEL §2's
+#   ratified spelling) — a boolean, never the domain itself.
 
 # apps/discovery/services.py
 def search_listings(actor, *, q=None, isbn=None, course_code=None,
@@ -650,6 +691,36 @@ agent knows exactly what it owns.
 | `POST /api/v1/books` | part of `POST /sell` |
 | `POST /api/v1/listings` | `POST /sell` |
 | `POST /api/v1/listings/{id}/photos` | `POST /sell/{id}/photos` — multipart, ≤4 photos, ≤8 MB each, jpeg/png/webp; **EXIF stripped before the row exists** |
+| **`GET /media/listing-photo/{photo_id}`** *(added 2026-10-22)* | same path, no L2/L3 split — it serves bytes | **Stack M.** The read that was missing: the storage key existed and nothing served it |
+
+> **The photo route — added because its absence made a criterion vacuous, not
+> because a page looked incomplete.**
+>
+> `listing_photos.storage_key` existed, §5.2 had no `GET`, and **inventing a
+> media URL is not the interface layer's to do** — frontend was right to
+> refuse. The consequence is rule 10's shape and the reason this is a contract
+> fix rather than a nicety: **the criterion forbidding images under a
+> data-saver header is currently satisfied because there are no images. It
+> must not be reported as passing.** Frontend's page says the honest thing —
+> *"The seller attached 4 photos. BookHop has no way to show them yet."* —
+> and that stays until this route exists.
+>
+> **Specification.** A Django view, **not** a public static path:
+> - **Gate and scope first**: `assert_discovery_open`, campus scope, and the
+>   listing visible to this actor — a photo is as gated as the listing it
+>   belongs to, and a guessable media URL would be a side channel around
+>   ADR-002 §4 exactly as `match_scan` would have been.
+> - **nginx serves the bytes** via `X-Accel-Redirect` to an internal location.
+>   Django authorises; it does not stream. The files stay off any
+>   publicly-routable path (ADR-001 §2.6).
+> - `Cache-Control: private, max-age=86400` · `X-Robots-Tag: noindex` ·
+>   `Content-Type` from the stored type, never from the request.
+> - **404, not 403**, for a photo outside scope — consistent with §2.2, so the
+>   route cannot be used to confirm a listing exists on another campus.
+> - EXIF is already absent by construction: `exif_stripped_at` is `NOT NULL`,
+>   so no row can exist for an unstripped file (`DATA-MODEL.md` §3).
+>
+> **Slice: S2**, with the listing surface it completes.
 | `POST /api/v1/listings/{id}/publish` | `POST /sell/{id}/publish` |
 | `POST /api/v1/listings/{id}/withdraw` | `POST /sell/{id}/withdraw` |
 | `GET /api/v1/listings/mine` | `GET /sell` |
@@ -870,6 +941,8 @@ four contract guarantees:
 | **A-9** | 2026-10-21 | Banned vocabulary grows to eight words; enforcement is per-script — see `THREAT-MODEL.md` §6.1 | Design **TR-8** | cto |
 | **A-13** | 2026-10-21 | **§4.1 — anonymous POSTs get real idempotency** via a non-null sentinel key, not an exemption. Must close before S1 wires `/auth/magic-link` | QA-S0 **B3** | cto |
 | **A-14** | 2026-10-21 | §2.2's error-shape renderer, CSP middleware and `test_forbidden_response.py` **assigned to S1 backend** — named controls that belonged to no slice | REVIEW-S0 N1–N3 | cto |
+| **A-21** | 2026-10-22 | **§3 procedural fix after a THIRD naming drift.** A read the interface needs is a **§3 amendment first, then an implementation** — rule 6 applied to signatures, not just files. Backend's four shipped names win and are recorded on receipt | S2 frontend pass | cto |
+| **A-20** | 2026-10-22 | **`GET /media/listing-photo/{photo_id}` added** — the storage key existed and nothing served it, so **the data-saver criterion was passing vacuously and must not be reported as passing** (rule 10). Gate- and scope-checked in Django, bytes served by nginx via `X-Accel-Redirect`, 404 not 403 out of scope | S2 frontend pass | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

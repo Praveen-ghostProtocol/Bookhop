@@ -45,20 +45,66 @@ def _ident(name):
     return name
 
 
+def _existing_columns(cur, table):
+    return {
+        col.name.lower()
+        for col in connection.introspection.get_table_description(cur, table)
+    }
+
+
 def _create(table, columns):
-    """Add `columns` = [(name, sql_type)] to `table`, creating it if absent.
+    """Install `columns` = [(name, sql_type)] on `table`, creating it if absent.
 
     Raw DDL inside the test's transaction, rolled back with it. Raw DDL on
     purpose: a model would be visible to Django's model meta, and the attack
     this file cares most about — a column added by `RunSQL` — is the one only
     `connection.introspection` can see (ADR-003 §2.3 W4 route 2).
+
+    **The second branch is QA-S2 F30 and it is a coverage regression this
+    helper caused.** Every attack used to land on a table that did not exist,
+    so `ADD COLUMN` was the only shape needed. `float_money` attacks
+    `listings.asking_price_paise` — *the one permitted money column, declared
+    as a float*, which is the single most important case W1a has — and the day
+    S2 made that column real the `ADD COLUMN` started raising
+    `DuplicateColumn`. The attack stopped landing at exactly the moment its
+    subject became real.
+
+    It stopped **loudly**, not silently: the applicability assertion
+    `test_attack_reaches_the_schema_the_control_reads` is a separate test per
+    shape precisely so an attack that fails to apply can never be read as an
+    attack that was caught, and both rows went red. That is the pattern working
+    — but a red row measures nothing either, so the attack is restored rather
+    than removed.
+
+    **Restored by changing the live column's type instead of adding it.**
+    SQLite has no `ALTER COLUMN … TYPE` and does not enforce declared types at
+    all (ENGINE-DIVERGENCE §2.8), so there the shape cannot be installed and
+    this **skips naming the engine and the slice** rather than passing.
     """
     _ident(table)
     with connection.cursor() as cur:
         if table not in connection.introspection.table_names(cur):
             cur.execute(f'CREATE TABLE "{table}" (id integer primary key)')
+        present = _existing_columns(cur, table)
         for name, sql_type in columns:
-            cur.execute(f'ALTER TABLE "{table}" ADD COLUMN "{_ident(name)}" {sql_type}')
+            _ident(name)
+            if name.lower() not in present:
+                cur.execute(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {sql_type}')
+                continue
+            if connection.vendor != "postgresql":
+                pytest.skip(
+                    f"NOT INSTALLABLE ON THIS ENGINE (vendor={connection.vendor}, "
+                    f"slice=S2): `{table}.{name}` is a real migrated column now, "
+                    "so this shape has to be installed by changing its type "
+                    "rather than by adding it. SQLite has no `ALTER COLUMN ... "
+                    "TYPE` and does not enforce declared column types "
+                    "(ENGINE-DIVERGENCE §2.8), so the attack cannot be made to "
+                    "exist here and a pass would mean nothing."
+                )
+            cur.execute(
+                f'ALTER TABLE "{table}" ALTER COLUMN "{name}" TYPE {sql_type} '
+                f'USING "{name}"::{sql_type}'
+            )
 
 
 def _live_columns():
@@ -237,8 +283,45 @@ def test_attack_reaches_the_schema_the_control_reads(attack):
     attack_id, table, columns, _note, _residual = attack
     _create(table, columns)
     live = set(_live_columns())
-    for name, _type in columns:
+    for name, sql_type in columns:
         assert (table, name) in live, f"{attack_id}: attack column was not created"
+        _assert_declared_type_took(attack_id, table, name, sql_type)
+
+
+def _assert_declared_type_took(attack_id, table, name, sql_type):
+    """The column exists — but does it have the **attacked type**?
+
+    QA-S2 F30's second half. Once an attack can be installed by *altering* a
+    live column rather than by adding a new one, "the column is there" stops
+    being evidence that the attack landed: the column was already there. A
+    silent no-op `ALTER` would leave the integer column in place and every
+    verdict below would be about the clean schema.
+
+    Only PostgreSQL has declared types worth reading — SQLite's are advisory
+    (ENGINE-DIVERGENCE §2.8) and `_create` has already skipped any shape that
+    needed an alter there.
+    """
+    if connection.vendor != "postgresql":
+        return
+    want = sql_type.split("(")[0].strip().lower()
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = %s AND column_name = %s",
+            [table, name],
+        )
+        row = cur.fetchone()
+    assert row, f"{attack_id}: {table}.{name} is not in information_schema"
+    got = row[0].lower()
+    aliases = {"real": {"real"}, "numeric": {"numeric"}, "integer": {"integer"},
+               "text": {"text"}, "date": {"date"}}
+    expected = aliases.get(want, {want})
+    assert got in expected, (
+        f"{attack_id}: {table}.{name} was supposed to be installed as "
+        f"{sql_type!r} and the server reports {got!r}. The attack did not "
+        "land, so any 'caught'/'escaped' verdict below is about a schema this "
+        "attack never changed."
+    )
 
 
 @pytest.mark.parametrize("attack", ATTACKS, ids=[a[0] for a in ATTACKS])
@@ -758,15 +841,41 @@ def test_the_operational_responses_contain_no_forbidden_key(client):
             assert token not in body, f"{path} response contains {token!r}"
 
 
-def test_the_response_schema_guard_has_no_owning_slice(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE IN S0 (engine={engine}): ADR-003 §2.3 and "
-        "THREAT-MODEL §6 both name `tests/unit/test_forbidden_response.py`, and "
-        "ENGINE-DIVERGENCE §9 item 7 records that it still has no owning slice. "
-        "It is also the compensating control ADR-003 §2.3 W5 relies on for the "
-        "jsonb and free-text residuals. QA cannot write it — it is "
-        "backend-developer's tree — and there is no response payload in S0 to "
-        "run it against. Escalated in QA-S0.md, not tested here."
+def test_the_response_schema_guard_exists_and_reaches_past_s0(engine):
+    """**QA-S2 F31 — this was an unconditional `pytest.skip` and it could never
+    have started.**
+
+    The S0 text said the control *"has no owning slice"* and *"there is no
+    response payload in S0 to run it against"*. Both halves expired: the module
+    exists in backend's tree, and S2 produces four response payloads. An
+    unconditional skip does not notice an expiry — from outside, *"not yet
+    running"* and *"running and passing trivially"* are indistinguishable
+    (`CLAUDE.md` rule 10). It is inverted here: the control existing is now the
+    condition under which this **must** assert.
+
+    What it asserts is the control's **reach**, which is the half that was
+    still missing. `test_no_s0_response_contains_a_forbidden_key` walks
+    `/healthz` and `/readyz` and nothing else, so on a green suite the named
+    compensating control for ADR-003 §2.3 W5's jsonb and free-text residuals
+    was measuring two operational probes. `tests/contract/test_response_boundary.py`
+    now drives the walker over every S2 payload; this asserts that the walker
+    this file names is the one that does it, so the two cannot drift.
+    """
+    import importlib
+
+    module = importlib.import_module("tests.unit.test_forbidden_response")
+    assert hasattr(module, "assert_no_forbidden_content"), (
+        "ADR-003 §2.3 and THREAT-MODEL §6 name `tests/unit/test_forbidden_"
+        "response.py` as the response-boundary control and it no longer "
+        "exposes a walker to call. The compensating control for W5's two "
+        "declared residuals is gone."
+    )
+    from . import test_response_boundary as sweep
+
+    assert hasattr(sweep, "test_every_s2_response_payload_is_walked_by_the_guard"), (
+        "the S2 reach of the response-boundary control is not asserted "
+        "anywhere, so the control is measuring /healthz and /readyz and being "
+        "reported as the boundary guard for the whole product."
     )
 
 
@@ -775,13 +884,40 @@ def test_the_response_schema_guard_has_no_owning_slice(engine):
 # --------------------------------------------------------------------------
 
 
-def test_price_immutability_trigger(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE IN S0 (engine={engine}): ADR-003 §2.2's "
-        "`listings_price_immutable` trigger guards a table `listings` that slice "
-        "S2 creates; the plpgsql body is unexecuted text until a PostgreSQL "
-        "server exists (ENGINE-DIVERGENCE §3.9, §9 item 3)."
-    )
+def test_price_immutability_trigger(engine, s2_listing):
+    """**QA-S2 F31, second instance.** Also an unconditional skip, also expired.
+
+    `listings` exists, the trigger is installed and PostgreSQL is running, so
+    every clause of the S0 reason is now false — and an unconditional skip
+    would have reported that as coverage forever. Inverted: the table existing
+    is the condition under which this asserts.
+
+    The contract claim is ADR-003 §2.2's, and it is asserted here **by
+    behaviour and by message text, not by exit status** — `POSTGRES-FIRST-RUN`
+    §1 item 1: plpgsql resolves identifiers at the first execution of each
+    branch, so a body created cleanly can fail the first time somebody does
+    the forbidden thing, and **that failure still blocks the operation, so it
+    looks like the guard working.**
+
+    The full attack on this control — the no-op body, the ORM routes, the
+    legitimate transitions — is `tests/contract/test_price_trigger_attack.py`.
+    This is the P14 file's own row, so a reader of the P14 matrix sees the
+    control asserted rather than deferred.
+    """
+    from django.apps import apps as django_apps
+    from django.db.utils import DatabaseError
+
+    if not django_apps.is_installed("apps.listings"):
+        pytest.skip(
+            f"NOT VERIFIABLE (engine={engine}, slice=S2): ADR-003 §2.2's "
+            "`listings_price_immutable` trigger guards a table `listings` that "
+            "slice S2 creates and the app is not installed."
+        )
+    Listing = django_apps.get_model("listings", "Listing")
+    with pytest.raises(DatabaseError, match="P14"), transaction.atomic():
+        Listing.all_objects.filter(id=s2_listing.id).update(
+            asking_price_paise=s2_listing.asking_price_paise + 1
+        )
 
 
 def test_the_money_column_is_rejected_as_a_float_by_the_engine(engine):

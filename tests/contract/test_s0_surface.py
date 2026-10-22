@@ -239,6 +239,12 @@ def test_only_the_two_gate_commands_exist_in_the_project():
     assert project == {
         "open_discovery", "close_discovery", "seed_demo", "run_jobs",
         "verify_audit_chain",
+        # S2 · API-CONTRACT §5.7's moderation queue. It is in this set and not
+        # a third gate command: `test_only_the_gate_commands_write_discovery_
+        # enabled_at` below is the assertion that matters and it is derived
+        # from the source rather than from this list, so a command that did
+        # touch the gate would fail there whatever it is called here.
+        "review_listings",
     }, f"unexpected project management commands: {sorted(project)}"
 
 

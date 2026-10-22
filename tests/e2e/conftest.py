@@ -76,3 +76,27 @@ def qa_authorisation(db, qa_campus, qa_entity, qa_evidence):
         evidence=qa_evidence,
         authorised_by_human="A Named Human",
     )
+
+
+@pytest.fixture
+def client_as(db):
+    """A **fresh** Django test client signed in as `user`.
+
+    One client reused across users measures nonsense: `client.session` mints a
+    new key on each save while the cookie still points at the first, so every
+    actor after the first is anonymous and every endpoint answers 401. QA paid
+    for that once already and the fixture returns a new client each call so
+    the actor is the only variable.
+    """
+    from django.test import Client
+
+    from apps.accounts.sessions import SESSION_USER_KEY
+
+    def _sign_in(user):
+        client = Client()
+        session = client.session
+        session[SESSION_USER_KEY] = user.id
+        session.save()
+        return client
+
+    return _sign_in

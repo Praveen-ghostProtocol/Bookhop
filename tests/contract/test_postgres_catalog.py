@@ -39,15 +39,26 @@ pytestmark = [pytest.mark.django_db, postgres_only]
 RAISE_EXCEPTION = "P0001"
 INSUFFICIENT_PRIVILEGE = "42501"
 
-#: ADR-002/ADR-003's five guards, by the names the migrations create.
-EXPECTED_TRIGGERS = {
-    "audit_log_append_only",
-    "audit_log_no_truncate",
-    "gate_authorisations_append_only",
-    "gate_authorisations_no_truncate",
-    "gate_authorisations_evidence_complete",
-    "campuses_gate_authorised",
+#: ADR-002/ADR-003's guards, by the names the migrations create, and the
+#: tables they live on — **both**, because the first version of this file hard
+#: coded three table names into the catalog query and S2's trigger landed on a
+#: fourth. The set looked exact and had stopped covering the newest guard:
+#: `listings_price_immutable` was `ENABLE ALWAYS` by nobody's assertion here.
+#: Derived from this map now, so a guard on a new table joins the ALWAYS sweep
+#: by being added once.
+EXPECTED_TRIGGERS_BY_TABLE = {
+    "audit_log": {"audit_log_append_only", "audit_log_no_truncate"},
+    "gate_authorisations": {
+        "gate_authorisations_append_only",
+        "gate_authorisations_no_truncate",
+        "gate_authorisations_evidence_complete",
+    },
+    "campuses": {"campuses_gate_authorised"},
+    # S2 · ADR-003 §2.2. The first plpgsql body that can be executed at all.
+    "listings": {"listings_price_immutable"},
 }
+GUARDED_TABLES = sorted(EXPECTED_TRIGGERS_BY_TABLE)
+EXPECTED_TRIGGERS = set().union(*EXPECTED_TRIGGERS_BY_TABLE.values())
 
 #: Every plpgsql trigger function the migrations install, by slice.
 #:
@@ -67,7 +78,15 @@ S0_FUNCTIONS = {
 S1_FUNCTIONS = {
     "bookhop_append_only_guard",
 }
-EXPECTED_FUNCTIONS = S0_FUNCTIONS | S1_FUNCTIONS
+#: S2 · ADR-003 §2.2. `POSTGRES-FIRST-RUN.md` §0(a) said this one *"is not
+#: among them — it does not exist"*, and corrected six to five on that basis.
+#: It exists now, so the number is seven — and it lands in its own slice set
+#: exactly as that correction predicted it would, which is why the set is kept
+#: per slice rather than as a total.
+S2_FUNCTIONS = {
+    "listings_price_is_immutable",
+}
+EXPECTED_FUNCTIONS = S0_FUNCTIONS | S1_FUNCTIONS | S2_FUNCTIONS
 
 
 def _sqlstate(exc):
@@ -94,15 +113,17 @@ def test_every_guard_trigger_is_installed_and_enable_always():
 
     QA previously asserted this as **migration text**. This is the catalog.
     """
+    placeholders = ", ".join(["%s"] * len(GUARDED_TABLES))
     rows = _rows(
         "SELECT tgname, tgenabled FROM pg_trigger t "
         "JOIN pg_class c ON c.oid = t.tgrelid "
-        "WHERE NOT t.tgisinternal AND c.relname IN "
-        "('audit_log', 'gate_authorisations', 'campuses')"
+        f"WHERE NOT t.tgisinternal AND c.relname IN ({placeholders})",
+        GUARDED_TABLES,
     )
     installed = {name: enabled for name, enabled in rows}
     assert set(installed) == EXPECTED_TRIGGERS, (
-        f"installed triggers differ from the five guards: {sorted(installed)}"
+        f"installed triggers differ from the guards this file names: "
+        f"{sorted(installed)} vs {sorted(EXPECTED_TRIGGERS)}"
     )
     not_always = {n: e for n, e in installed.items() if e != "A"}
     assert not_always == {}, (

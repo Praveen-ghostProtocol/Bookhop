@@ -561,8 +561,18 @@ edition-locking means. A seller who cannot find their book creates a `books`
 row; that row is flagged for staff verification.
 
 ### `listing_photos` — S2
-`(id, listing_id FK, storage_key, sha256, width, height, bytes,
+`(id, listing_id FK, **campus_id NOT NULL, city_id NOT NULL, is_seed NOT NULL
+DEFAULT false**, storage_key, sha256, width, height, bytes,
 exif_stripped_at NOT NULL, uploaded_at, purge_due_at)` · §7 row 9.
+
+**A-30 (2026-10-22): the tenant and seed columns are added, correcting an
+inconsistency in my own documents** — ADR-002 §2 names `listing_photos`
+tenant-scoped while this column line omitted the keys, and the gated manager
+needs `is_seed` locally. `swap_wants` gains the same. **Both are held to their
+parent by a COMPOSITE FOREIGN KEY, not by a nightly check** — see ADR-002 §2:
+a child referencing a parent with a different campus, city or seed flag is
+**unwritable by any path**, which is the remedy for the failure mode whose
+fixture cannot produce it.
 **`exif_stripped_at` is NOT NULL**: the row cannot exist unless EXIF was
 stripped, which makes "purge EXIF at upload" a structural guarantee rather
 than a code-path hope. Max 4 photos per listing (CHECK via a trigger count).

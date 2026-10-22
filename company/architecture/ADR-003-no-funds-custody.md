@@ -407,6 +407,183 @@ response key is money-shaped** unless it is `asking_price_paise`. The pattern
 is already established: the S1 copy-enforcement tests grep source in CI for
 exactly this kind of rule.
 
+**RATIFIED · `SOURCE_GUARD_SHAPE_EXEMPTIONS` — cto, 2026-10-22**
+*(rule 13 rung 2, third instance; S2 collision on `apps/listings/models.py`)*
+
+The source guard fires on three legitimate declarations:
+`MAX_ASKING_PRICE_PAISE`, `asking_price_paise__gte`, `asking_price_paise__lte`.
+
+**Rung 1 was worked first and is genuinely unavailable for the lookups.** An
+ORM lookup is **derived from the permitted column's own name**, so renaming it
+means renaming the one column P14 permits — absurd. **And rung 1 is available
+but harmful for the bound:** every honest name for a bound on paise contains
+`paise` or `price`, and renaming it to something unit-free to dodge a grep
+**removes the unit from the name of a money bound — the exact discipline that
+keeps integer-paise safe.** Rung 1 is preferred because a rename is usually
+neutral; here it is not, and "preferred" was never "mandatory".
+
+#### The invariant, so S4 is already decided
+
+Rather than enumerate shapes (rule 11), the test is one property:
+
+> **A money-shaped name is permitted only if it CANNOT carry a per-transaction
+> value.**
+
+That is exactly what P14 forbids — s194-O cares about a *determinable gross
+amount per transaction* — so **a declaration that is identical for every
+transaction cannot be the thing the rule protects against.** Two shapes
+satisfy it by construction, and nothing else does:
+
+| Shape | Form | Why it cannot carry a per-transaction value |
+|---|---|---|
+| **A · ORM lookup on the permitted column** | `(<relation>__)*asking_price_paise(__<suffix>)?`, suffix from Django's lookup registry | It is a **query key**, not storage. It must *end* at the permitted column |
+| **B · A bound, pinned to a schema CHECK** | `UPPER_SNAKE_CASE`, literal `int`, **and a conformance test asserts it equals the bound in the corresponding CHECK constraint** | There is **one of it**, not one per row |
+
+**Everything else still fails, including the case this guard exists for:** a
+`@property`, `@cached_property`, method, model field, serialiser key or
+response key is per-instance and **stays forbidden**. QA's
+`settled_price_paise` property fails both shapes — not UPPER_SNAKE, not a
+lookup suffix on the permitted column — **which is the test that matters,
+because it is invisible to every schema assertion.**
+
+#### Rule 12's question, answered precisely, including where the answer is weaker
+
+**Shape A has a second layer.** The lookup can only reference the permitted
+column, and **the whitelist (W1) guarantees that column is the only money
+column and is an integer.** An attacker would need a `settled_price` column to
+write `settled_price__gte`, and the whitelist kills the column.
+
+**Shape B had no second layer, and that is why the pin is a condition rather
+than a nicety.** A constant is not a column, so **the whitelist does not reach
+it at all** — and under rule 12 an exemption with no other catcher is a
+widening, not a clarification. **So I am not granting it unpinned.**
+Requiring the constant to equal a real CHECK bound supplies the missing layer:
+a free-floating money constant (`TYPICAL_SALE_PRICE_PAISE = 30000`) matches no
+CHECK and fails. **The pin also satisfies rule 11** — the bound currently
+exists twice, as a constant and as a CHECK, and pinning them makes one of them
+the copy rather than a second definition that can drift.
+
+#### What this decides about S4 before S4 asks
+
+The coordinator is right that the names there will sit closer to the forbidden
+thing. **The invariant already answers them, and in the direction we want:**
+
+- `transfer.listing.asking_price_paise` traversals and their lookups → **shape
+  A**, permitted.
+- `offered_price`, `agreed_amount`, `accepted_price` → **already deny-listed**
+  (W1b item 4) and untouched by this.
+- A bound such as `MAX_OFFER_PAISE` → **shape B requires a CHECK to pin to, and
+  there is no offer-amount column to have one.** So it **fails**, which is
+  correct: a bound on a quantity we refuse to store is a quantity we are about
+  to start storing.
+
+**That last line is the reason to ratify the invariant now rather than the
+three names.** A list of exempted names would have admitted `MAX_OFFER_PAISE`
+on the grounds that it looked like the bound we just allowed.
+
+**Measured, 2026-10-22, before ratifying — and it changed how load-bearing the
+pin is.** Running the shape rules over the three collisions, QA's attacks and
+S4's predicted names: the three collisions are exempted (A, A, B);
+`settled_price_paise`, `settled_price`, `offered_price` and `offer_amount` all
+**fail**; `asking_price_paise__total` **fails**, because `total` is not a
+lookup suffix; and `listing__asking_price_paise__lte` is exempted, confirming
+the relation prefix is needed. **But `MAX_OFFER_PAISE` passes the shape test —
+it is only rejected by the pin.** So the shape rules alone would have admitted
+exactly the S4 case this ratification is meant to forbid. **The pin is not a
+tightening-for-good-measure; it is the half that does the work**, and anyone
+tempted to drop it as ceremony should re-run that one name.
+
+#### On the pattern, since this is the third instance
+
+**These collisions are structural, not accidental.** The guard protects a money
+concept, and the one column P14 permits has money words in its name — **so
+every slice that touches price will collide, by construction.** Rule 13 exists
+because the first instance cost us a deleted token that **took three unrelated
+tokens with it and left four enforcing nothing**. The cheap defence is a
+decided invariant rather than a growing exemption list, which is what this
+block is.
+
+**Predicted next collision, flagged rather than pre-ruled:**
+`asking_price_sum_paise` (A-12) in S7's export. It is a **third shape** — an
+aggregate — and it is mandated by a frozen contract, so it will qualify for
+rung 2. **I am not ruling on it blind**: it fails the invariant as stated (an
+aggregate over one row equals that row's value), and whether that matters
+depends on code that does not exist. Decide it when it exists, against this
+invariant, with the same two questions.
+
+**RATIFIED · the bare-label rule is SCOPED TO LABELS — cto, 2026-10-22**
+*(rule 13, fourth collision — and the first to fire on legally mandated copy)*
+
+The copy guard bans the bare label "Price" and matches `\bprice\b` **anywhere**,
+so it refuses `price.label.full` — **the string the deck prescribes as the
+replacement, and the one the counsel brief asserts to a lawyer by name.** Six
+strings red, every one genuinely containing the token, every one mandated
+prose. The vocabulary half is clean: zero findings across the eight vouching
+words and zero across the four fixed-price phrases.
+
+**Frontend drafted two substitutions, reverted both, and escalated. That was
+the right call and it is worth stating why in full, because this is the most
+dangerous form of the rule-13 failure:** the thing about to be degraded was
+**legally mandated copy supporting a tax limb**, the degradation would have
+been invisible, and **the suite would have gone green.** Rule 13 was written
+after a deleted token took three others with it; this would have been worse,
+because a weakened s194-O limb does not show up as a missing test.
+
+#### This is a scope correction, not an exemption — and that is the ruling
+
+**The bare-label rule's rationale is about how the field is LABELLED**:
+ADR-003 §2.5a requires *"seller's asking price" everywhere it appears, never
+"price"*. **Scanning prose with a label rule was over-breadth of exactly the
+kind criterion 7f had** — a control broader than the rationale it was written
+from, invisible because it still reads protective. So:
+
+> **The bare-label rule applies to label-shaped text only** — at most four
+> words, no sentence-ending punctuation — **and there it is permitted only
+> beside "asking".** "Price" and "Max price" remain findings. Prose stops
+> being one.
+
+**The four fixed-price phrases are untouched and keep scanning everything**,
+which is the half that was always doing the negotiability work.
+
+#### Rule 12's question — and the answer IS weaker here, so I am saying so
+
+**The second layer frontend named — criterion 7b's rendered-DOM check — is
+not this exemption's second layer, and it is also unwritten.** Naming it was
+honest but imprecise: 7b verifies *what renders*, and the risk this correction
+creates is **a prose string that defeats negotiability** ("Asking price
+final" matches no phrase in the list). A DOM check does not evaluate meaning
+either. **So granting this does not wait on 7b, because 7b was never going to
+catch it.**
+
+**What does catch it, and why I am accepting a weaker layer here than I
+accepted for money:**
+
+| | Money shape B | This correction |
+|---|---|---|
+| Who can introduce a new instance? | **Any developer, in any slice, silently** | **Nobody, silently.** A user-facing string comes from `COPY-DECK.md` through design review, by construction |
+| Mechanical second layer | **None existed — so I refused it unpinned** and required the CHECK pin | The four phrases, plus the eight vouching words, still scanning all text |
+| Human layer | Not a control: a column needs no reviewer | **Is a control: copy is authored and reviewed by humans by design** |
+
+**That asymmetry is real and it is the whole justification.** I refused shape B
+unpinned because a constant can appear in a diff with no reviewer who owns
+copy; a string cannot. **Rule 12 is satisfied here in a weaker, partly human
+way, and anyone quoting this ratification should quote that sentence with it.**
+
+#### Two conditions, both cheap
+
+1. **Whichever of the six are LABELS get a named entry in
+   `locale/FORBIDDEN_EXCEPTIONS.toml`** — msgid, reason, reviewer. The scope
+   correction covers the prose ones; the labels are the narrow case and the
+   manifest is the pin that stops a seventh label inheriting the exemption
+   unreviewed. The mechanism exists and costs six lines.
+2. **The phrase list is incomplete for the negotiability limb and must be
+   extended** — "price final", "set price", "the price is fixed" and their
+   kin. The four came from `COMPLIANCE.md` §4.3.1's instruction and were never
+   a complete expression of ADR-003 §2.5a. **Routed to design-director and
+   privacy-compliance**, who own the wording and the limb respectively.
+   This is the layer that should be strong, and strengthening it is the right
+   response to narrowing the other one.
+
 **W1d · One source of truth, so there is nothing to transcribe.** The token
 sets, the suffix allow-list, the deny patterns and the frozen column lists live
 as **data in `apps/core/p14.py`**, which the tests import. **This ADR is the

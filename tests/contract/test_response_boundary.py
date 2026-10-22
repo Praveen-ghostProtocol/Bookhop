@@ -247,12 +247,187 @@ def test_the_control_is_not_claimed_complete_anywhere_qa_can_read():
 
 
 def test_the_control_runs_against_every_real_response(engine):
-    pytest.skip(
-        f"NOT VERIFIABLE IN S0 (engine={engine}): the control's value is in "
-        "being run over real payloads, and S0 serves two — `/healthz` and "
-        "`/readyz` — both of which it already checks. Every response with a "
-        "nested payload, a free-text field or a contact detail arrives in "
-        "S1–S5. THREAT-MODEL §6 assigns the file to backend in S1; QA's job "
-        "from S1 is to assert it is called from each new endpoint's test rather "
-        "than existing beside them."
+    """**QA-S2 F31, third instance.** An unconditional skip whose reason expired.
+
+    The S0 text said *"S0 serves two responses and it already checks both"*.
+    S2 serves thirteen L2 routes. An unconditional skip cannot notice that;
+    it is replaced by the sweep below, which derives its subject from the
+    URLconf and **asserts its own reach** so it cannot report coverage for a
+    route it never called (`CLAUDE.md` rule 10: the accessibility harness that
+    reached four pages of eleven).
+    """
+    from django.urls import get_resolver
+
+    mounted = set()
+
+    def walk(patterns, prefix=""):
+        for pattern in patterns:
+            if hasattr(pattern, "url_patterns"):
+                walk(pattern.url_patterns, prefix + str(pattern.pattern))
+            else:
+                mounted.add(prefix + str(pattern.pattern))
+
+    walk(get_resolver().url_patterns)
+    api = {r for r in mounted if r.startswith("api/v1/")}
+    assert len(api) > 2, (
+        "the S0 reason for skipping was that only two responses existed. If "
+        f"that is true again something has been unmounted: {sorted(api)}"
     )
+    assert api <= (EXERCISED_ROUTES | UNEXERCISED_ROUTES.keys()), (
+        "these L2 routes are not in this file's sweep and are not recorded as "
+        "unexercised with a reason, so the response-boundary control is not "
+        "measuring them: "
+        f"{sorted(api - EXERCISED_ROUTES - set(UNEXERCISED_ROUTES))}"
+    )
+
+
+# --------------------------------------------------------------------------
+# 4. S2 — the sweep that replaces the skip
+# --------------------------------------------------------------------------
+
+#: Every L2 route `test_every_s2_response_payload_is_walked_by_the_guard`
+#: actually drives. Derived against the URLconf above, so a new route must
+#: either be swept or be recorded below with a reason.
+EXERCISED_ROUTES = {
+    "api/v1/books",
+    "api/v1/books/<int:book_id>",
+    "api/v1/listings",
+    "api/v1/listings/mine",
+    "api/v1/listings/<int:listing_id>",
+    "api/v1/listings/<int:listing_id>/photos",
+    "api/v1/listings/<int:listing_id>/publish",
+    "api/v1/listings/<int:listing_id>/withdraw",
+    "api/v1/requests",
+    "api/v1/requests/<int:request_id>",
+    "api/v1/account",
+    "api/v1/account/correction",
+    "api/v1/account/export",
+}
+
+#: Routes deliberately not swept here, each with the reason and the test that
+#: does cover it. A route with no entry in either set fails the test above.
+UNEXERCISED_ROUTES = {
+    "api/v1/auth/magic-link": "anonymous; its body is `{}` and S1 covers it",
+    "api/v1/auth/consume": "needs a live token; S1's journey covers it",
+    "api/v1/auth/logout": "empty body",
+    "api/v1/account/age-declaration": "S1; DOB handling is tests/e2e/test_no_dob_independently.py",
+    "api/v1/account/consents": "S1",
+    "api/v1/account/consents/<str:purpose_key>": "S1",
+    "api/v1/account/nominee": "S1; holds a third party's data and is walked there",
+    "api/v1/account/erase": "terminal — it tombstones the actor mid-sweep",
+    "api/v1/notices/<str:kind>": "returns notice markdown, not a payload with keys",
+    "api/v1/listings/<int:listing_id>/photos/<str:sha256>": (
+        "serves image bytes, not JSON; the headers are asserted in "
+        "tests/api/test_listings_api.py and the authorisation in "
+        "tests/contract/test_denormalised_scope_columns.py"
+    ),
+}
+
+
+def _walk(payload, where):
+    control().assert_no_forbidden_content(payload, where=where)
+
+
+def test_every_s2_response_payload_is_walked_by_the_guard(
+    client_as, seller, book, jpeg_bytes
+):
+    """**The control, run over the payloads it exists for.**
+
+    ADR-003 §5.3 makes this file's subject *"the compensating control for the
+    two residuals P14 cannot close"*, and API-CONTRACT §5.2 says a contract
+    test asserts the listing rule *"against the response schema, not just the
+    database"*. Until S2 both sentences were true of `/healthz` and `/readyz`.
+
+    Every payload below is the real HTTP response, parsed, and handed to the
+    shipped walker — **imported, not re-implemented** (`CLAUDE.md` rule 11),
+    so a narrowing of the walker shows up here as an escape rather than as
+    agreement.
+
+    The reach is asserted by `test_the_control_runs_against_every_real_response`
+    above, which derives the route list from the URLconf.
+    """
+    import json
+    import uuid
+
+    client = client_as(seller)
+    seen = []
+
+    def record(label, response):
+        seen.append(label)
+        try:
+            payload = json.loads(response.content)
+        except ValueError:
+            payload = {"_text": response.content.decode("utf-8", "replace")}
+        _walk(payload, where=f"{label} -> {response.status_code}")
+        return payload
+
+    def post(path, body):
+        return client.post(
+            path, data=json.dumps(body), content_type="application/json",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+        )
+
+    record("GET /books?q=", client.get("/api/v1/books?q=Engineering"))
+    record("GET /books?isbn=", client.get(f"/api/v1/books?isbn={book.isbn13}"))
+    record("GET /books/{id}", client.get(f"/api/v1/books/{book.id}"))
+
+    created = record("POST /listings", post("/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": 30075, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    }))
+    # A refusal body is a response. `300.75` is ADR-003's own example and the
+    # field_errors shape is where a rejected amount gets echoed back.
+    record("POST /listings (refused)", post("/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": 300.75, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    }))
+    listing_id = created["id"]
+
+    record("POST /listings/{id}/photos", client.post(
+        f"/api/v1/listings/{listing_id}/photos",
+        data={"photo": _upload(jpeg_bytes)},
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+    ))
+    record("GET /listings/mine", client.get("/api/v1/listings/mine"))
+    record("GET /listings", client.get("/api/v1/listings"))
+    record("GET /listings/{id}", client.get(f"/api/v1/listings/{listing_id}"))
+
+    published = record("POST /listings/{id}/publish", post(
+        f"/api/v1/listings/{listing_id}/publish", {"expected_version": created["version"]}
+    ))
+    record("POST /listings/{id}/withdraw", post(
+        f"/api/v1/listings/{listing_id}/withdraw",
+        {"expected_version": published.get("version", created["version"])},
+    ))
+
+    made = record("POST /requests", post("/api/v1/requests", {
+        "free_text_title": "A book nobody has listed", "course_code": "MA8151",
+    }))
+    record("GET /requests", client.get("/api/v1/requests"))
+    record("DELETE /requests/{id}", client.delete(
+        f"/api/v1/requests/{made['id']}",
+        headers={"Idempotency-Key": str(uuid.uuid4())},
+    ))
+
+    record("GET /account", client.get("/api/v1/account"))
+    record("GET /account/export", client.get("/api/v1/account/export"))
+    record("POST /account/correction", post(
+        "/api/v1/account/correction", {"stated_problem": "My display name is wrong."}
+    ))
+
+    assert len(seen) == 17, (
+        "the sweep reached a different number of payloads than it claims; an "
+        f"instrument asserts its own reach: {seen}"
+    )
+
+
+def _upload(data):
+    import io
+
+    buf = io.BytesIO(data)
+    buf.name = "photo.jpg"
+    return buf

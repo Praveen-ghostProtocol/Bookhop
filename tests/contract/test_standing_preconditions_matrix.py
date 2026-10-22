@@ -66,6 +66,25 @@ WRITES = {
     "nominee": ("POST", "/api/v1/account/nominee",
                 {"nominee": {"name": "A Nominee", "email": "n@example.test"}}),
     "erase": ("POST", "/api/v1/account/erase", {"confirm": True}),
+    # --- S1 carry-over, now built (QA-S1 F24 closed) ---------------------
+    "correction": ("POST", "/api/v1/account/correction",
+                   {"stated_problem": "My display name is wrong."}),
+    # --- S2 · API-CONTRACT §5.2 ------------------------------------------
+    # Every one of these is "everything else" in §2.5's membership table, so
+    # every one is Stack M with the full ordered list. Bodies are the minimum
+    # a handler needs to get *past* validation — a 400 before the precondition
+    # runs would make the cell unmeasured, which `_call_s2` guards below.
+    "listing_create": ("POST", "/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": 1,
+        "asking_price_paise": 30000, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    }),
+    "listing_photos": ("POST", "/api/v1/listings/1/photos", {}),
+    "listing_publish": ("POST", "/api/v1/listings/1/publish", {"expected_version": 1}),
+    "listing_withdraw": ("POST", "/api/v1/listings/1/withdraw", {"expected_version": 1}),
+    "request_create": ("POST", "/api/v1/requests", {"free_text_title": "A wanted book"}),
+    "request_close": ("DELETE", "/api/v1/requests/1", None),
 }
 
 
@@ -220,6 +239,21 @@ STACK = {
     # to establish, and minus consent, which §5.1 orders after it. Also excluded
     # and also covered by the walk.
     "age": "M-minus-adult",
+    # §2.5's table, Stack S row, verbatim: `POST /account/correction`
+    # (s12(1)–(2)). It was the one open strict-xfail in
+    # `test_future_stack_placements.py` and it is built, so it joins the
+    # matrix rather than staying a forward-dated reminder.
+    "correction": "S",
+    # §2.5's M row, verbatim: *"Everything else: listings and photos,
+    # `book_requests`, search and discovery, offers and every transfer
+    # transition…"*. Transcribed from the contract's table, not from
+    # `_may_write`'s call sites — whether those two agree is the question.
+    "listing_create": "M",
+    "listing_photos": "M",
+    "listing_publish": "M",
+    "listing_withdraw": "M",
+    "request_create": "M",
+    "request_close": "M",
 }
 
 #: §2.5 Stack S precondition 2, verbatim: **`status <> 'TOMBSTONED'` → else
@@ -477,14 +511,32 @@ def test_every_write_in_the_contract_is_in_this_matrix():
         "api/v1/account",              # also GET; the PATCH is in WRITES
         "api/v1/account/consents",     # GET, the read half of §5.1
         "api/v1/notices/<str:kind>",   # public notice text
+        # --- S2 reads. §2.5 governs *writes*; these are the seller's own
+        # reads and the catalogue, and each is covered by its own assertion:
+        # the anonymous refusal in tests/api/test_listings_api.py, the scope
+        # and gate limbs in tests/contract/test_denormalised_scope_columns.py
+        # and tests/e2e/test_gate_journey.py, and the payload shape in
+        # tests/contract/test_response_boundary.py.
+        "api/v1/books",
+        "api/v1/books/<int:book_id>",
+        "api/v1/listings/mine",
+        "api/v1/listings/<int:listing_id>",
+        "api/v1/listings/<int:listing_id>/photos/<str:sha256>",
     }
     covered = {
         "api/v1/account/age-declaration",
         "api/v1/account/consents/<str:purpose_key>",
         "api/v1/account/export",
         "api/v1/account/nominee",
+        "api/v1/account/correction",
         "api/v1/account/erase",
         "api/v1/account",
+        "api/v1/listings",
+        "api/v1/listings/<int:listing_id>/photos",
+        "api/v1/listings/<int:listing_id>/publish",
+        "api/v1/listings/<int:listing_id>/withdraw",
+        "api/v1/requests",
+        "api/v1/requests/<int:request_id>",
     }
     missing = api_routes - not_writes - covered
     assert missing == set(), (

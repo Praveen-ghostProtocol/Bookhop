@@ -4015,3 +4015,516 @@ column" would be wrong for half the rows.**
 Both-sides applied rather than only constraining the new case, and **a
 redundant "subject" argument withdrawn from the CTO's own signature — free
 text plus a separate "what area" field was a list sneaking back in.**
+
+---
+
+## D-061 — Standing authorization: run S2 through S7 without per-slice approval
+**Date:** 2026-10-22 · **Decider:** HUMAN FOUNDER
+
+**"Proceed and finish all slices, don't wait for approval."** Each slice runs
+build → code review → QA → **one real journey through the UI** → commit,
+without returning for a go-ahead between slices.
+
+### What this does NOT authorize, and it is unchanged
+The four reserved authorities stand: **spending, legal commitments, payment
+activation, public launch.** Specifically:
+- **S8 is infrastructure and deployment and is therefore NOT covered.** Nothing
+  is deployed, no host is paid for, no domain is registered. S8 arrives with a
+  packet, not with a commit.
+- **The two live criticals need an ownership migration requiring a superuser
+  on a real box** — a deployment act, not a code act.
+- **No counsel is engaged, no campus is contacted, no money is spent.**
+
+Everything S2–S7 needs is local and costs nothing, which is why this
+authorization is possible at all.
+
+### What I will bring the founder anyway, without being asked
+A defect that cannot be fixed inside the build; a contract change that alters
+what the product *is* rather than how it works; **anything that would make a
+false statement to a student or a regulator**; and the handoff packet at the
+end. Routine findings, rulings and rework go in the log, not to the founder.
+
+### Process in force for every remaining slice
+1. **Run on PostgreSQL before review.** `LIKE` is case-sensitive there and not
+   on SQLite — S3's search is where this bites first.
+2. **The tree freezes when a slice goes to review.** Four consecutive rounds
+   measured a moving tree, and a review is a statement about an artefact.
+3. **Each agent commits separately**, so authorship survives for the
+   independence property that depends on it.
+4. **One real journey exercised end to end through the actual UI**, by a
+   client that was served the pages — the only thing in the project that
+   closes the seam between artefacts. S1 was 500ing on its first POST with
+   1,017 tests green.
+5. **Both gates pass before integration**, and the author of a fix never
+   grades it.
+
+### The standing risk, recorded once and not re-raised
+The product thesis is still unvalidated and no student has been interviewed.
+**Building six more slices does not change that, and the founder is carrying
+it knowingly** (D-039, D-040). The instrumentation that would answer it ships
+with the slices; the answer needs students.
+
+---
+
+## D-062 — Red Team verifies every slice
+**Date:** 2026-10-22 · **Decider:** HUMAN FOUNDER
+
+**Standing instruction: every remaining slice is verified by Red Team.**
+Encoded in TASKS' definition of done so it binds per slice rather than living
+in a decision entry.
+
+### Placement: after both gates, not before and not instead
+Red Team's charter is **the strongest plausible failure case plus a test that
+could disprove the plan** — a different question from *is this correct* and
+*does this match the specification*. Running it earlier collapses it into a
+third correctness review, **which is the one thing this project does not need
+more of.**
+
+Running it last means it attacks an artefact two gates have already approved,
+**which is exactly where its first pass earned its keep: every defect the
+apparatus caught was within an artefact, and every defect Red Team found was
+at a seam between them.**
+
+### The slice cycle is now five steps
+build → **code review** → **QA** → **Red Team** → **one real journey through
+the UI** → commit. **A slice is not done until Red Team has reported.**
+
+Findings resolve as any gate's do: fixed, or carried with a tripwire that
+fires when the gap closes. **A critical objection it cannot get resolved
+escalates to the founder, per its charter — that path is unchanged and the CEO
+agent does not absorb it.**
+
+### Scoping, so the passes stay sharp rather than ritual
+Its first pass was valuable because it was pointed at the whole apparatus
+**and allowed to conclude the apparatus was wrong** — it recommended deleting
+two of three review passes and ten tests, and was right. A per-slice pass is
+pointed at **that slice's** strongest failure case.
+
+For S2 that is the listing surface meeting a real student: **a seller who
+misdescribes, a photo that leaks location, a price that means something
+different to the two people reading it, and the gate opening wider than
+intended now that there is finally something behind it to show.**
+
+**Each pass must be free to conclude the slice is not worth having, not only
+that it has bugs.** A Red Team that can only find defects is a fourth
+reviewer.
+
+### Tree and rule
+It writes to `tests/redteam/**`. **A probe is not a regression test** — when a
+probe finds something real, the finding goes to the owning agent and the
+regression is written in *that* agent's tree. This was learned when probe
+files in QA's tree made every QA measurement need a workaround for four
+rounds.
+
+---
+
+## D-063 — Red Team encoded in three places; the loop is bounded
+**Date:** 2026-10-22 · **Decider:** ceo-planning, on cto encoding
+
+Encoded in TASKS' definition of done, in a new §4.1, in S2's own done-when
+list — **and in `red-team.md` itself**, which was the gap the CTO correctly
+identified: **a standing founder instruction that does not reach the charter
+lives in one place while the agent reads another.** Charters are mine; I
+edited it rather than ratifying someone else's edit.
+
+### Three refinements the CTO settled rather than leaving to be discovered
+**1. This adds a touchpoint; it does not move the existing one.** Red Team
+already reviews **every gate, on the plan, before the spend** — the cheap
+place to kill a slice. The per-slice pass attacks what was **built**. Keeping
+both is what makes the scoping affordable: a slice pass is free to conclude
+the slice was not worth having, **and if it does, that conclusion is also a
+finding about the gate that let it through.** **A slice-level kill the gate
+missed is the more valuable half of the finding.**
+
+**2. The loop terminates.** A fix re-enters Code Review and QA **for the fix
+only**, and Red Team re-reports **on the fix only** — never a fresh full pass.
+**Three gates in series with no scoping rule is unbounded, and the pressure to
+skip the third would arrive within two slices.** Bounded now rather than
+skipped later for reasons that will sound practical.
+
+**3. A collision with a rule written three hours earlier, resolved before its
+first joint use.** The tree freezes when a slice goes to review; Red Team's
+pass is such a measurement, so **the freeze holds through it** — while Red
+Team writes freely in its own tree throughout. **The freeze is on the artefact
+under measurement, never on the instrument.** Without that sentence the two
+rules contradict the first time they meet.
+
+### The metric that says whether this gate is still earning its cost
+**What fraction of findings are at seams *between* artefacts rather than
+*within* one.** Every defect the other gates caught was within an artefact;
+**Red Team's first engineering pass was 100% seams. That is the number to
+watch.**
+
+**If two consecutive passes produce only defects review or QA could have
+caught, the scoping has gone ritual — and the response is to re-point the
+pass, not to drop the gate.** Recorded in the charter's own metrics so the
+agent measures itself.
+
+**S2's journey, now fixed in its done-when:** sign in → find by ISBN →
+condition, annotations, damage, price → photo → publish → see it listed,
+driven by a client that was served the pages. **Its Red Team pass is pointed
+at the listing surface meeting a real student.**
+
+---
+
+## D-064 — Rule 13's third collision ratified as an invariant, not three names
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto ratification
+
+**The invariant: a money-shaped name is permitted only if it CANNOT carry a
+per-transaction value.** That is precisely what P14 protects — the tax
+position turns on a determinable gross amount **per transaction** — so **a
+declaration identical for every transaction cannot be the thing forbidden.**
+
+Two shapes qualify by construction: **(A)** an ORM lookup that must *end* at
+the permitted column, optional relation prefix, suffix from Django's registry;
+**(B)** an `UPPER_SNAKE` literal-int bound **pinned by test to a real CHECK
+constraint.** Everything per-instance stays forbidden.
+
+### Rule 12 applied honestly, and the two shapes did not get the same answer
+**Shape A has a second layer:** a lookup can only reference the permitted
+column, and the whitelist guarantees that is the only money column — **to
+write `settled_price__gte` you first need a `settled_price` column, which the
+whitelist kills.**
+
+**Shape B had none.** A constant is not a column, so the whitelist does not
+reach it, **and under rule 12 an exemption with no other catcher is a
+widening.** So it was **not granted unpinned.** Requiring the constant to equal
+a real CHECK bound supplies the missing layer — and closes a rule 11 gap,
+since the bound existed twice and the pin makes one a copy rather than a
+second definition free to drift.
+
+### It measured before ratifying, and the measurement changed the write-up
+Across the three collisions, QA's attacks and S4's predicted names:
+`settled_price`, `offered_price`, `offer_amount` all fail;
+`asking_price_paise__total` fails because `total` is not a lookup suffix;
+a relation-prefixed lookup passes.
+
+**But `MAX_OFFER_PAISE` passes the shape test and is rejected only by the
+pin.** So **the shape rules alone would have admitted exactly the S4 case this
+ratification exists to forbid.** The CTO wrote that into the ADR with the name
+to re-run, **for anyone who later reads the pin as ceremony.**
+
+### S4 decided in advance, in the right direction
+A bound like `MAX_OFFER_PAISE` fails, because shape B needs a CHECK to pin to
+and **there is no offer-amount column to have one.** Its reason, which is the
+sentence to keep: ***a bound on a quantity we refuse to store is a quantity we
+are about to start storing.***
+
+**That is the argument for ratifying an invariant rather than three names — a
+name list would have admitted it on the grounds that it looked like the bound
+we had just allowed.**
+
+### A correction to my own instruction
+I told backend to work the order of resort and land on a rung. For the bound,
+**rung 1 was available and harmful**: every honest name for a bound on paise
+contains `paise` or `price`, so **renaming it to dodge a grep strips the unit
+from the name of a money bound — the exact discipline that keeps integer-paise
+safe.** Rung 1 is preferred because a rename is normally neutral; **here it was
+not, and "preferred" was never "mandatory."**
+
+### The pattern named: these collisions are structural
+**The guard protects a money concept and the one permitted column has money
+words in its name, so every slice that touches price will collide by
+construction.** That is the argument for a decided invariant over a growing
+exemption list — which is what rule 13's first instance cost: a deleted token
+took three unrelated tokens with it and left four enforcing nothing.
+
+### One predicted collision deliberately NOT pre-ruled
+S7's export aggregate is a **third shape**, mandated by a frozen contract, and
+**fails the invariant as stated** — an aggregate over one row equals that
+row's value. Whether that matters depends on code that does not exist.
+**Pre-deciding it would be deciding without pressure but also without
+information, which is the opposite trade from the S4 one.** Decided when it
+exists, against this invariant.
+
+---
+
+## D-065 — S2 frontend: three defects found by looking, none findable by testing
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording frontend-developer
+**Committed separately as `59ad6cf`** — the new per-agent commit rule, working.
+
+Nine routes, the sell flow, listing page and want form. Zero application
+JavaScript, and **the evidence is stronger than a grep: the whole journey was
+driven twice by clients that execute none** — the test client across 22
+requests including every POST, and a photo probe. The browser pass used only
+form submits and navigations.
+
+### The three defects, and why the suite could not have found them
+**1. The service worker could never have updated its stylesheet.** A
+hand-typed version constant, beside a comment claiming *"a stale one cannot
+outlive a deploy"* — **true only while someone remembers to edit it.** It
+failed the first time it was tested: a stylesheet change was invisible in the
+browser because the worker kept serving the precached copy, **and a student
+with the app installed would have kept the old stylesheet indefinitely.**
+Rule 9's shape, living in a comment. The cache name is now a hash of the
+shell's bytes, with the precache list and the name from one source so they
+cannot drift.
+
+**2. The seller-terms checkbox had no accessible name.** Chrome computed it as
+`"on"` — its value attribute — because the label contained a link, and a
+label may not contain interactive content. **A screen-reader user met an
+unlabelled required control on the one tick the regulation needs informed**,
+and tapping the link toggled the box. **The accessibility harness passed it,
+correctly: a label with text does exist, and that is all a parser can see.**
+
+**3. A masthead link was 28px tall** at the target width, under the floor — an
+S1 defect in its own tree, **found by measuring every control's box rather
+than reading markup.**
+
+### The ruling that was hardest to hold, and it held
+**The copy guard is red on six strings and every red is correct** — the banned
+bare label matches anywhere, so it refuses the exact string the deck
+prescribes as its replacement and the counsel brief names. **Frontend drafted
+two with a substitute word and reverted both**: *editing mandated legal copy so
+an over-broad grep stays green is rule 13's exact failure, and it would have
+weakened a tax limb to keep a suite green.* Routed to the CTO with the
+observation that **its proposed second layer — a rendered-DOM check — does not
+exist**, which is the test the money invariant failed on.
+
+### Two vacuity refusals, unprompted
+**No route serves a listing photo**, so the criterion forbidding images under
+a data-saver header **is satisfied vacuously and must not be reported as
+passing.** The page says the honest thing instead: *"The seller attached 4
+photos. BookHop has no way to show them yet."* And `shell_version()` **has no
+conformance test**, which frontend named rather than let pass, because it owns
+no test directory — routed to QA with the exact assertions.
+
+### Where §1.7 was applied before writing rather than after
+`sell.published` amended because **both halves were false**; two strings not
+used because they label a notification nobody sends; one held back because
+**nothing stores the comparison it describes**; and two **restored**, because
+the EXIF column now exists and "this book" finally has a referent.
+
+**And a class nobody had looked at: Django's own "This field is required."
+reaches students, lives in the framework's catalogue, so the deny-list never
+sees it and the deck never ruled on it.** Overridden — **a framework default
+is copy nobody reviewed**, and the rest deserve a sweep.
+
+### Measured, not estimated
+First screen 985 bytes gzipped, listing page 1,271, full intake 2,717; shared
+assets 10,940 once. No horizontal scroll at 320px; every control at or above
+44px after the two fixes.
+
+**Photo upload exercised against the real service in seven states**, with the
+honest ceiling declared: with no JavaScript, retry re-opens the file picker
+because **no browser repopulates a file input, by design.** The progress
+indicator is the browser's own — *"determinate, native, zero bytes"* — and
+neither it nor the offline state is simulated or claimed.
+
+---
+
+## D-066 — A scope correction, not an exemption — and an honest asymmetry
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto ratification
+
+**Reclassified: the copy collision is a SCOPE CORRECTION.** The bare-label
+rule's rationale is about how a field is **labelled**; scanning prose with a
+label rule was **over-breadth of exactly the kind criterion 7f had — a control
+broader than the rationale it was written from, invisible because it still
+reads protective.**
+
+### Frontend's revert, recorded in full because of what it prevented
+The thing about to be degraded was **legally mandated copy supporting a tax
+limb**, the degradation would have been **invisible**, and **the suite would
+have gone green.** Rule 13 exists because a deleted token once took three
+others with it. **This would have been worse: a weakened tax limb does not
+show up as a missing test.**
+
+### Two findings on rule 12, and the CTO refused to pretend either way
+**1. The named second layer was never going to be one.** The rendered-DOM
+check verifies *what renders*; the risk this correction creates is **a prose
+string that defeats negotiability** — and a DOM check does not evaluate
+meaning either. **So this does not wait on it** — a different answer from the
+money case, and the CTO distinguished them rather than wriggling: **there the
+missing layer was the one that would have caught the risk; here the named
+layer would not have.**
+
+**2. It accepted a weaker layer here than for money, and said so.** For a
+money constant, **any developer can introduce a new instance in any slice,
+silently, with no reviewer who owns the concept** — hence the CHECK pin. For a
+user-facing string, **nobody can: it comes from the copy deck through design
+review, by construction.**
+
+> **The human layer is a real control for copy and is not one for schema.
+> Rule 12 is satisfied here in a weaker, partly human way, and anyone quoting
+> this ratification should quote that sentence with it.**
+
+### Two conditions, both cheap
+Labels get **named manifest entries — msgid, reason, reviewer — so a seventh
+label cannot inherit the exemption unreviewed.** And **the phrase list is
+extended**, because the original four were never a complete expression of the
+rule they enforce. **Narrowing one layer is the right moment to strengthen the
+other.**
+
+### The §3 gap treated as a process defect, because three times is not three accidents
+A test filename, a verification-method spelling, and now four reads shipped
+under names neither the contract nor the interface chose.
+
+**The rule: a read the interface needs is a contract amendment FIRST, then an
+implementation** — rule 6 applied to signatures instead of files. **"Contracts
+before parallel work" is not satisfied by a contract the work then
+overtakes**, and **neither agent invents a name.** Shipped names win for the
+four that exist; backend sends the signatures.
+
+### The photo route, specified as a contract fix rather than a missing page
+Gate and scope in Django **first** — **a guessable media URL would be a side
+channel around the discovery gate exactly as the notification scan would have
+been** — then the web server streams. **404 rather than 403 when out of
+scope, so the route cannot confirm a listing exists on another campus.**
+
+### The contrast between two placeholders in one pass, which is the lesson
+The ownership-scoped read standing in for discovery is **strictly tighter**
+than what it replaces, **so the worst case is a missing listing rather than a
+leaked one — that is how a placeholder should fail.** The photo gap left a
+criterion passing vacuously.
+
+> **The difference is that the first was visible as a restriction and the
+> second was invisible as an absence.**
+
+---
+
+## D-067 — The gate governs what you can see, never whether you exist
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto rulings
+
+### 1. `User` does not get the gated manager, and the premise was the CTO's
+Its ADR said *"S1 ships no ungated read"* — **false: S1 ships the session
+lookup and the magic-link request.** Backend measured it rather than arguing
+it, which made this a one-line ruling instead of a debate.
+
+**The error named, because it is what would recur: it conflated "a read that
+needs gating" with "a read through the default manager".** The gated manager
+gates **every** read through the default — including resolving a user from
+their own session, **the one read that must never be gated, because
+authentication happens before any gate and cannot depend on one.**
+
+**And the 26 failures were not friction: had it "worked", a real student on a
+closed campus could not be resolved from their own session.**
+
+> **The discovery gate governs what you can see, never whether you exist.**
+
+**Criterion recorded so S4 does not re-ask it: the gated manager belongs on
+models that are DISCOVERED — surfaced to a user who did not create them — not
+on models RESOLVED by identity or ownership.** Discovered: listings, photos,
+requests. Resolved: users, sessions, tokens — **and transfers, which is read
+per-actor, so S4 must not add one there either.**
+
+**The refusal as a test rather than a comment is the right artefact** — a
+future retrofit fails loudly instead of rediscovering 26 broken tests.
+
+### 2. The denormalisation remedy replaced, not copied
+Backend's statement was exact, and the clinching half was **"every test sets
+both through the same service that sets them correctly"** — rule 10's fourth
+disguise, **in the control rather than in a test.**
+
+**The CTO's original remedy was a nightly consistency check. It replaced it
+rather than reusing it: that detects, does not prevent, and detects up to a
+day late.** A **composite foreign key** makes the inconsistency *unwritable* —
+by service, admin, raw SQL, migration or fixture. **No trigger, no job, no
+window.**
+
+> **Where a database can make a class of wrong state unrepresentable, that
+> beats detecting it — and I reached for a job when a constraint was
+> available.**
+
+**And the test must write an inconsistent child directly, bypassing the
+service, because a service-routed test proves only that the service is
+correct — which was never in doubt.**
+
+### 3. A prediction wrong in the helpful direction
+Reverse accessors **are** gated. The measurement replaces the prediction, and
+**the pinning is what earns the credit: labelling it a cross-library claim
+means a Django upgrade turns it red instead of silently losing coverage** —
+rule 9's cross-engine limb used on a library, which is the generalisation the
+rule was written for.
+
+### 4. Two constraints added while recording the signatures
+The seller-block field is **a boolean and never the domain itself**. And
+listing creation gains an **explicit** terms-accepted input rather than
+reading an ambient account state, because **a seller who accepted v1 has not
+accepted v2** — the written contract is accepted at listing time.
+
+### 5. No admin — and the CTO wrote down what that costs its own stack argument
+Four compounding reasons, the sharpest being that **a vendor table's column
+cannot be renamed, so the first rung is structurally unavailable, and
+exempting it would widen the money guard for code we do not control — the one
+place an exemption cannot be audited.**
+
+**But the stack ADR called the admin "the load-bearing reason" for choosing
+Django.** It recorded that in the ADR rather than letting it pass:
+
+> **Anyone re-reading §2.1 should know the strongest-sounding reason in it is
+> the one that did not pay.**
+
+The choice still holds on migrations, i18n and security defaults. **And the
+replacement is scheduled rather than glossed: a command is sufficient while
+every listing is seed data, and insufficient for Gate C, because the staff
+queue needs a visible running timer — and a management command cannot show a
+timer to the person being timed.** The staff console becomes a first-party
+surface before Gate C.
+
+---
+
+## D-068 — Review: CHANGES REQUIRED. Three findings are about me
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording code-review S2
+
+### The three that are mine
+**1. The tree was not frozen, two days after I adopted the rule.** Nineteen
+uncommitted files while review measured. **I caused most of it** — dispatching
+CTO escalations mid-gate and appending to this log. Review's verdict is
+correct: ***rule 3a needs an enforcement mechanism, not another paragraph.***
+
+**The mechanism, decided now: a gate measures a COMMIT, not a working tree.**
+Review already attaches approval to a commit; it must *measure* one too. That
+frees the working tree without asking anyone to stop typing, which is the only
+version of this rule that survives contact. **And I dispatch no work while a
+gate is open — findings queue until it reports.**
+
+**2. Three measurements, three answers, one slice.** I reported 8 and 7
+failures; review measured **15 and 13**; another pass saw 7. **Because the
+tree moved under all three.** No number I gave this slice was trustworthy and
+I should have noticed when the second disagreed with the first.
+
+**3. I relayed a claim without checking it, and it was wrong in backend's
+favour.** I told the founder media is in no backup scope. **It is** — the
+infrastructure doc archives it. **The real defect is worse and I obscured it:
+the restore procedure fetches the dump only, asserts the price trigger exists,
+and checks no photo byte — then records the result as the charter's restore
+test. It prints success on a restore that lost every photo.**
+
+### Four blocking, each measured
+- A missing-file photo **500s instead of 404** — *what a dump-only restore
+  looks like at runtime.*
+- The four-photo cap **fails on PostgreSQL and holds on SQLite.** **It holds
+  on the test engine and fails on the production one**, and the model comment
+  asserting single-writer is now measured false.
+- A superscript digit passes `isdigit()` and raises on `int()`, so **the one
+  money column 500s at both layers** — and ADR-003 names the service as the
+  only detection layer, so rule 12's "name the other layer" has no answer.
+- The denormalisation risk **confirmed by measurement**: flipping only the
+  child's flag hides it from both the manager and the parent's accessor while
+  the parent stays visible, **and the database does not refuse.** Not a
+  disclosure in S2; **it is one in S3.**
+
+### The finding that most resembles our own recurring defect
+**The accessibility harness drops 17 of 35 routes silently** — the listing
+page and the photo step **have never been swept**, and the intake form is
+fetched without its query string so **the whole form is never rendered to
+it.** Its self-reconciliation runs over the already-filtered list **and cannot
+notice.** **None of S2's new interactive surface is covered, and the slice
+reports accessibility green.**
+
+### Credit where it was earned
+**The price trigger: PASS, and review calls it the best control in the
+project.** The guard-for-the-guard **asserts the price actually changed, so it
+cannot be vacuous**, and the negative control is present twice. Its one gap is
+handled honestly — the always-enabled property is `ASSUMED THERE` because
+verifying it needs a superuser, **and the only place it could be verified is
+the restore test that does not look.**
+
+**Two of my relayed claims were wrong in backend's favour**: images being
+undecoded is **safer** than reported, and the streaming header is **better
+covered** than stated. Fuzzy search is named **the model for rule 10's
+both-sides corollary** — opposite properties asserted per engine, neither
+vacuous nor skipped.
+
+**Holding all dispatch until QA reports.** That is the freeze, applied to
+myself first.

@@ -378,7 +378,10 @@ Backend: `books` (ISBN-13 checksum, trigram index), `prescribed_texts`,
 **W1b's exemption rescoped from the `listings` table to the two permitted
 columns (ADR-003 §2.3, REVIEW-S0 R1) and the W1a float check changed to a
 union of both introspection routes (R2)** — both land with `listings`,
-`listing_photos` (EXIF stripped before the row exists), `swap_wants`
+`listing_photos` (EXIF stripped before the row exists), **`GET /media/listing-photo/{photo_id}`** —
+gate- and scope-checked in Django, bytes via nginx `X-Accel-Redirect`, 404 out
+of scope (`API-CONTRACT.md` §5.2); **until it exists the data-saver criterion
+is passing vacuously and is reported as NOT passing**, `swap_wants`
 (UI-hidden), `book_requests`, `seller_terms_acceptances`,
 `suspect_reproduction_flag` → `PENDING_REVIEW`, the moderation queue in admin
 with `work_seconds`, seed fixtures including **one department's real reading
@@ -405,6 +408,17 @@ not nice-to-haves:**
 - [ ] **`listings.paise_count` fails the P14 guard** and
       `asking_price_paise` declared `real` fails it **via introspection even
       though the model declares `IntegerField`** (R2's union).
+
+**And the two §4 requirements that are new since S2 was written, called out
+here because S2 is in flight and a done-when written before them would
+otherwise be read as complete:**
+- [ ] **One real journey end to end through the actual UI** — for S2 that is
+      *sign in → find a book by ISBN → set condition, annotations, damage,
+      price → upload a photo → publish → see it listed*, driven by a client
+      that was served the pages.
+- [ ] **Red Team has reported, after review and QA both passed** (§4.1).
+      S2's pass is pointed at **the listing surface meeting a real student**,
+      and it is free to conclude the slice is not worth having.
 
 ### S3 — Discovery, behind the gate, instrumented · **plus notifications (amendment A-4)**
 
@@ -638,8 +652,70 @@ A slice is done when **all** of these are true:
       unmodified**.
 - [ ] Code Review approved by `code-review` — **not by the author**.
 - [ ] QA green, with QA's tests written against the spec, not the code.
+- [ ] **Red Team has reported, AFTER review and QA both passed.** Founder
+      instruction, standing for every remaining slice. **A slice is not done
+      until Red Team has reported** — reported, not "found nothing"; a clean
+      report closes it. Findings resolve like any other gate's: **fixed, or
+      carried with a tripwire that fires when the gap closes.** A critical
+      objection it cannot get resolved **escalates to the founder** per its
+      charter, and that path is not absorbed by this checkbox. See §4.1.
 - [ ] `audit_log` rows exist for every state-changing action in the slice.
 - [ ] Slice lead time and first-pass rate recorded (`METRICS.md` Delivery).
+
+### 4.1 Red Team's per-slice pass — placement, scope, and two things it collides with
+
+**Placement: after code review and QA, and I agree with it.** The reasoning
+holds and the evidence is already in: **every defect the apparatus caught was
+within an artefact, and every defect Red Team found was at a seam between
+them.** Review asks *is this correct*; QA asks *does this match the
+specification*; **Red Team asks what the strongest failure case is and whether
+the thing is worth having** — and running it earlier would collapse it into a
+third correctness review, which is the one thing this project demonstrably
+does not need more of. Attacking an artefact two gates have already approved
+is the point, not an inefficiency.
+
+**Refinement 1 — this ADDS a touchpoint, it does not move the existing one.**
+Red Team's charter already has it reviewing **every gate**, on the plan,
+before the spend. That pass can still kill a slice before it is built, which
+is the cheap place to do it. **The per-slice pass attacks what was actually
+built.** The two are not in tension, and keeping both is what makes the
+coordinator's scoping note affordable: a slice pass is **free to conclude the
+slice is not worth having**, and **if it does, that conclusion is also a
+finding about the gate that let it through** — which should be said in the
+report, because a slice-level kill that the gate pass missed is the more
+valuable half of the finding.
+
+**Refinement 2 — the loop has to terminate.** If Red Team's finding is fixed,
+the fix re-enters review and QA **for the fix only**, and Red Team re-reports
+**on the fix only** — not a fresh full pass. Without that, three gates in
+series with no scoping rule is an unbounded cycle, and the pressure to skip
+the third would arrive within two slices.
+
+**Collision with §0 rule 3a, resolved now rather than discovered.** The tree
+freezes when a slice goes to review, because a measurement of a moving
+artefact means nothing. **Red Team's pass is such a measurement, so the freeze
+holds through it** — application code and other agents' test trees stay
+frozen until Red Team reports. **It may write freely in `tests/redteam/**`
+throughout, which is exactly why that tree exists** (§1, QA F21). The
+freeze is on the artefact under measurement, never on the instrument.
+
+**Scope, so the passes stay sharp rather than ritual.** Each pass is pointed
+at *that slice's* strongest failure case, not at the apparatus in general.
+**For S2 that is the listing surface meeting a real student:** a seller who
+misdescribes; a photo that leaks location; **a price that means something
+different to the two people reading it**; and the gate opening wider than
+anyone intended now that there is finally something behind it to show.
+
+**The rule on its tree stands:** a probe is not a regression test. When a
+probe finds something real, the finding goes to the owning agent and the
+**regression is written in that agent's tree**, not in `tests/redteam/**`.
+
+> **Companion edit, routed to ceo-planning:** `.claude/agents/red-team.md` is
+> ceo-planning's charter to maintain, and a standing founder instruction that
+> does not reach the charter has the same problem this encoding was meant to
+> fix — **it lives in one place and the agent reads another.** The charter
+> wants the per-slice pass in its Deliverables, and the gate-versus-slice
+> distinction above in its Authority.
 
 ---
 

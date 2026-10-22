@@ -83,6 +83,37 @@ an admin framework the Gate B critical path grows by the time it takes to
 build a staff console, and that console is the least interesting code in the
 project.
 
+> **AMENDMENT 2026-10-22 — the Django admin is NOT being used, and this
+> paragraph was one of my stated reasons for choosing the stack. Facing that
+> rather than letting it pass.**
+>
+> Backend escalated with four measured reasons, and they compound rather than
+> repeat: **its log table carries a column that fails the money whitelist and
+> is not ours to rename** — rung 1 is structurally unavailable for vendor code,
+> and exempting a third-party column would widen the money guard **for code we
+> do not control**, which is the one place an exemption cannot be audited;
+> **two of its columns are free text with no data-model or inventory row**, and
+> `COMPLIANCE.md` §7's standing rule is that a personal-data field without a
+> row is a defect by definition; it pulls in an app this ADR excludes; and its
+> **two-factor requirement cannot ship** because the package is uninstalled
+> with no network. **Accepted.**
+>
+> **What this costs the stack argument, stated plainly: one of the four
+> reasons I gave for Django has not materialised.** The choice still holds on
+> the other three — migrations with a reviewable diff, i18n for EN/TA, and the
+> security defaults — **but anyone re-reading §2.1 should know that the
+> strongest-sounding reason in it is now the one that did not pay.**
+>
+> **What replaces it, and when.** S2's moderation queue ships as a **service
+> plus a management command**, which is sufficient while every listing is seed
+> data. **It is not sufficient for Gate C:** `JOURNEYS.md` J2-staff specifies a
+> queue ordered by time remaining on the shortest applicable clock, with a
+> visible running timer — and **a management command cannot show a timer to
+> the person being timed.** So **the staff console becomes a first-party
+> surface in `web/`, owned by frontend, scheduled before Gate C and not
+> before.** That is more work than the admin would have been, and it is the
+> honest consequence of the four findings rather than a preference.
+
 ### 2.2 Database — **PostgreSQL 16, one database, one schema**
 
 - Transactional storage with real constraints: partial unique indexes (which
