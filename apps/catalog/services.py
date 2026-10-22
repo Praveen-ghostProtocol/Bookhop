@@ -15,6 +15,15 @@ condition on reading the four seller-written strings, not a decoration:
 `served_book_text` is the only place that decision is made, and every read
 path goes through it. Being global is exactly what made the catalogue a
 publishing surface, so the gate is on the *text*, not on the row.
+
+**That claim is now a test, because it was false twice** — F47-Q2 found
+`/sell/find-book` and S2-R2-B1 found `book_requests` on two surfaces after
+A-29 shipped, both times by someone reading the code rather than by anything
+failing. `tests/unit/test_catalogue_text_gate_is_enforced.py` walks `apps/**`
+and `web/**` for any read of a `SELLER_WRITTEN_TEXT` attribute outside this
+gate and the two staff readers, so the next missed read path fails by name
+with its file and line (`CLAUDE.md` rule 9: a document's claim is not
+evidence).
 """
 
 import logging

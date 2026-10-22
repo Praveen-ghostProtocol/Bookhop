@@ -969,10 +969,14 @@ def seller_block(listing):
 def book_block(book, reader=None):
     """The `book` key of a listing payload. A-29 §1's gate, asked once.
 
-    `reader` is the actor whose listing this is — every `listing_payload`
-    caller in S2 is an own-rows read — so a seller who typed the catalogue
-    row sees their own words and a seller who merely listed the same ISBN
-    sees the ISBN and `text_withheld`.
+    `reader` is the actor the row was reached *through*, and every caller in
+    S2 is an own-rows read — so a student who typed the catalogue row sees
+    their own words and one who merely listed, or wanted, the same ISBN sees
+    the ISBN and `text_withheld`.
+
+    **Two callers now, not one.** `listing_payload` below, and
+    `apps/listings/api._request_payload`, which was reading `row.book.title`
+    raw and serving it to a requester who is not its author (S2-R2-B1).
     """
     from apps.catalog.services import served_book_text
 

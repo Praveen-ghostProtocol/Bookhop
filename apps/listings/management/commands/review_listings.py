@@ -109,6 +109,18 @@ class Command(BaseCommand):
         except ServiceError as exc:
             raise CommandError(f"{type(exc).__name__}: {exc}") from None
 
+        # **THE TEXT PRECEDES THE STAMP, FOR EVERY `--listing` INVOCATION.**
+        # This used to run only inside `if not options["action"]` below, after
+        # the `--verify-book` block — so a single
+        # `--listing N --verify-book --action REVIEW_PASS` stamped the book,
+        # took the listing LIVE and served the seller's four strings to every
+        # student of that ISBN with **none of that text ever printed**
+        # (S2-R2-B2). A-29's whole layer is a named human having looked at it,
+        # and on that path the human looked at a listing id. Printing first
+        # also puts the condition and the asking price in front of a reviewer
+        # who decides in one command, which is Red Team F50's point.
+        self._show(listing)
+
         if options["photos"] is not None:
             self._write_photos(staff, listing, options["photos"])
 
@@ -127,8 +139,9 @@ class Command(BaseCommand):
             # **Not an error any more.** `--listing` alone is "show me this
             # one", which is the step J2-staff step 3 describes and the step
             # that did not exist: the only way to name a listing was to
-            # decide it in the same breath.
-            self._show(listing)
+            # decide it in the same breath. The showing itself has moved
+            # above, because it is not conditional on the absence of a
+            # decision — it is the input to one.
             return
         try:
             updated = moderate_listing(

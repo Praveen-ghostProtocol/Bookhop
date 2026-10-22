@@ -894,9 +894,20 @@ def _book_of(book, reader=None):
     seller-written strings come from `apps.catalog.services.served_book_text`,
     which is the one place that asks; this function only maps its answer onto
     the keys the templates read. `reader` is the actor the row was reached
-    *through* — the owner of the listing being rendered — and
-    `/sell/find-book` passes none, because an ISBN lookup over a global row
-    reaches it through nothing anybody owns.
+    *through*, and `/sell/find-book` passes none, because an ISBN lookup over
+    a global row reaches it through nothing anybody owns.
+
+    **On a listing read `reader` is the signed-in viewer, not the listing's
+    seller, and that is deliberate** (S2-R2-R2). A-30 words it as *"the actor
+    whose listing it is"*, and in S2 the two are the same actor because every
+    caller here is an own-rows read. They part at S3, and the viewer is the
+    tighter of the two: the seller-form is safe only for as long as A-29 §2
+    holds — a buyer can reach a listing on an unverified book only if layer 1
+    regresses, and in that case the seller-form serves the raw string and the
+    viewer-form still withholds it (`CLAUDE.md` rule 12). The wording
+    divergence is escalated to cto rather than resolved by editing A-30; the
+    guard that makes the choice deliberate rather than accidental is
+    `tests/unit/test_catalogue_text_gate_is_enforced.py::test_listing_detail_is_still_an_own_rows_read`.
 
     **The withheld form is the ISBN and nothing else, and that is half of
     A-29 §1 rather than all of it.** A-29 asks for *"the ISBN and a neutral,
@@ -1792,15 +1803,27 @@ def wanted(request):
         "wanted.html",
         status=400 if form.errors else 200,
         form=form,
-        rows=[_request_row(r) for r in _items(mine)],
+        rows=[_request_row(r, user) for r in _items(mine)],
         flash=request.session.pop("flash", None),
     )
 
 
-def _request_row(req):
+def _request_row(req, reader=None):
     """One `book_requests` row as display values. Open rows are the only ones
-    with an action; a closed one is history and says which kind."""
+    with an action; a closed one is history and says which kind.
+
+    **A-29 §1's gate, through `_book_of` and not asked again here.** A want
+    row's `book` FK is reached by ISBN — `wanted` looks the ISBN up and stores
+    whatever `find_book_by_isbn` returns — so the student reading their own
+    list is routinely **not** the student who typed the catalogue entry. That
+    is F47-Q2's journey on a second route (S2-R2-B1), and it is why `reader`
+    is threaded down here rather than left to the template.
+
+    `free_text_title` is untouched by the gate: those are the requester's own
+    words about their own row, and no `books` row exists for them at all.
+    """
     book = getattr(req, "book", None)
+    text = _book_of(book, reader) if book is not None else None
     status = getattr(req, "status", None)
     word = {
         "OPEN": ("wanted.status.OPEN", "Still looking"),
@@ -1810,8 +1833,9 @@ def _request_row(req):
     }.get(status)
     return {
         "id": getattr(req, "id", None),
-        "title": getattr(book, "title", None) or getattr(req, "free_text_title", None),
-        "isbn": getattr(book, "isbn13", None),
+        "title": text["title"] if text else getattr(req, "free_text_title", None),
+        "isbn": text["isbn"] if text else None,
+        "withheld": bool(text and text["withheld"]),
         "course_code": getattr(req, "course_code", None),
         "status": status,
         "status_word": pgettext(*word) if word else None,

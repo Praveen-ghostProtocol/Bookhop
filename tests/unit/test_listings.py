@@ -658,3 +658,61 @@ def test_the_review_command_prints_authors_and_can_check_the_book(
     capsys.readouterr()
     unverified_book.refresh_from_db()
     assert unverified_book.staff_verified_at is not None
+
+
+def test_the_review_command_prints_the_text_before_it_stamps_the_book(
+    seller, unverified_book, staff, capsys
+):
+    """S2-R2-B2. **The invocation at risk is the single one, not two.**
+
+    The test above runs `--listing` and `--verify-book` as separate commands,
+    which is the safe ordering and the one nobody gets wrong. The defect was
+    in the one-command form a reviewer who has already decided actually
+    types — `--listing N --verify-book --action REVIEW_PASS` — where `_show`
+    sat inside `if not options["action"]` **after** the verify block, so the
+    stamp landed, the listing went LIVE, the seller's four strings reached
+    every student of that ISBN, and **not one word of them was printed.**
+
+    So this asserts an **order**, not a presence: each of the four strings
+    appears, and all four appear before the line confirming the stamp. A
+    presence assertion would pass on the broken code the moment `--listing`
+    alone was run first, which is exactly how the defect survived a test
+    whose name says it checks this.
+    """
+    from django.core.management import call_command
+
+    listing = services.publish_listing(seller, _create(seller, unverified_book), 1)
+
+    call_command(
+        "review_listings", "--staff", staff.email, "--listing", str(listing.id),
+        "--verify-book", "--action", "REVIEW_PASS",
+        "--reason", "edition matches the cover", "--legal-basis", "seller terms",
+    )
+    shown = capsys.readouterr().out
+
+    stamp = shown.find("checked by")
+    assert stamp != -1, f"the stamp confirmation is not in the output:\n{shown}"
+    for value in (
+        unverified_book.title,
+        unverified_book.authors[0],
+        unverified_book.edition_label,
+        unverified_book.publisher,
+    ):
+        at = shown.find(value)
+        assert at != -1, (
+            f"{value!r} never reached the terminal, and this invocation "
+            f"stamped `staff_verified_at` and served it to every student of "
+            f"this ISBN. A-29's layer is a named human having looked at it, "
+            f"so a path that stamps without printing is the layer missing:\n{shown}"
+        )
+        assert at < stamp, (
+            f"{value!r} is printed *after* the stamp confirmation, so the "
+            f"human read it after the text was already published. `_show` "
+            f"must run for every `--listing` invocation and before the "
+            f"`--verify-book` block:\n{shown}"
+        )
+
+    unverified_book.refresh_from_db()
+    assert unverified_book.staff_verified_at is not None, (
+        "the ordering is only interesting if the stamp still happens"
+    )

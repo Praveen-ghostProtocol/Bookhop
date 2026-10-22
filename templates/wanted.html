@@ -59,6 +59,10 @@
         <li>
           {% if row.status_word %}<span class="chip chip--wait">{{ row.status_word }}</span>{% endif %}
           <p class="biblio">{{ row.title }}</p>
+          {% comment %} The fifth reader of one condition. A want row's book
+             is found by ISBN, so the student reading their own list is
+             usually not the one who typed the catalogue entry. {% endcomment %}
+          {% include "_withheld.html" with book=row %}
           {% if row.isbn %}<p class="mono">{{ row.isbn }}</p>{% endif %}
           {% if row.course_code %}<p class="meta">{{ row.course_code }}</p>{% endif %}
           {% if row.open %}

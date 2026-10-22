@@ -39,22 +39,40 @@ def _page_payload(page, serialise):
     }
 
 
-def _request_payload(row):
+def _request_payload(row, reader=None):
     """One `book_requests` row. No requester identity at all.
 
     A want is the demand signal; who wants it is nobody's business but staff's
     and the requester's own, and this payload is reachable by neither
     anonymously nor across campuses. The pseudonym is included **only** on the
     owner's own list, which is the only place this is serialised today.
+
+    **A-29 §1's gate, asked by `book_block` and not again here**
+    (S2-R2-B1). `book` is reached through the requester's own row, so `reader`
+    is the requester — and that is not the same person as the author of the
+    catalogue entry, because `create_request` stores whatever
+    `find_book_by_isbn` returned. All three callers below are own-rows reads,
+    so all three pass their actor.
+
+    The three identity keys are kept rather than the whole `book_block`:
+    `text_withheld` is added because a client cannot tell a withheld title
+    from a real one without it, and the other four `book_block` keys are a
+    response widening nobody asked for.
     """
+    book = services.book_block(row.book, reader) if row.book_id else None
     return {
         "id": row.id,
         "status": row.status,
         "course_code": row.course_code,
         "created_at": row.created_at,
         "book": (
-            {"id": row.book_id, "isbn13": row.book.isbn13, "title": row.book.title}
-            if row.book_id
+            {
+                "id": book["id"],
+                "isbn13": book["isbn13"],
+                "title": book["title"],
+                "text_withheld": book["text_withheld"],
+            }
+            if book
             else None
         ),
         "free_text_title": row.free_text_title,
@@ -254,12 +272,13 @@ def requests_(request, body, user):
             free_text_title=body.get("free_text_title"),
             course_code=body.get("course_code"),
         )
-        return 201, _request_payload(row)
+        return 201, _request_payload(row, actor)
 
+    reader = _signed_in(user)
     page = services.my_requests(
-        _signed_in(user), cursor=request.GET.get("cursor"), limit=request.GET.get("limit")
+        reader, cursor=request.GET.get("cursor"), limit=request.GET.get("limit")
     )
-    return 200, _page_payload(page, _request_payload)
+    return 200, _page_payload(page, lambda row: _request_payload(row, reader))
 
 
 @endpoint(
@@ -279,7 +298,7 @@ def request_detail(request, body, user, request_id=None):
     # with a `BookRequest.all_objects` lookup. That is both the hard rule and
     # the reason `all_objects` has an allow-list: a bare lookup here would
     # have skipped the ownership predicate the service applies.
-    return 200, _request_payload(services.close_request(actor, request_id))
+    return 200, _request_payload(services.close_request(actor, request_id), actor)
 
 
 @require_safe

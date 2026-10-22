@@ -110,12 +110,18 @@ def contact_channels_in(text, kinds=None):
     """The kinds of off-platform channel in `text`, sorted. `[]` if none.
 
     `kinds` restricts which limbs are applied; `None` applies all of them.
-    **The subset is a caller's ruling, not a caller's reimplementation**
-    (rule 11): `apps/catalog` applies `("addressed",)` alone under
-    API-CONTRACT A-28, because `linked` fires on `Physics/Chemistry Combined`
-    and `dialable` fires on `Journal 2019 2020 2021`, and a limb that fires
-    on legitimate content gets edited rather than obeyed (rule 13). It passes
-    the names; it does not keep its own copy of the predicates.
+
+    **It has no caller today, and that is the honest version of the ceiling.**
+    The one caller it was built for was `apps/catalog` under API-CONTRACT
+    A-28, and **A-29 §3 deleted it** — `CATALOGUE_CHANNEL_KINDS` and the
+    catalogue refusal are gone, not emptied, because the defect in catalogue
+    text was never textual. The parameter stays because the shape it declares
+    is the right one for the next caller that needs a subset: **a caller's
+    ruling is not a caller's reimplementation** (rule 11) — it passes the
+    names and keeps no copy of the predicates — and because deleting it would
+    delete the two refusals below, which are earned findings with live tests.
+    Nothing here describes a refusal that can currently happen through a
+    subset, and no superseded amendment is cited as live.
 
     **Two ways to select nothing, and both raise** (rule 10). A name that is
     not a limb raises `KeyError`; an empty-but-not-`None` `kinds` raises
