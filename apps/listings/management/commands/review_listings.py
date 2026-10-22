@@ -16,7 +16,8 @@ from django.core.management.base import BaseCommand, CommandError
 from apps.core.errors import ServiceError
 from apps.listings.services import MODERATION_ACTIONS, moderate_listing
 from apps.listings.staff import (
-    listing_for_review, photos_for_review, queue_rows, staff_actor,
+    REVIEW_COPY_PREFIX, listing_for_review, photos_for_review, queue_rows,
+    staff_actor, sweep_review_copies,
 )
 
 
@@ -36,12 +37,25 @@ class Command(BaseCommand):
             "--photos", metavar="DIR", nargs="?", const="", default=None,
             help="with --listing: write that listing's photos where the "
                  "reviewer can open them, and print the paths. With no DIR, "
-                 "a fresh private temporary directory — which is the one to "
-                 "use, because these copies sit outside purge_media and "
-                 "outside the retention clock until you delete them",
+                 "a fresh private temporary directory. Either way the copies "
+                 "go into a bookhop-review-* directory and the next run of "
+                 "this command deletes them once they are 24h old "
+                 "(COMPLIANCE.md §7 row 25) — so run it, and pass the DIR "
+                 "you used, even when you are only listing the queue",
         )
 
     def handle(self, *args, **options):
+        # **First, before anything can fail.** P15: the copies expire on a
+        # clock, and the clock is this command — the same command, run by
+        # the same person, that made them. It runs whether or not this
+        # invocation writes any photos, because the invocation that cleans
+        # up is rarely the one that made the mess.
+        for path in sweep_review_copies(options["photos"]):
+            self.stdout.write(
+                f"swept {path} — a review copy over 24h old "
+                "(COMPLIANCE.md §7 row 25)"
+            )
+
         try:
             staff = staff_actor(options["staff"])
         except ServiceError as exc:
@@ -152,11 +166,16 @@ class Command(BaseCommand):
         import pathlib
         import tempfile
 
+        # **One `mkdtemp`, both modes** (P15). With no DIR the copies land in
+        # the system temporary directory; with a DIR they land in a
+        # `bookhop-review-*` subdirectory *of* it, never loose in the
+        # directory itself — so `sweep_review_copies` has one name rule to
+        # apply instead of two that can disagree (rule 11).
+        root = None
         if directory:
-            target = pathlib.Path(directory)
-            target.mkdir(parents=True, exist_ok=True)
-        else:
-            target = pathlib.Path(tempfile.mkdtemp(prefix="bookhop-review-"))
+            root = pathlib.Path(directory)
+            root.mkdir(parents=True, exist_ok=True)
+        target = pathlib.Path(tempfile.mkdtemp(prefix=REVIEW_COPY_PREFIX, dir=root))
         try:
             resolved = photos_for_review(staff, listing.id)
         except ServiceError as exc:
@@ -183,9 +202,10 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"  DELETE THESE   rm -rf {target}\n"
                 "                 They are a student's photographs outside "
-                "the object store, so nothing else deletes them: not "
-                "purge_media, not an erasure request, not the 1-year "
-                "retention clock (COMPLIANCE.md §7 row 9)."
+                "the object store: purge_media does not reach them, nor "
+                "does an erasure request (COMPLIANCE.md §7 rows 9 and 25). "
+                "The next run of this command sweeps them after 24h — that "
+                "is the retention rule, not this line. Delete them sooner."
             )
 
 

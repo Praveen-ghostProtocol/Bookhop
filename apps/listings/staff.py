@@ -45,6 +45,10 @@
 """
 
 import logging
+import pathlib
+import shutil
+import tempfile
+import time
 
 from apps.core.errors import NotPermitted
 
@@ -52,7 +56,92 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "queue_rows", "staff_actor", "listing_for_review", "photos_for_review",
+    "sweep_review_copies", "REVIEW_COPY_PREFIX", "REVIEW_COPY_TTL_SECONDS",
 ]
+
+#: **One name rule, both modes.** Every directory `--photos` creates is
+#: named with this prefix — in `gettempdir()` by default, and in a
+#: `bookhop-review-*` subdirectory of an operator-chosen `DIR` otherwise —
+#: so the sweep below has a single rule to apply rather than two that can
+#: disagree (`CLAUDE.md` rule 11). The write side of the convention is in
+#: `review_listings._write_photos`; this is the side that makes it
+#: load-bearing rather than decorative.
+REVIEW_COPY_PREFIX = "bookhop-review-"
+
+#: `COMPLIANCE.md` §7 row 25. One working day, so a reviewer who opens a
+#: listing at 5pm still has the files at 10am. **Arbitrary, and said to be**:
+#: if a review legitimately spans longer, this number moves and the
+#: mechanism does not.
+REVIEW_COPY_TTL_SECONDS = 24 * 3600
+
+
+def sweep_review_copies(extra_root=None):
+    """Delete `--photos` working copies older than 24h. Returns what it took.
+
+    **P15, and the argument that decides it is not DPDP s8(7)** — though that
+    applies. It is that `COPY-DECK.md` replaced *"Everything else goes now"*
+    with an **enumeration** of what survives deletion; that enumeration is a
+    representation to the student; and these copies are not in it and
+    `erase_account` cannot reach them. The honest disclosure would read *"a
+    staff member may still have copies of your photographs on their own
+    computer; we don't know how many, or where, and nothing deletes them."*
+    Nobody ships that sentence, so the copies go and the notice stands.
+
+    A printed `rm -rf` was not a retention period: it is an instruction, and
+    an instruction with no event that ends it is indefinite retention of
+    photographs taken inside a student's room, on an unknown number of
+    laptops.
+
+    **The clock is an age, not a name.** A sweep that deleted every
+    `bookhop-review-*` directory would pass the first half of its own test
+    and `rm -rf` the copies the moderator is reading at that moment. Both
+    sides are asserted in `tests/contract/test_the_review_copies_expire.py`.
+
+    **The residual, named rather than closed:** an operator who runs
+    `--photos DIR` once and never runs the command again is never swept.
+    The layer that catches that is the `personal_data_access_log` row
+    `photos_for_review` writes — we know which operator opened which
+    listing, so an erasure request is answerable by asking one named person.
+
+    # ponytail: no daemon, no cron, no state file, no new table. The sweep
+    # runs at the top of the same command, run by the same person, that made
+    # the copies. Ceiling: it is the residual above. Upgrade path: the
+    # moderation screen, where the browser renders the bytes and no second
+    # copy is written at all.
+    """
+    roots, seen = [], set()
+    for candidate in (tempfile.gettempdir(), extra_root):
+        if not candidate:
+            continue
+        root = pathlib.Path(candidate)
+        try:
+            key = root.resolve()
+        except OSError:
+            continue
+        if key not in seen and root.is_dir():
+            seen.add(key)
+            roots.append(root)
+
+    cutoff = time.time() - REVIEW_COPY_TTL_SECONDS
+    removed = []
+    for root in roots:
+        for child in sorted(root.glob(f"{REVIEW_COPY_PREFIX}*")):
+            try:
+                if not child.is_dir() or child.stat().st_mtime >= cutoff:
+                    continue
+                shutil.rmtree(child)
+            except OSError:
+                # A directory another operator holds open, or one that went
+                # away between the glob and the stat. The next run retries;
+                # a sweep that died here would stop the queue.
+                log.warning("listings.review_copy_sweep_failed", exc_info=True)
+                continue
+            removed.append(child)
+            log.info(
+                "listings.review_copy_swept",
+                extra={"event": "listings.review_copy_swept", "path": str(child)},
+            )
+    return removed
 
 
 def staff_actor(email):

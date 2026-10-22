@@ -17,7 +17,7 @@ import unicodedata
 
 from django.db import IntegrityError, transaction
 
-from apps.core.contact import MIN_DIALABLE_DIGITS_CATALOGUE, contact_channels_in
+from apps.core.contact import contact_channels_in
 from apps.core.errors import DuplicateIsbn, NotFound, NotPermitted, ValidationFailed
 from apps.core.services import record_audit
 
@@ -47,25 +47,25 @@ _COLLAPSE_SPACE = re.compile(r"\s+")
 #: later switch to the indexed `%` operator does not change which rows match.
 TRIGRAM_THRESHOLD = 0.3
 
-#: **API-CONTRACT A-26.** Two of `apps/core/contact.py`'s three limbs apply to
-#: catalogue text. `linked` does not: `Physics/Chemistry Combined` and
-#: `Maths I/II` are real titles, and a guard that fires on legitimate
-#: catalogue data is edited rather than obeyed (`CLAUDE.md` rule 13). Rule
-#: 13's first resort — rename our own name — cannot apply, because the
-#: colliding name is a publisher's.
+#: **API-CONTRACT A-28.** One of `apps/core/contact.py`'s three limbs applies
+#: to catalogue text. `linked` does not: `Physics/Chemistry Combined` and
+#: `Maths I/II` are real titles. `dialable` does not either: the separators
+#: that join `+91 98400 12345` into twelve digits also join
+#: `Journal 2019 2020 2021` into twelve, so **no threshold separates them**
+#: and two attempts to find one each broke on first contact. A guard that
+#: fires on legitimate catalogue data is edited rather than obeyed
+#: (`CLAUDE.md` rule 13); rule 13's first resort — rename our own name —
+#: cannot apply, because the colliding names are publishers' and authors'.
 #:
-#: **The layer that still catches a `t.me/priya` in a title** (rule 12, and
-#: an exemption without this line is a widening) is the human review queue:
-#: at pilot every listing stops at `PENDING_REVIEW` and the moderator is
-#: shown the title, edition and publisher. *That layer exists only while
-#: `LISTING_REVIEW_ALL` is true*, so the exemption is conditional and
-#: `tests/unit/test_catalog.py::test_the_linked_exemption_rests_on_a_flag_that_is_still_true`
+#: **The layer that still catches a `t.me/priya` or a phone number in a
+#: title** (rule 12, and an exemption without this line is a widening) is the
+#: human review queue: at pilot every listing stops at `PENDING_REVIEW` and
+#: the moderator is shown the title, edition and publisher. *That layer
+#: exists only while `LISTING_REVIEW_ALL` is true*, so the exemption is
+#: conditional and
+#: `tests/unit/test_catalog.py::test_the_catalogue_exemptions_rest_on_a_flag_that_is_still_true`
 #: goes **red**, not green and not skipped, in the diff that flips it.
-#:
-#: **And `dialable` is applied at ten digits, not seven** (A-27): the
-#: threshold is imported, not retyped, because a hand-copied `10` here would
-#: be the fourth copy of a rule this project has already paid for (rule 11).
-CATALOGUE_CHANNEL_KINDS = ("addressed", "dialable")
+CATALOGUE_CHANNEL_KINDS = ("addressed",)
 
 
 def normalise_isbn13(raw):
@@ -225,20 +225,14 @@ def search_books(q: str, limit: int = 20):
     return list(base.filter(title_norm__contains=needle).order_by("title")[:limit])
 
 
-#: The sentence each limb earns. **A refusal with the wrong explanation is
-#: the thing that gets guards edited** (A-27): a long digit run in a title is
-#: most often a misfiled ISBN, not a phone number, and telling that student
-#: they typed a phone number is how a correct guard acquires a reputation for
-#: being wrong. Keyed by limb so a limb added to `CATALOGUE_CHANNEL_KINDS`
-#: without a sentence fails loudly below rather than borrowing a wrong one.
+#: The sentence each limb earns. Keyed by limb so a limb added to
+#: `CATALOGUE_CHANNEL_KINDS` without a sentence fails loudly below rather
+#: than borrowing a wrong one. **One limb applies to catalogue text (A-28),
+#: so there is one sentence**: a digit run — an ISBN in the title, a phone
+#: number, a three-year journal range — is no longer refused here at all, and
+#: a message describing that refusal would describe something that cannot
+#: happen (rule 9's corollary).
 _CATALOGUE_REFUSAL = {
-    "dialable": (
-        "A ten-digit or longer number here. If that is the ISBN, it has its "
-        "own field — put it there, and enter only what is printed on the "
-        "cover. If it is a phone number, it does not belong on a catalogue "
-        "record: buyers and sellers arrange handovers through BookHop.",
-        "The ISBN goes in the ISBN field. No phone numbers.",
-    ),
     "addressed": (
         "An email address or a handle here would appear on every listing of "
         "this ISBN, including listings by sellers who never typed it. Enter "
@@ -250,23 +244,19 @@ _CATALOGUE_REFUSAL = {
 
 
 def _refuse_contact_channel(field, value):
-    """API-CONTRACT A-26, as corrected by A-27. Raises on an off-platform
-    address — and on a misfiled ISBN, which is the same digit run and a
-    different mistake.
+    """API-CONTRACT A-26, as corrected by A-27 and settled by A-28. Raises on
+    an off-platform address. A digit run is not one: see
+    `CATALOGUE_CHANNEL_KINDS`.
 
     **Worse than F49, which is why it is here and not only on
     `display_name`:** `books` is global (ADR-002 §2), so a channel typed into
     a title renders on *every* listing of that ISBN, including listings by
     sellers who never typed it.
     """
-    channels = contact_channels_in(
-        value,
-        CATALOGUE_CHANNEL_KINDS,
-        min_dialable_digits=MIN_DIALABLE_DIGITS_CATALOGUE,
-    )
+    channels = contact_channels_in(value, CATALOGUE_CHANNEL_KINDS)
     if channels:
-        # Sorted, so the sentence is stable when both limbs fire; `dialable`
-        # sorts first and is the one a real student hits.
+        # Sorted, so the sentence is stable if a second limb is ever ruled
+        # back in.
         message, field_error = _CATALOGUE_REFUSAL[channels[0]]
         raise ValidationFailed(
             message,

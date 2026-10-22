@@ -25,15 +25,12 @@ digits, dashes, dots and any letter in Unicode.
 **Three limbs, each with its own match rule** (rule 11's second half, so a
 false positive narrows one limb instead of deleting the set):
 
-  1. `dialable` — enough digits to be dialled, once the characters a phone
-     number is written with are removed. **The limb is shared and the
-     threshold is the caller's** (A-27): seven for `display_name`, where no
-     legitimate name carries a seven-digit run; ten for catalogue text, where
-     `A History of India 1707-1947` is eight and was refused as a phone
-     number under A-26. Both constants live below, beside the limb, so this
-     is one definition with two readings and not two copies (rule 11).
-     `Priya R 2` has one digit, `Batch of 2024` has four, `98400 12345` has
-     ten.
+  1. `dialable` — seven or more digits, once the characters a phone number is
+     written with are removed. `Priya R 2` has one digit, `Batch of 2024`
+     has four, `98400 12345` has ten. **`display_name` only** (A-28):
+     catalogue text applies `addressed` alone, because the separators that
+     join a number also join `Journal 2019 2020 2021`, and a run count
+     cannot tell the two apart.
   2. `addressed` — an `@` with something attached to it: an email local part
      or a handle. `Priya @ MIT` has a space after the `@` and is not one.
   3. `linked` — a path separator. `wa.me/91…`, `t.me/priya`,
@@ -61,12 +58,10 @@ this narrow is only defensible because something else is looking.
 """
 
 import re
-from functools import partial
 
 __all__ = [
     "CHANNEL_KINDS",
     "MIN_DIALABLE_DIGITS",
-    "MIN_DIALABLE_DIGITS_CATALOGUE",
     "contact_channels_in",
     "has_contact_channel",
 ]
@@ -83,24 +78,11 @@ _DIGIT_RUN = re.compile(rf"\d(?:[{_NUMBER_SEPARATORS}]*\d)*")
 #: real name carries a seven-digit run.
 MIN_DIALABLE_DIGITS = 7
 
-#: **Catalogue text takes ten** (API-CONTRACT A-27). Real titles, publishers
-#: and edition labels carry hyphenated digit runs that a seven-digit rule
-#: reads as phone numbers — `A History of India 1707-1947` is eight digits,
-#: `Cambridge 2020-2021` is eight — and A-26 refused all of them under the
-#: message *"Enter what is printed on the book"*. Ten is not a tuning
-#: constant: it is the shortest dialable Indian subscriber number, so
-#: `98400 12345` and `wa.me/91…` are still caught.
-#:
-#: **The declared gap, named here**: a 7-to-9-digit run in catalogue text is
-#: accepted. The layer that catches it is the review queue, under the same
-#: `LISTING_REVIEW_ALL` guard A-26 named for `linked`.
-MIN_DIALABLE_DIGITS_CATALOGUE = 10
 
-
-def _dialable(text, min_digits=MIN_DIALABLE_DIGITS):
+def _dialable(text):
     """A run of digits long enough to be dialled."""
     return any(
-        len(re.sub(r"\D", "", run.group())) >= min_digits
+        len(re.sub(r"\D", "", run.group())) >= MIN_DIALABLE_DIGITS
         for run in _DIGIT_RUN.finditer(text)
     )
 
@@ -124,21 +106,16 @@ CHANNEL_KINDS = {
 }
 
 
-def contact_channels_in(text, kinds=None, min_dialable_digits=MIN_DIALABLE_DIGITS):
+def contact_channels_in(text, kinds=None):
     """The kinds of off-platform channel in `text`, sorted. `[]` if none.
 
     `kinds` restricts which limbs are applied; `None` applies all of them.
     **The subset is a caller's ruling, not a caller's reimplementation**
-    (rule 11): `apps/catalog` applies `("addressed", "dialable")` under
-    API-CONTRACT A-26 because a real book title contains a slash
-    (`Physics/Chemistry Combined`), and a limb that fires on legitimate
-    content gets edited rather than obeyed (rule 13). It passes the names; it
-    does not keep its own copy of the predicates.
-
-    `min_dialable_digits` is the same arrangement one level down (A-27): the
-    `dialable` limb is defined once here and the *threshold* is the caller's,
-    because `display_name` and a book title do not carry the same risk. A
-    caller passes `MIN_DIALABLE_DIGITS_CATALOGUE`; it does not write `10`.
+    (rule 11): `apps/catalog` applies `("addressed",)` alone under
+    API-CONTRACT A-28, because `linked` fires on `Physics/Chemistry Combined`
+    and `dialable` fires on `Journal 2019 2020 2021`, and a limb that fires
+    on legitimate content gets edited rather than obeyed (rule 13). It passes
+    the names; it does not keep its own copy of the predicates.
 
     **Two ways to select nothing, and both raise** (rule 10). A name that is
     not a limb raises `KeyError`; an empty-but-not-`None` `kinds` raises
@@ -158,10 +135,8 @@ def contact_channels_in(text, kinds=None, min_dialable_digits=MIN_DIALABLE_DIGIT
                 f"{sorted(CHANNEL_KINDS)}, or name the limbs you want."
             )
         selected = {k: CHANNEL_KINDS[k] for k in kinds}
-    if "dialable" in selected:
-        selected["dialable"] = partial(_dialable, min_digits=min_dialable_digits)
     return sorted(kind for kind, matches in selected.items() if matches(subject))
 
 
-def has_contact_channel(text, kinds=None, min_dialable_digits=MIN_DIALABLE_DIGITS):
-    return bool(contact_channels_in(text, kinds, min_dialable_digits))
+def has_contact_channel(text, kinds=None):
+    return bool(contact_channels_in(text, kinds))

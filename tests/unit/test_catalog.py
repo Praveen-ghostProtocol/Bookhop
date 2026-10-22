@@ -243,13 +243,14 @@ def test_a_reading_list_is_scoped_to_its_campus(book, signup_campus, closed_camp
 # list, and `publisher` and `edition_label` not at all, so
 # `"Engineering Mathematics wa.me/919840012345"` became a channel on **every**
 # listing of that ISBN — `books` is global, so this is wider than F49, which
-# reached only the seller's own listings. API-CONTRACT A-26 is the ruling:
-# `dialable` and `addressed` apply; `linked` does not.
+# reached only the seller's own listings. API-CONTRACT A-28 is the settled
+# ruling: `addressed` applies; `dialable` and `linked` do not.
 #
-# **Both sides are rows** (`CLAUDE.md` rule 10's corollary). The permitted
-# side is the expensive one to get wrong: `linked` is exempt precisely
-# because real titles contain slashes, and a table that only listed refusals
-# would pass with the exemption silently removed.
+# **Both sides are rows** (`CLAUDE.md` rule 10's corollary), and after A-28
+# the permitted side is by far the larger one: every digit run in catalogue
+# text is accepted, a phone number and a `wa.me` link included. A table that
+# only listed refusals would pass with the exemptions silently removed — and
+# would also read as covering what A-28 handed to the review queue.
 
 
 def _create(student, **over):
@@ -292,7 +293,20 @@ def _create(student, **over):
         # covering it. `apps/core/contact.py` lists it; A-26 names the review
         # queue as the layer that catches it, and the test below pins the
         # flag that queue depends on.
+        # **A-28's rows: the whole `dialable` limb is off catalogue text.**
+        # These are the measurement that ended three rulings — a journal run
+        # and an Indian mobile are both twelve digits in three
+        # whitespace-separated groups, so the first two rows here and the
+        # phone number below are the same shape and nothing tells them apart.
+        ("title", "Journal 2019 2020 2021", "three years: twelve digits in three groups"),
+        ("title", "Collected Works 1 2 3 4 5 6 7 8 9 10", "eleven digits in ten groups"),
+        ("title", "Engineering Mathematics 9788177589139", "an ISBN-13 in the title: misfiled, not refused"),
+        # The declared gaps, asserted as gaps so the suite cannot be read as
+        # covering them. A-28 names the review queue as the layer that
+        # catches these, and the flag test below pins what that queue needs.
         ("title", "Discrete Maths t.me/priya", "`linked` is exempt — the review queue catches this"),
+        ("title", "Grewal 98400 12345", "a bare mobile — `dialable` is exempt, the queue catches it"),
+        ("title", "Grewal wa.me/919840012345", "a WhatsApp link in a title: neither limb applies any more"),
     ],
 )
 def test_real_catalogue_text_is_accepted(student, field, value, why):
@@ -301,9 +315,8 @@ def test_real_catalogue_text_is_accepted(student, field, value, why):
 
 
 CHANNELS_THAT_MUST_BE_REFUSED = [
-    ("98400 12345", "dialable", "a mobile number with a space in it"),
     ("priya.r@gmail.com", "addressed", "an email address"),
-    ("wa.me/919840012345", "dialable", "a WhatsApp link — caught by its digits, not by `linked`"),
+    ("@priya_r", "addressed", "a bare handle"),
 ]
 
 
@@ -321,52 +334,56 @@ def test_a_contact_channel_in_catalogue_text_is_refused(student, field, channel,
     value = ["B S Grewal", f"B S Grewal {channel}"] if field == "authors" else f"Grewal {channel}"
     with pytest.raises(ValidationFailed) as caught:
         _create(student, **{field: value})
-    # The *kind* is asserted, not merely the refusal: `wa.me/91…` must be
-    # refused by `dialable`, because `linked` is exempt here and a test that
-    # only asserted "refused" would still pass if the exemption were dropped
-    # and then re-dropped for the wrong reason.
-    assert kind in caught.value.context["detail"], why
+    # The *kind* is asserted, not merely the refusal: a test that only
+    # asserted "refused" would still pass if a limb A-28 ruled out were
+    # quietly doing the refusing.
+    assert caught.value.context["detail"].endswith(kind), why
     assert field in caught.value.context["field_errors"]
     assert Book.objects.count() == before, "refused before the row exists"
 
 
-@pytest.mark.parametrize(
-    "value,why",
-    [
-        ("Grewal 9840012345", "a bare mobile — exactly ten digits, the boundary from above"),
-        ("Grewal 98400-12345", "ten digits across a hyphen"),
-        ("Grewal 9788177589139", "an ISBN-13 — refused deliberately, see the message test"),
-        ("Grewal wa.me/919840012345", "twelve digits; `linked` is exempt, `dialable` is not"),
-    ],
-)
-def test_ten_digits_is_still_refused_in_catalogue_text(student, value, why):
-    """**The boundary from above.** A-27 moved the catalogue threshold from
-    seven to ten; the rows above moved with it, and these did not."""
-    with pytest.raises(ValidationFailed) as caught:
-        _create(student, title=value)
-    assert "dialable" in caught.value.context["detail"], why
+def test_a_phone_number_in_a_title_is_accepted_and_in_a_display_name_is_not(student):
+    """**The contrast A-28 rests on, in one test.**
 
-
-def test_the_isbn_refusal_says_isbn_and_not_phone_number(student):
-    """A-27: *"An ISBN-13 in a `title` is still refused, and that is
-    correct — not a tolerated false positive. The ISBN has its own field;
-    one in the title is misfiled data. The refusal message for catalogue
-    fields must say that."*
-
-    **A refusal with the wrong explanation is what gets guards edited**
-    (rule 13). The guard here is right and its old sentence was not: a
-    student who typed the ISBN into the title was told they had typed a
-    phone number, which is a correct refusal that reads as a broken one.
+    The same string, two fields, two answers: a book title is text about a
+    published object, where digit runs are the normal case, and a
+    `display_name` is text a person types about themselves, where they are
+    not. One definition, two readings (rule 11) — and this goes red if
+    someone "fixes" either side by moving the other.
     """
-    with pytest.raises(ValidationFailed) as caught:
-        _create(student, title="Engineering Mathematics 9788177589139")
-    message = str(caught.value)
-    field_error = caught.value.context["field_errors"]["title"][0]
-    assert "ISBN" in message, f"the message does not mention the ISBN: {message}"
-    assert field_error.startswith("The ISBN goes in the ISBN field."), (
-        "the short error rendered beside the input must lead with the "
-        f"likely mistake, not the unlikely one: {field_error}"
+    from apps.core.contact import contact_channels_in
+
+    channel = "wa.me/919840012345"
+    assert _create(student, title=f"Grewal {channel}").title.endswith(channel), (
+        "A-28: neither `dialable` nor `linked` applies to catalogue text, so "
+        "this reaches the review queue and not a refusal"
     )
+    assert contact_channels_in(channel) == ["dialable", "linked"], (
+        "`display_name` keeps all three limbs at seven digits: the limbs are "
+        "exempted by the caller's argument list, never deleted"
+    )
+
+
+def test_no_catalogue_refusal_describes_a_refusal_that_cannot_happen():
+    """Rule 9's corollary: when an explanation and a measurement disagree,
+    the explanation goes.
+
+    A-27 wrote a sentence about ten-digit numbers and misfiled ISBNs. A-28
+    removed the limb that could produce it, and a message describing a
+    refusal the code can no longer reach is worse than no message — a
+    reviewer reads it as coverage. The keys are checked elsewhere; the
+    *words* are checked here, because the dead sentence could be pasted
+    under a live key.
+    """
+    said = " ".join(
+        part for row in services._CATALOGUE_REFUSAL.values() for part in row
+    ).lower()
+    for dead in ("ten-digit", "phone number", "the isbn goes in", "own field"):
+        assert dead not in said, (
+            f"a catalogue refusal still says {dead!r}, but no catalogue limb "
+            "refuses a digit run after A-28 — the sentence describes a "
+            "refusal that cannot happen"
+        )
 
 
 def test_every_catalogue_limb_has_a_sentence_of_its_own():
@@ -377,76 +394,37 @@ def test_every_catalogue_limb_has_a_sentence_of_its_own():
     assert set(services.CATALOGUE_CHANNEL_KINDS) == set(services._CATALOGUE_REFUSAL)
 
 
-def test_the_catalogue_threshold_is_the_shared_limb_read_differently():
-    """A-27: *"the limb is shared, the threshold is the caller's"*.
-
-    Measured as the two readings of **one** definition rather than asserted
-    as two constants: the same eight-digit string is a channel for
-    `display_name` (7) and is not for a book title (10). If someone ever
-    makes this two copies of one rule, one of these two halves moves without
-    the other and this fails (rule 11).
-    """
-    from apps.core.contact import (
-        MIN_DIALABLE_DIGITS,
-        MIN_DIALABLE_DIGITS_CATALOGUE,
-        contact_channels_in,
-    )
-
-    year_range = "A History of India 1707-1947"
-    assert MIN_DIALABLE_DIGITS == 7 and MIN_DIALABLE_DIGITS_CATALOGUE == 10
-    assert contact_channels_in(year_range) == ["dialable"], (
-        "the default threshold must not have moved: `display_name` is where "
-        "a seven-digit run has no legitimate reading"
-    )
-    assert (
-        contact_channels_in(
-            year_range,
-            services.CATALOGUE_CHANNEL_KINDS,
-            min_dialable_digits=MIN_DIALABLE_DIGITS_CATALOGUE,
-        )
-        == []
-    )
-
-
 @pytest.mark.parametrize(
     "uncaught",
-    ["Grewal 1234567", "Grewal 123-456-789", "Grewal (98400) 1234"],
+    [
+        "Grewal 1234567",
+        "Grewal 123-456-789",
+        "Grewal (98400) 1234",
+        "Grewal 9840012345",
+        "Grewal +91 98400 12345",
+        "Grewal 98400-12345",
+    ],
 )
 def test_the_widened_gap_is_asserted_as_a_gap(student, uncaught):
-    """**A-27's declared gap, pinned as a gap and not as safety.**
+    """**A-28's declared gap, pinned as a gap and not as safety.**
 
-    A 7-to-9 digit run in catalogue text is now accepted. The layer that
-    catches it is the review queue, under the `LISTING_REVIEW_ALL` guard the
-    test below pins. This is the opposite of a coverage claim: if a future
-    tightening starts catching these, A-27's text understates the control and
-    this says so.
+    The gap is no longer a band of run lengths — A-27's 7-to-9 window went
+    with the threshold that defined it. It is now **every digit run in
+    catalogue text**, a bare mobile included. The layer that catches it is
+    the review queue, under the `LISTING_REVIEW_ALL` guard the test below
+    pins. This is the opposite of a coverage claim: if a future tightening
+    starts catching these, A-28's text understates the control and this says
+    so.
     """
     assert _create(student, title=uncaught).title == uncaught
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN, ESCALATED TO CTO AGAINST A-27, measured not predicted. A-27 "
-        "raised the catalogue threshold to ten on the reasoning that *'a "
-        "two-year range is eight digits and passes'*. It asked how many "
-        "digits a date range has and did not ask **what else "
-        "`_NUMBER_SEPARATORS` joins** — and whitespace is a separator, so a "
-        "title carrying three years joins into one twelve-digit run and is "
-        "refused. Measured: `Journal 2019 2020 2021` -> ['dialable'], and "
-        "`Collected Works 1 2 3 4 5 6 7 8 9 10` -> ['dialable']. This is "
-        "A-26's defect one step along: the threshold moved, the joining rule "
-        "did not, and no threshold fixes it because a long enough list of "
-        "small numbers always reaches ten. The ruling needed is about the "
-        "*run*, not the count — e.g. ten digits in one unbroken group, or a "
-        "cap on how many separator groups one run may span. Not coded "
-        "around here: it is a contract decision (charter: never resolve a "
-        "contract conflict by coding around it). strict=True, so this goes "
-        "red the day cto rules and it must be de-xfailed then."
-    ),
-)
 def test_a_title_carrying_three_years_is_accepted(student):
+    """The row that ended A-27, now plain. `Journal 2019 2020 2021` and
+    `+91 98400 12345` are both twelve digits in three whitespace-separated
+    groups; A-28 stopped looking for the threshold that does not exist."""
     assert _create(student, title="Journal 2019 2020 2021").title
+    assert _create(student, title="Collected Works 1 2 3 4 5 6 7 8 9 10").title
 
 
 def test_the_authors_list_check_still_stands(student):
@@ -463,13 +441,18 @@ def test_the_catalogue_applies_the_limbs_a26_ruled_and_no_others():
     """The exemption is a *named* limb, not an accident of a short tuple.
 
     This fails by name in three directions: a limb added to
-    `apps/core/contact.py` without an A-26 ruling, `linked` quietly added
-    here, and `linked` deleted from the shared definition — which would leave
-    the exemption above describing something that no longer exists.
+    `apps/core/contact.py` without an A-28 ruling, `linked` or `dialable`
+    quietly added back here, and either of them deleted from the shared
+    definition — which would leave the exemption describing something that
+    no longer exists, and would silently take the limb off `display_name`
+    too.
     """
     from apps.core.contact import CHANNEL_KINDS
 
-    assert set(services.CATALOGUE_CHANNEL_KINDS) == set(CHANNEL_KINDS) - {"linked"}
+    assert set(services.CATALOGUE_CHANNEL_KINDS) == set(CHANNEL_KINDS) - {
+        "linked",
+        "dialable",
+    }
 
 
 def test_a_misspelled_limb_name_raises_rather_than_guarding_nothing():
@@ -482,19 +465,21 @@ def test_a_misspelled_limb_name_raises_rather_than_guarding_nothing():
         contact_channels_in("98400 12345", ("dialble",))
 
 
-def test_the_linked_exemption_rests_on_a_flag_that_is_still_true():
-    """**The guard for the conditional exemption** — it fails, it does not skip.
+def test_the_catalogue_exemptions_rest_on_a_flag_that_is_still_true():
+    """**The guard for the conditional exemptions** — it fails, it does not skip.
 
-    A-26 exempts `linked` from catalogue text because real titles contain
-    slashes. Rule 12 required naming the layer that still catches
-    `t.me/priya` in a title, and that layer is the human review queue: at
-    pilot `LISTING_REVIEW_ALL=true`, every listing stops at `PENDING_REVIEW`
-    and the moderator is shown the title, edition and publisher (F50).
+    A-28 leaves catalogue text with one limb. `linked` is exempt because
+    real titles contain slashes; `dialable` is exempt because
+    `Journal 2019 2020 2021` and `+91 98400 12345` are the same shape. Rule
+    12 required naming the layer that still catches `t.me/priya` or a phone
+    number in a title, and that layer is the human review queue: at pilot
+    `LISTING_REVIEW_ALL=true`, every listing stops at `PENDING_REVIEW` and
+    the moderator is shown the title, edition and publisher (F50).
 
-    So the exemption is **conditional on a flag**, and rule 10's fifth
+    So the exemptions are **conditional on a flag**, and rule 10's fifth
     disguise says what a conditional check must not be: forward-dated, or
     skipped, both of which are indistinguishable from passing trivially.
-    Inverted — this asserts the condition the exemption rests on, and goes
+    Inverted — this asserts the condition the exemptions rest on, and goes
     red in the same diff as the one-line change that removes it.
 
     Asserted against `bookhop.settings.base`, the **default**, not
@@ -504,12 +489,17 @@ def test_the_linked_exemption_rests_on_a_flag_that_is_still_true():
 
     assert base.LISTING_REVIEW_ALL is True, (
         "LISTING_REVIEW_ALL has been flipped off, and that removes the only "
-        "layer standing behind API-CONTRACT A-26's `linked` exemption: "
-        "`t.me/priya` in a book title is accepted by `create_book` and "
-        "renders on every listing of that ISBN, with no moderator between "
-        "the seller and the buyer. Before this ships, either extend `linked` "
-        "to the catalogue fields in apps/catalog/services.CATALOGUE_CHANNEL_KINDS "
-        "(and accept that it refuses `Physics/Chemistry Combined`, which is "
-        "why A-26 did not), or put a second layer in front of the queue and "
-        "amend A-26 to name it. This is a contract amendment, not a test fix."
+        "layer standing behind API-CONTRACT A-28's catalogue exemptions — "
+        "both of them, not just `linked`. Accepted by `create_book` today "
+        "and rendered on every listing of that ISBN, including listings by "
+        "sellers who never typed them: `t.me/priya` in a title (`linked`), "
+        "`98400 12345` or `wa.me/919840012345` in a title (`dialable`), and "
+        "a misfiled ISBN-13. With the queue gone there is no moderator "
+        "between the seller and the buyer for any of them. Before this "
+        "ships, put a second layer in front of the queue and amend A-28 to "
+        "name it. Re-adding the limbs to "
+        "apps/catalog/services.CATALOGUE_CHANNEL_KINDS is not the answer: "
+        "`linked` refuses `Physics/Chemistry Combined` and `dialable` "
+        "refuses `Journal 2019 2020 2021`, which is why A-26 and A-27 were "
+        "each withdrawn. This is a contract amendment, not a test fix."
     )

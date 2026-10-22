@@ -1,6 +1,7 @@
 # COMPLIANCE.md — Regulatory review
 
-**Owner:** privacy-compliance · **Version:** v1.2 · **All sources accessed:** 2026-10-21
+**Owner:** privacy-compliance · **Version:** v1.3 · **All sources accessed:** 2026-10-21
+(v1.3 adds no new source; it rules on an inventory gap against rule text already verified above)
 **Handoff:** ceo-planning, cto, red-team, human founder
 
 ---
@@ -38,6 +39,22 @@ silence as approval**. Both are now ruled on, concretely, with wording.
 **Still not legal advice, and neither D-009 nor these rulings changed that.**
 See §0. Neither ruling was decided by reference to anyone's schedule, and §2.5a
 tightens a constraint (the domain) while releasing a string.
+
+---
+
+### v1.3 — 2026-10-22 · one inventory gap, raised twice, and I am not signing off the proposed shape
+
+Code Review (R-R6) and then the backend developer both raised the same thing:
+`review_listings --photos` writes decrypted copies of a student's photographs
+onto an operator's filesystem, and §7 had no row for them. Backend fixed the
+code half it could fix and correctly refused to write my ruling for me.
+
+| # | Change | Why |
+|---|---|---|
+| 1 | **§7 row 25 new — moderation working copies of listing photographs.** Backend's suggested retention — *"operator-deleted, no automated clock"* — is **refused**. Retention is **the review session, ceiling 24 hours**, enforced by a sweep. | A retention period that is a person's intention is not a retention period. See the ruling below the table. |
+| 2 | **§6.1 gains P15** — the sweep is a **pilot blocker**, and the only one in this document whose subject is photographs of the inside of students' rooms. | Rows 1–24 all have a clock. Row 25 was the only field in the inventory without one. |
+| 3 | **`tests/contract/test_the_review_copies_expire.py` added** — two `xfail(strict=True)` conformance tests that cannot pass silently and flip to failure the day the sweep ships. | Rule 9: the row is a claim until a test asserts it. Rule 10: a forward-dated check that merely skips can skip forever. |
+| 4 | **Notice finding flagged, not edited** — `erase.*` in `COPY-DECK.md` enumerates what survives deletion and does not enumerate these. Conclusion below: **the copies must go, because the alternative sentence is one no student would accept.** | `tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is` already forces the enumeration to be true. Copy is frontend's; the ruling is mine. |
 
 ---
 
@@ -2078,6 +2095,7 @@ before the public can sign up.** Conflating them is how a pilot slips a quarter.
 | P12 | **CREDIT DESIGNS (a) AND (b) ARE BLOCKED FOR PILOT.** Only design (c), a non-redeemable ordinal reputation signal, may ship. | MD-PPI 2021 ¶2.1/2.8; Draft MD 2026 ¶4.1; D-003, D-004 | privacy-compliance | (a) is a PPI and breaches D-004. (b) needs counsel per D-003. |
 | P13 | **Verify CERT-In primary text, Copyright Rules r.75 text, and TN Shops & Establishments applicability** · **v1.1: CERT-In limb CLOSED** (§5.2, §5.2.1 — direction and FAQ both extracted from the CERT-In PDFs on 2026-10-21). **r.75 and TN Shops still open.** | §5.2, §5.3, §5.4 | privacy-compliance | Two of three items remain commentary-sourced. The evidence standard requires closing them. |
 | P14 | **Do NOT collect PAN or Aadhaar; do NOT record settled sale consideration** | s194-O Explanation; §4.3 | cto + product | A recorded settled price creates a determinable TDS gross amount. |
+| P15 | **`review_listings --photos` copies must expire on a clock, ceiling 24h** — a sweep at the top of every run, covering `gettempdir()` and any `--photos DIR` | §7 row 25; DPDP s8(5), s8(7); r.6(1) | cto + backend | **At pilot every listing is reviewed, so this path runs on every student.** It is the only row in §7 with no retention period, and the data is photographs taken inside students' rooms. Gated by `tests/contract/test_the_review_copies_expire.py`. |
 
 ### 6.2 Must be resolved BEFORE PUBLIC LAUNCH (G4) — in addition to all of the above
 
@@ -2140,6 +2158,7 @@ processing logs, minimum **1 year**) and **r.6(1)(e)** (security logs,
 | 22 | **`messages.contact_pattern_flag`** — a boolean **derived** from message content (phone / email / UPI-handle pattern **only — never a currency pattern, §4.3.3 condition 2**) | Harassment and safety review; the O-7/O-10 leakage indicator. **It flags, it does not block.** **Purpose limitation, v1.2: never money.** A per-message boolean saying an amount was discussed would be a structured signal about consideration | **NOT consent.** Contract / **s7(a)** + **legal obligation** (IT Rules r.3(1)(b) duty to cause users not to host unlawful information). **I am refusing the CTO's proposed `safety_moderation` consent basis — see below** | **Lives and dies with the message**: 1 yr from the thread's last message. **Exceptions:** survives while linked to an open `report`/`safety_incident` (row 13's rule), and 180 days if the message was removed under r.3(1)(j) | **Reset to `false` in the same statement that sets `messages.body_purged_at`** unless a report preserves it. **Not deleted on account deletion** (follows row 11) — and that must be in the notice |
 | 23 | **Support instrumentation** — `support_tickets` (`user_pseudonym`, links, channel, timestamps) and `support_work_log` (`staff_id`, `seconds`, `bucket`, `source`, `batch_*`, **`note` free text**) | **D-009's mitigation**: support minutes per transfer (R-13, R-25, D-009's reversal trigger); operating support | **Two data subjects, two bases.** Student limb: Contract / **s7(a)** + consent under `account`. **Staff limb: employment** — this is worker monitoring and is a new category in this inventory | **Identifiers 1 yr; measurement indefinitely.** At 1 yr purge `note` and NULL `user_pseudonym`; **keep `seconds`, `bucket`, `source`, `batch_run_id`, `batch_match_count` indefinitely** — pseudonymous, and the evidence D-009 exists to produce | Purge job for `note` and `user_pseudonym`. **`note` must be manually reviewed on any erasure or access request** — a free-text staff note may name the subject and the purge job cannot see that |
 | 24 | **`PSEUDONYM_SALT`** — the server-side secret outside the database that salts `user_tombstones.email_hash` | **The control that makes row 3's "one-way hash" claim true.** Without it, a sha256 of a predictable institutional email is enumerable from a roll list | Not personal data. A **security safeguard under r.6(1)**, and the precondition of row 3's lawfulness | **As long as any un-purged `email_hash` references its version, and no longer.** Version it; keep at most two versions; retire a version when no live tombstone references it | `shred` the retired version from `/etc/bookhop/env`; log the rotation in `audit_log`. **On confirmed compromise: rotate immediately AND purge every `email_hash` under the compromised version ahead of `purge_due_at`** |
+| 25 | **Moderation working copies of listing photographs** — plaintext files written by `review_listings --photos` to an operator's filesystem, outside the object store | Let the one human control in the pilot queue **see** what it is judging (F50 / R-R6). Nothing else: not archival, not evidence, not training | **s7(a)** + the IT Rules r.3(1)(b) trust-and-safety limb — **the same basis as row 22, and like row 22 it is not a withdrawable consent purpose.** The copy is a *rendering step* within row 9's already-notified purpose, **not a new purpose**, and it stays that way only because it is transient | **The review session. Hard ceiling 24 hours from creation**, whether or not a decision was reached. **Not** "until the operator deletes it" — see the ruling. Row 9's one-year clock does **not** apply: it is the retention of the *record*, and a working copy is not the record | **Automatic.** A sweep of `bookhop-review-*` directories older than 24h, in `tempfile.gettempdir()` and in any `--photos DIR`, run at the top of every `review_listings` invocation. The printed `rm -rf` stays as the fast path, **not as the mechanism.** Erasure reaches these only through the clock, which is why the clock has to be short |
 
 #### Row 21 — the recommendation is to collect *less*, and no metric suffers
 
@@ -2334,10 +2353,117 @@ lose, and losing it costs the ban-evasion control permanently.
 
 ---
 
+#### Row 25 — RULING: "operator-deleted, no automated clock" is **not defensible**, and the reason is a sentence nobody would write
+
+**The proposed shape, stated plainly, is: indefinite retention of photographs
+of the inside of a student's room, on an unspecified number of laptops, with
+no inventory of where they are and no event that ends it.** The reminder is
+printed, the operator is conscientious, and neither of those is a retention
+period. A retention period is a *property of the system*; an intention is a
+property of a person, and the charter metric this document is measured on is
+"personal-data fields with no stated purpose or **retention period**". Row 25
+as proposed would be the first row to fail that metric by design.
+
+**Three grounds, in descending order of how much they bind us today.**
+
+1. **The notice, which binds now and is not a DPDP question at all.**
+   `COPY-DECK.md` v1.4 withdrew *"Everything else goes now"* because it was
+   false, and replaced it with an **enumeration** of what survives — forced by
+   `tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is`.
+   That enumeration is a representation to the student. These copies are not
+   in it. So there are exactly two lawful states: the copies die on a clock, or
+   the card gains a line. **Write that line and the answer falls out of it** —
+   *"A staff member may still have copies of your photographs on their own
+   computer. We don't know how many, or where, and nothing deletes them."* No
+   one would ship that sentence, and a thing you cannot disclose is a thing you
+   should not be doing. Under CP (E-Commerce) Rules r.4(3) an inaccurate
+   representation about the service is an unfair trade practice **today**,
+   without waiting for 13 May 2027.
+2. **DPDP s8(5) and r.6(1) — possession, not location.** A file on an
+   operator's laptop is personal data in the Data Fiduciary's possession; the
+   operator is us. r.6(1) requires reasonable security safeguards *for data we
+   hold*, and §7's own standard — access logged, retention bounded, deletion
+   mechanical — does not stop at the object-store boundary. The access log
+   (r.6(1)(c)) shipped. It is the half that tells you the copy exists; it does
+   nothing about how long it lives.
+3. **DPDP s8(7) — the purpose is served the moment the decision is logged.**
+   Erasure is owed when the purpose is no longer served. The purpose here is
+   one person looking at one listing once. There is no r.8(3) floor to point
+   at: r.8(3) preserves the *record and the logs*, and the record is row 9's
+   object plus the `audit_log` row, both of which survive untouched. **A
+   working copy is not the record and cannot borrow its retention.** Citing
+   row 9's one year for these would be the error rule 12 warns about — a
+   control that guarantees a *state* (the record is kept) does not thereby
+   license a *copy*.
+
+**Uncertainty: LOW on the conclusion, and it does not turn on a contested
+reading.** DPDP Rules 6 and 8 commence 13 May 2027, so ground 2 and ground 3
+are design-ahead; ground 1 binds today. **Counsel: NO.** This is not a question
+to buy an opinion on. If counsel is ever asked about it, the question is
+whether photographs of a domestic interior supplied for one purpose are
+sensitive enough to warrant more than a 24-hour ceiling — i.e. whether my
+answer is strict *enough*.
+
+**The cheapest control that actually works**, and it is cheaper than the
+conversation about it: a sweep of `bookhop-review-*` directories older than
+24 hours, run **at the top of every `review_listings` invocation**, covering
+`tempfile.gettempdir()` and any directory passed to `--photos`. No daemon, no
+cron, no state file, no new table. The person who makes the copies is the only
+person who runs this command, and they run it again tomorrow. `--photos DIR`
+therefore writes into `DIR/bookhop-review-<random>/`, so **one** name rule
+covers both modes (rule 11: one definition, not many copies).
+
+**Residual, named rather than hidden** (rule 12: name the other layer). An
+operator who uses `--photos DIR` once and never runs the command again is not
+swept. The layer that catches *that* is the `personal_data_access_log` row —
+we know which operator, which listing and when — so it is answerable on an
+erasure request by asking one named person, rather than unanswerable. That is
+a worse layer than a clock and it is the one case the clock does not reach.
+
+**The upgrade that deletes this row rather than governing it.** Backend has
+already named it: a moderation screen that streams the bytes to the reviewer's
+browser. Then there is no second copy, no sweep, no row 25, and no residual.
+**That is the real fix and this is the bridge to it.** Row 25 should be deleted
+from this table, not amended, when that screen ships.
+
+**Conformance (rule 9): `tests/contract/test_the_review_copies_expire.py`.**
+Two tests, each asserting the control **exists** (`sweep_review_copies` is
+importable — it fails by name, so you know which guard went missing) and that
+its property **holds** (a 25-hour-old directory is gone after a run). Both
+sides are rows: each test also asserts **a one-minute-old directory survives**,
+because a sweep that satisfied only the first assertion is `rm -rf` on the
+directory the moderator is working in. Both are `xfail(strict=True)` on **one
+subject each**, not on the module, so a second defect cannot hide inside the
+first — and strict means they **cannot pass silently**: the day the sweep
+ships they turn XPASS-as-failure and force the marks off in the same commit.
+
+**That day was the same day, and the mechanism did exactly what it was built
+to do** (updated by cto, 2026-10-22). Backend built `sweep_review_copies`
+within the hour; both tests turned XPASS-as-failure on their first run against
+it and the marks came off in that commit. The surviving assertion is the one
+that mattered: the 60-second-old directory lives, so the sweep is an **age**
+and not a **name**.
+
+**Status: built and asserted. P15 is closed.** The residual is unchanged and
+is not closed — an operator who runs `--photos DIR` once and never runs the
+command again is never swept, and the `personal_data_access_log` row naming
+that operator and that listing is the layer that makes an erasure request
+answerable rather than unanswerable.
+
+*This paragraph previously read "specified and gated, and is not built", which
+was true when written and false four commits later. It is corrected here
+rather than left to be read as current — a status line is a claim with a
+timestamp, and this document's own rule is that a claim contradicted by a
+measurement is deleted, not footnoted.*
+
+---
+
 **Standing rules for the CTO, derived from the table:**
 - **Every new personal-data field needs a row here before it ships.** The charter
   metric is "personal-data fields with no stated purpose or retention period".
-  A field without a row is a compliance defect by definition. **Rows 21–24 close
+  A field without a row is a compliance defect by definition. **And a *copy* of
+  a field is a field** — row 25 exists because a rendering step put a student's
+  photographs somewhere no row covered. **Rows 21–24 close
   the four fields routed by `DATA-MODEL.md` §11.1 and ADR-001 §7.4.**
 - **"Delete my account" never means `DELETE FROM users`.** It means: purge rows
   1–9 and 15, pseudonymise 10–13, and leave 14 and 16–18 alone. Build it once,
@@ -2717,6 +2843,11 @@ below has been loosened because the founder is in a hurry, and P14 in particular
 is now enforced more strongly than v1.0 contemplated (§4.3.2).
 
 ### The verdict itself
+
+**v1.3: the condition set is P1–P15.** P15 is new and it is the cheapest item
+on the list — a sweep, no new table, no counsel. It is nonetheless a **pilot**
+blocker and not a launch one, because at pilot `LISTING_REVIEW_ALL=true` means
+the path runs on every listing from day one. Everything below reads P1–P15.
 
 **Pilot: NOT BLOCKED, conditional on P1–P14.** None of P1–P14 is a research
 problem; all are build or appoint or verify tasks with known definitions of

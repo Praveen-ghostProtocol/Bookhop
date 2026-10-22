@@ -194,19 +194,30 @@ def test_the_command_writes_the_photos_where_a_human_can_open_them(
         "--listing", str(pending.id), "--photos", str(target),
     )
     out = capsys.readouterr().out
-    written = sorted(target.glob("listing-*"))
+    # **P15's write side**, and the sibling assertion to
+    # `test_the_review_copies_expire.py`: a chosen DIR gets a
+    # `bookhop-review-*` subdirectory, never loose files, so one name rule
+    # covers both modes and the sweep reaches an operator-chosen root.
+    assert not list(target.glob("listing-*")), (
+        "the copies are loose in the chosen directory, so the sweep's name "
+        "rule does not cover them and they are retained indefinitely"
+    )
+    copies = [d for d in target.iterdir() if d.name.startswith("bookhop-review-")]
+    assert len(copies) == 1, sorted(p.name for p in target.iterdir())
+    written = sorted(copies[0].glob("listing-*"))
 
     assert len(written) == 2, out
     for path in written:
         assert path.read_bytes().startswith(b"\xff\xd8")
         assert str(path) in out
     # Review R-R6: these are a student's photographs outside the object
-    # store, so no automated path deletes them — not `purge_media`, not an
-    # erasure request, not `COMPLIANCE.md` §7 row 9's one-year clock. The
-    # deletion command goes out **with** the paths, because the person who
-    # has to run it is reading this output and nowhere else.
-    assert f"rm -rf {target}" in out
-    assert "retention clock" in out
+    # store, so neither `purge_media` nor an erasure request reaches them.
+    # The deletion command goes out **with** the paths, because the person
+    # who can run it is reading this output and nowhere else — but it is a
+    # reminder, and P15 is the retention rule, so the line says which is
+    # which.
+    assert f"rm -rf {copies[0]}" in out
+    assert "24h" in out
 
 
 def test_photos_with_no_directory_lands_somewhere_disposable(
