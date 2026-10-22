@@ -794,6 +794,33 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-31 — `text_withheld` on requests, and A-30's wording yields to the code (2026-10-22, cto)
+>
+> Two escalations from backend on the A-29 rework, both decided here.
+>
+> **(a) `GET`/`POST /api/v1/requests` gain `text_withheld` on the `book`
+> sub-object. Recorded, as asked.** §5.2 does not freeze that sub-object's
+> key list, so adding it needed no amendment — but a client that renders a
+> withheld row without it displays a book *called* `ISBN 978…`, which is the
+> gate producing a **falsehood** instead of a silence. The key is the
+> difference between withholding and lying, so it is contract, not detail.
+>
+> **(b) A-30 said a listing read passes "the actor whose listing it is". The
+> code passes the viewer. The wording changes, not the code.**
+>
+> Backend declined to implement the looser clause and gave the reason, which
+> is the newly-amended rule 12 applied to my own wording: **the viewer-form
+> is strictly the tighter of the two.** The owner-form is safe *only because*
+> A-29 §2 holds — if layer 1 ever regresses and a buyer reaches a listing on
+> an unverified book, the owner-form serves the raw string while the
+> viewer-form still withholds it. My wording would have made this page depend
+> on **one** layer where the code makes it depend on **two**.
+>
+> *This is the fifth correction to one ruling and the first where the code
+> was right and the contract was wrong. I prefer that direction: a developer
+> who refuses to implement a looser clause and says why is the control
+> working.*
+
 > #### A-30 — ratifying A-29 §1's narrowing: an identity read is neutral for everybody (2026-10-22, cto)
 >
 > Backend escalated a genuine collision rather than picking a reading and
@@ -806,8 +833,10 @@ agent knows exactly what it owns.
 > **Ratified as shipped: `reader` is the actor the row was reached *through*.**
 > A catalogue-identity read — `/sell/find-book?isbn=`, `GET /api/v1/books?isbn=`,
 > `?q=` — reaches a global row through nothing anybody owns, so it passes no
-> reader and is neutral **even for the author**. A listing read passes the
-> actor whose listing it is, so the seller's own `/sell` list stays readable.
+> reader and is neutral **even for the author**. A listing read passes **the
+> viewer** — corrected by A-31(b); this clause first said "the actor whose
+> listing it is", which is looser than the code. The seller's own `/sell`
+> list stays readable because the seller is the author.
 >
 > ~~**The argument that makes this right rather than merely narrower**: an
 > identity read is one global URL, and a body that varied by viewer would
@@ -1312,7 +1341,8 @@ four contract guarantees:
 | **A-27** | 2026-10-22 | **A-26 corrected; it refused real book titles.** `A History of India 1707-1947` and `Physics ISBN 978-93-5260-123-4` were refused as phone numbers. `dialable` on catalogue text takes a **10-digit** minimum - the shortest dialable Indian number - leaving year ranges accepted and `wa.me/91...` caught. Threshold stays 7 for `display_name`: one definition, the caller's threshold. **A-26 asked rule 13's question of the limb it removed and not of the limb it kept** | REVIEW-S2 rework B-R1 | cto |
 | **A-28** | 2026-10-22 | **`dialable` comes off catalogue text; `addressed` alone applies.** `Journal 2019 2020 2021` and `+91 98400 12345` are both twelve digits in three whitespace-separated groups - structurally identical, so **no threshold separates them**. Rule 13 resort 2, ratified; the layer that catches a number in a title is the review queue under the existing flag guard. **Two narrowings that each broke on first contact is the signature of a boundary that does not exist** | backend measurement against A-27 | cto |
 | **A-29** | 2026-10-22 | **The named layer did not exist; the defect was never textual.** `books` is global and live at `create_book` - the queue reviews listings, not books - so a poisoned title is served from `/sell/find-book` with nothing waiting for review, and `authors` was shown to no reviewer at all. `staff_verified_at` becomes a **gate**: unverified seller text is served only to its author, a listing on an unverified book cannot reach a buyer, and **every limb comes off catalogue text**. A filter was being tuned on a surface that should not publish unreviewed text | QA rework F47-Q1/Q2/Q3 | cto |
-| **A-30** | 2026-10-22 | **A-29 §1 narrowed and ratified**: `reader` is the actor the row was reached *through*, so a catalogue-identity read passes none and is neutral **even for the author**. Not merely narrower - an identity read is one global URL, and a body that varied by viewer would rebuild R-R4's cache defect one round after fixing it. The author is also the one reader whose protection is pointless: they wrote the string. **QA's test was right and the ruling was loose** | backend escalation on A-29 §1 | cto |
+| **A-30** | 2026-10-22 | **A-29 §1 narrowed and ratified**: `reader` is the actor the row was reached *through*, so a catalogue-identity read passes none and is neutral **even for the author**, because the author wrote the string and withholding it from them protects nobody. ~~A second ground about caches~~ **withdrawn by S2-R2-R1** - it was wrong three ways, including that the diff itself varies three bodies by viewer. **QA's test was right and the ruling was loose** | backend escalation on A-29 §1 | cto |
+| **A-31** | 2026-10-22 | **(a)** `text_withheld` added to the `book` sub-object on `GET`/`POST /api/v1/requests` - without it a client renders a book *called* `ISBN 978...`, so the key is the difference between withholding and **lying**. **(b)** A-30 said a listing read passes the listing's owner; the code passes the viewer, which is **tighter** - the owner-form is safe only while A-29 §2 holds. **The wording yields to the code**, the first of five corrections where the contract was the wrong one | backend escalation | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
