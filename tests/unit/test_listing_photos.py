@@ -117,6 +117,39 @@ def test_stripping_removes_a_png_text_chunk(png_with_text):
     assert b"IHDR" in stripped and b"IDAT" in stripped and b"IEND" in stripped
 
 
+def test_the_png_keep_list_holds_only_chunks_the_keep_list_can_decide():
+    """**`PLTE` was in `_PNG_KEEP_ANCILLARY` and was dead** (QA, A-29 pass).
+
+    A chunk type whose first letter is uppercase is *critical* and
+    `_strip_png` keeps it several lines before this set is consulted, so an
+    entry like that is unreachable — and worse than unreachable, because it
+    tells a reader that the ancillary rule is what preserves palettes. The
+    entry is gone; this is the guard that stops the next one arriving.
+
+    `_PNG_METADATA_CHUNKS` went in the same pass: it claimed to be kept
+    *"for the error message and for the test's own assertions"* and the name
+    appeared exactly once in the repository — its own definition. Nothing
+    interpolated it and no test read it. The property above
+    (`test_stripping_removes_a_png_text_chunk`, and the ancillary rule it
+    exercises) is what actually dropped those chunks, so there was no claim
+    to make true.
+    """
+    from apps.listings import images
+
+    assert images._PNG_KEEP_ANCILLARY, "the keep list is empty, so this guards nothing"
+    critical = sorted(k for k in images._PNG_KEEP_ANCILLARY if k[:1].isupper())
+    assert not critical, (
+        f"{critical} are CRITICAL PNG chunks sitting in the ancillary keep "
+        "list. `_strip_png` keeps every critical chunk before it reads this "
+        "set, so the entry changes nothing and misdescribes the control."
+    )
+    assert not hasattr(images, "_PNG_METADATA_CHUNKS"), (
+        "`_PNG_METADATA_CHUNKS` is back. If it is to exist it must be read "
+        "by something — a message, an assertion — or it is a list claiming "
+        "coverage that the ancillary property already provides."
+    )
+
+
 def test_every_appn_is_removed_not_just_the_ones_on_a_list(jpeg_with_exif):
     """**Rule 11: ask the property.** A list of "the metadata markers" gains
     an entry every time someone meets a new one, and the one it does not have

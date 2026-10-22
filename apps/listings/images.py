@@ -197,19 +197,21 @@ def _jpeg_entropy_end(data, i, end):
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
-#: PNG chunks that carry metadata rather than image data. Unlike JPEG there is
-#: no structural property that separates them — a chunk type is four letters —
-#: **so this is a list, and its ceiling is declared here** (`CLAUDE.md`
-#: rule 11): a future metadata chunk type is not caught. The layer that
-#: generalises is the ancillary-chunk rule below, which is a property: a
-#: lowercase first letter means ancillary, and **every** ancillary chunk except
-#: the three that affect rendering is dropped. The named list is kept only for
-#: the error message and for the test's own assertions.
-_PNG_METADATA_CHUNKS = {b"eXIf", b"tEXt", b"iTXt", b"zTXt", b"tIME", b"iCCP"}
-
 #: Ancillary chunks that are kept because dropping them changes how the image
-#: renders. Everything else ancillary goes.
-_PNG_KEEP_ANCILLARY = {b"tRNS", b"gAMA", b"sRGB", b"PLTE", b"bKGD", b"sBIT"}
+#: renders. **Everything else ancillary goes**, which is the property that
+#: covers `eXIf`, `tEXt`, `iTXt`, `zTXt`, `tIME` and `iCCP` without naming
+#: them — a lowercase first letter means ancillary, so a metadata chunk type
+#: nobody here has heard of is dropped too. Unlike JPEG there is no list to
+#: declare a ceiling for, because there is no list.
+#:
+#: **`PLTE` was in here and was dead** (QA, A-29 pass): it is a *critical*
+#: chunk — uppercase first letter — so `_strip_png` keeps it before this set
+#: is consulted. Its presence said the ancillary rule preserves palettes,
+#: which it does not, and an entry that cannot be reached is an explanation
+#: disagreeing with a measurement (`CLAUDE.md` rule 9's corollary).
+#: `test_the_png_keep_list_has_no_critical_chunk_in_it` asserts every entry
+#: here is actually ancillary, so this cannot grow a second one.
+_PNG_KEEP_ANCILLARY = {b"tRNS", b"gAMA", b"sRGB", b"bKGD", b"sBIT"}
 
 
 def _strip_png(data):

@@ -13,6 +13,7 @@ listing, one decision, one logged reason.
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.catalog.services import verify_book
 from apps.core.errors import ServiceError
 from apps.listings.services import MODERATION_ACTIONS, moderate_listing
 from apps.listings.staff import (
@@ -33,6 +34,18 @@ class Command(BaseCommand):
         parser.add_argument("--seconds", type=int, default=0,
                             help="seconds spent reviewing; recorded in audit_log")
         parser.add_argument("--limit", type=int, default=50)
+        parser.add_argument(
+            "--verify-book", action="store_true",
+            help="with --listing: stamp `books.staff_verified_at` on this "
+                 "listing's catalogue row, after reading the title, authors, "
+                 "publisher and edition printed by --listing. A-29 §2 means "
+                 "REVIEW_PASS is refused until this is done, because an "
+                 "unverified row's seller-written text reaches no buyer and "
+                 "neither does a listing of it. Separate from --action: the "
+                 "edition is a catalogue judgement and the listing is a "
+                 "listing judgement, and one reviewer may want to make the "
+                 "first without making the second",
+        )
         parser.add_argument(
             "--photos", metavar="DIR", nargs="?", const="", default=None,
             help="with --listing: write that listing's photos where the "
@@ -99,6 +112,17 @@ class Command(BaseCommand):
         if options["photos"] is not None:
             self._write_photos(staff, listing, options["photos"])
 
+        if options["verify_book"]:
+            try:
+                book = verify_book(staff, listing.book)
+            except ServiceError as exc:
+                raise CommandError(f"{type(exc).__name__}: {exc}") from None
+            self.stdout.write(
+                f"book {book.id} ({book.isbn13 or 'no ISBN'}) checked by "
+                f"{staff.email} — its text is now served to every reader"
+            )
+            listing.refresh_from_db()
+
         if not options["action"]:
             # **Not an error any more.** `--listing` alone is "show me this
             # one", which is the step J2-staff step 3 describes and the step
@@ -116,11 +140,21 @@ class Command(BaseCommand):
         self.stdout.write(f"listing {updated.id} is now {updated.status}")
 
     def _show(self, listing):
-        """One listing's claims, for the decision in J2-staff step 3."""
+        """One listing's claims, for the decision in J2-staff step 3.
+
+        **`authors` prints here, and the whole title does.** QA found it
+        reached no reviewer at all — not this method, not `queue_rows` — while
+        rendering on four student-facing pages, so for that one field the
+        layer A-28 named did not exist. It belongs on *this* output and not
+        only on the queue line for a second reason QA gave: the queue line
+        truncates the title to 48 characters, so anything past character 48
+        is invisible there. Nothing on these lines is truncated.
+        """
         self.stdout.write(
             f"#{listing.id}  {listing.status}  {listing.campus.slug}\n"
             f"  book          {listing.book.isbn13 or 'no ISBN'}  "
             f"{listing.book.title}\n"
+            f"  authors       {', '.join(listing.book.authors or []) or '-'}\n"
             f"  edition       {listing.book.edition_label or '-'}  "
             f"{listing.book.publisher or '-'}  "
             f"{listing.book.publication_year or '-'}\n"

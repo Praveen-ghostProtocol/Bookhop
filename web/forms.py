@@ -417,7 +417,14 @@ class BookDetailsForm(_Form):
 
     Never a dead end (`COPY-DECK.md` `sell.isbn.notfound`): the student types
     what is on the title page and `catalog.create_book` makes the row, which
-    lands with `staff_verified_at` NULL for the review queue.
+    lands with `staff_verified_at` NULL.
+
+    **What NULL now means (A-29 §1 and §2), because it used to mean nothing:**
+    these four strings are served to their author and to staff and to nobody
+    else, and no listing of the row can reach a buyer until a named human has
+    read them. **So this form takes free text with no content rule on it at
+    all** — the three that A-26, A-27 and A-28 tried each fired on real
+    titles, and the defect was never textual anyway.
 
     Edition is **required** here and nowhere else. It is the field the whole
     product turns on — *"a syllabus-to-shelf matching layer for edition-locked

@@ -396,12 +396,25 @@ def seller_terms_notice(db):
 
 @pytest.fixture
 def book(db):
-    """A catalogue row with a **checksum-valid** ISBN-13.
+    """A catalogue row with a **checksum-valid** ISBN-13, staff-checked.
 
     `9788177589139` is a real check digit, computed rather than invented: a
     fixture with a bad checksum would make `create_book` refuse and every
     listing test would fail for a reason that has nothing to do with listings.
+
+    **`staff_verified_at` is set, from API-CONTRACT A-29.** It was NULL, which
+    before A-29 meant nothing and now means two things: the four
+    seller-written strings are served to nobody but staff and the row's
+    author, and no listing of it can reach a buyer. A fixture standing in for
+    *a catalogue row* has to be the ordinary case — `seed_demo` stamps
+    `staff_verified_at` on every row it creates, so the ordinary case is
+    checked — or every test that renders a page or publishes a listing would
+    be silently exercising the unverified branch. A test that wants the
+    unverified branch creates its own row and says so, which is what
+    `tests/unit/test_catalog.py` and `tests/unit/test_listings.py` now do.
     """
+    from django.utils import timezone
+
     from apps.catalog.models import Book
     from apps.catalog.services import normalise_title
 
@@ -413,6 +426,32 @@ def book(db):
         edition_label="44th edition",
         publisher="Khanna",
         publication_year=2021,
+        language="en",
+        staff_verified_at=timezone.now(),
+    )
+
+
+@pytest.fixture
+def unverified_book(db, student):
+    """A `books` row **as a student wrote it** — `create_book`, so
+    `created_by` is set and `staff_verified_at` is NULL.
+
+    The A-29 branch, explicit, because the branch now has consequences:
+    `served_book_text` withholds its four strings from everybody but `student`
+    and staff, and `_transition` refuses to put a listing of it in front of a
+    buyer. Created through the service rather than `objects.create` so
+    `created_by` is real — the author clause of the gate cannot be exercised
+    by a row nobody wrote.
+    """
+    from apps.catalog.services import create_book
+
+    return create_book(
+        student,
+        isbn13="9789387432147",
+        title="Higher Engineering Mathematics",
+        authors=["B S Grewal"],
+        edition_label="43rd edition",
+        publisher="Khanna",
         language="en",
     )
 

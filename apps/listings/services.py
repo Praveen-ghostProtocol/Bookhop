@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "create_listing", "add_photo", "publish_listing", "withdraw_listing",
     "moderate_listing", "create_request", "close_request",
-    "my_listings", "get_own_listing", "listing_payload", "seller_block",
+    "my_listings", "get_own_listing", "listing_payload", "book_block", "seller_block",
     "my_requests", "review_queue", "get_photo_for_download", "photo_response",
     "parse_major_units",
 ]
@@ -99,6 +99,17 @@ LISTING_TRANSITIONS = {
 #: The four terminal states, derived rather than retyped: a state with no exit
 #: is terminal by definition, so this cannot disagree with the map above.
 TERMINAL_STATUSES = frozenset(s for s, to in LISTING_TRANSITIONS.items() if not to)
+
+#: **A-29 §2.** The statuses in which a listing is reachable by somebody other
+#: than its seller. The whole set rather than `LIVE` alone: `RESERVED` and
+#: `CLOSED_TRANSFERRED` are only reachable *through* `LIVE` today, and a test
+#: that relied on that would be asserting the shape of the transition map
+#: instead of the property, so a future edge into either one is covered
+#: already. Read by `_transition` and by `get_photo_for_download` — two
+#: layers, which is what `CLAUDE.md` rule 12 asks for, and they fail
+#: differently: the first refuses the write, the second refuses the read for a
+#: row that reached the status some other way.
+BUYER_REACHABLE_STATUSES = frozenset({"LIVE", "RESERVED", "CLOSED_TRANSFERRED"})
 
 #: J2-staff step 4/5. `moderate_listing` takes one of these.
 MODERATION_ACTIONS = {"REVIEW_PASS": "LIVE", "REVIEW_REJECT": "REJECTED",
@@ -419,6 +430,23 @@ def _transition(listing, to_status, expected, *, actor, action, extra=None):
             "That cannot be done at this stage.",
             detail=f"listings.status {listing.status!r} -> {to_status!r} is not in "
                    "the state machine",
+            from_status=listing.status,
+            to_status=to_status,
+        )
+    # **A-29 §2, and it is here rather than in `publish_listing` on purpose.**
+    # Every move into a buyer-reachable status goes through this function —
+    # publish, `REVIEW_PASS`, a future relist, a future reserve-then-release —
+    # so the condition is asked once for all of them instead of once per
+    # caller. It was true before only as a *side effect* of
+    # `LISTING_REVIEW_ALL=true` routing every publish to `PENDING_REVIEW`;
+    # that flag is a routing default and evaporates the day it flips, which
+    # is what A-29 §2 means by making it a condition in its own right.
+    if to_status in BUYER_REACHABLE_STATUSES and listing.book.staff_verified_at is None:
+        raise TransitionNotAllowed(
+            "BookHop has not looked at this book yet. A listing goes on the "
+            "list once someone here has.",
+            detail="A-29 §2: listings.book.staff_verified_at IS NULL, so no "
+                   f"transition to {to_status!r} is permitted",
             from_status=listing.status,
             to_status=to_status,
         )
@@ -759,6 +787,13 @@ def _needs_review(listing):
 
     Four independent reasons, asked as a disjunction so a new one is an added
     clause rather than an edited branch.
+
+    **The `staff_verified_at` clause is now load-bearing twice over, so do
+    not delete it as redundant.** A-29 §2 makes `_transition` *refuse* a move
+    into a buyer-reachable status on an unverified book; this clause is what
+    *routes* such a publish to `PENDING_REVIEW` instead, so the seller gets
+    the review copy rather than a 422. Remove it and the two layers collide:
+    the listing becomes unpublishable rather than pending.
     """
     return bool(
         getattr(settings, "LISTING_REVIEW_ALL", True)
@@ -931,7 +966,30 @@ def seller_block(listing):
     }
 
 
-def listing_payload(listing, *, include_seller=True):
+def book_block(book, reader=None):
+    """The `book` key of a listing payload. A-29 §1's gate, asked once.
+
+    `reader` is the actor whose listing this is — every `listing_payload`
+    caller in S2 is an own-rows read — so a seller who typed the catalogue
+    row sees their own words and a seller who merely listed the same ISBN
+    sees the ISBN and `text_withheld`.
+    """
+    from apps.catalog.services import served_book_text
+
+    text = served_book_text(book, reader)
+    return {
+        "id": book.id,
+        "isbn13": book.isbn13,
+        "title": text["title"],
+        "authors": text["authors"],
+        "edition_label": text["edition_label"],
+        "publisher": text["publisher"],
+        "text_withheld": text["withheld"],
+        "publication_year": book.publication_year,
+    }
+
+
+def listing_payload(listing, reader=None, *, include_seller=True):
     """The L2/L3 shape for one listing. API-CONTRACT §5.2.
 
     **What is not here is the specification**: no seller address, no phone, no
@@ -954,15 +1012,7 @@ def listing_payload(listing, *, include_seller=True):
         "campus_name": listing.campus.name,
         "published_at": listing.published_at,
         "version": listing.version,
-        "book": {
-            "id": listing.book_id,
-            "isbn13": listing.book.isbn13,
-            "title": listing.book.title,
-            "authors": list(listing.book.authors or []),
-            "edition_label": listing.book.edition_label,
-            "publisher": listing.book.publisher,
-            "publication_year": listing.book.publication_year,
-        },
+        "book": book_block(listing.book, reader),
         "photos": [
             {"sha256": p.sha256, "width": p.width, "height": p.height}
             for p in listing.photos.all().order_by("uploaded_at", "id")
@@ -1005,7 +1055,7 @@ def get_photo_for_download(actor, listing_id, sha256) -> ListingPhoto:
     row = (
         scoped(ListingPhoto.all_objects.all(), actor)
         .filter(listing_id=listing_id, sha256=str(sha256 or ""))
-        .select_related("listing", "listing__campus")
+        .select_related("listing", "listing__campus", "listing__book")
         .first()
     )
     if row is None or not row.storage_key:
@@ -1020,7 +1070,16 @@ def get_photo_for_download(actor, listing_id, sha256) -> ListingPhoto:
         and listing.seller_pseudonym == actor.person_pseudonym
     )
     if not owns:
-        if listing.status not in ("LIVE", "RESERVED", "CLOSED_TRANSFERRED"):
+        if listing.status not in BUYER_REACHABLE_STATUSES:
+            raise NotFound("Not found.")
+        if listing.book.staff_verified_at is None:
+            # **A-29 §2's second layer, and it catches what the first cannot.**
+            # `_transition` refuses to *put* a listing in a buyer-reachable
+            # status on an unverified book; this refuses to *serve* one that
+            # got there anyway — a direct UPDATE, a data fix, a fixture. Rule
+            # 12: one layer is never enough, and these two fail differently.
+            # 404 like every other refusal here, so it is not a probe for
+            # which books are unverified.
             raise NotFound("Not found.")
         try:
             assert_discovery_open(listing.campus)

@@ -794,6 +794,38 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-30 — ratifying A-29 §1's narrowing: an identity read is neutral for everybody (2026-10-22, cto)
+>
+> Backend escalated a genuine collision rather than picking a reading and
+> moving on. A-29 §1 says unverified seller text is *"served only to the
+> actor who created it"*. Read literally, the author is served their own raw
+> string — and QA's `test_a_poisoned_catalogue_row_reaches_a_student_without_any_listing`
+> fetches `/sell/find-book?isbn=` **as the author**, so the clause and the
+> test cannot both be satisfied.
+>
+> **Ratified as shipped: `reader` is the actor the row was reached *through*.**
+> A catalogue-identity read — `/sell/find-book?isbn=`, `GET /api/v1/books?isbn=`,
+> `?q=` — reaches a global row through nothing anybody owns, so it passes no
+> reader and is neutral **even for the author**. A listing read passes the
+> actor whose listing it is, so the seller's own `/sell` list stays readable.
+>
+> **The argument that makes this right rather than merely narrower**, and it
+> is not in the escalation: an identity read is a **single global surface —
+> the same URL for every student.** Making its body depend on who is asking
+> would make one URL render differently per viewer, which is precisely the
+> shape that produced R-R4 one round ago: a body that varies on the requester
+> and a cache that does not know it. Neutral-for-everyone on an identity read
+> needs no `Vary`, no per-viewer cache key, and has no variant to serve to the
+> wrong person. The self-exception earns its keep on owned surfaces and costs
+> correctness on shared ones.
+>
+> **And the author is the one reader whose protection is pointless** — they
+> wrote the string. Withholding it from them loses nothing, because the
+> purpose of the gate is to stop seller text reaching *other* students.
+>
+> QA's test goes green without being edited, which is the outcome to prefer:
+> **the test was right and the ruling was loose.**
+
 > #### A-29 — the catalogue is a publishing surface with no gate. Stop writing text rules. (2026-10-22, cto)
 >
 > **Fourth ruling on one question. The first three were all the same mistake,
@@ -1264,6 +1296,7 @@ four contract guarantees:
 | **A-27** | 2026-10-22 | **A-26 corrected; it refused real book titles.** `A History of India 1707-1947` and `Physics ISBN 978-93-5260-123-4` were refused as phone numbers. `dialable` on catalogue text takes a **10-digit** minimum - the shortest dialable Indian number - leaving year ranges accepted and `wa.me/91...` caught. Threshold stays 7 for `display_name`: one definition, the caller's threshold. **A-26 asked rule 13's question of the limb it removed and not of the limb it kept** | REVIEW-S2 rework B-R1 | cto |
 | **A-28** | 2026-10-22 | **`dialable` comes off catalogue text; `addressed` alone applies.** `Journal 2019 2020 2021` and `+91 98400 12345` are both twelve digits in three whitespace-separated groups - structurally identical, so **no threshold separates them**. Rule 13 resort 2, ratified; the layer that catches a number in a title is the review queue under the existing flag guard. **Two narrowings that each broke on first contact is the signature of a boundary that does not exist** | backend measurement against A-27 | cto |
 | **A-29** | 2026-10-22 | **The named layer did not exist; the defect was never textual.** `books` is global and live at `create_book` - the queue reviews listings, not books - so a poisoned title is served from `/sell/find-book` with nothing waiting for review, and `authors` was shown to no reviewer at all. `staff_verified_at` becomes a **gate**: unverified seller text is served only to its author, a listing on an unverified book cannot reach a buyer, and **every limb comes off catalogue text**. A filter was being tuned on a surface that should not publish unreviewed text | QA rework F47-Q1/Q2/Q3 | cto |
+| **A-30** | 2026-10-22 | **A-29 §1 narrowed and ratified**: `reader` is the actor the row was reached *through*, so a catalogue-identity read passes none and is neutral **even for the author**. Not merely narrower - an identity read is one global URL, and a body that varied by viewer would rebuild R-R4's cache defect one round after fixing it. The author is also the one reader whose protection is pointless: they wrote the string. **QA's test was right and the ruling was loose** | backend escalation on A-29 §1 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

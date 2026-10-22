@@ -180,6 +180,12 @@ def queue_rows(staff, limit=50):
     """
     from .services import review_queue
 
+    # **The raw seller-written title, deliberately** (A-29 §1). This and
+    # `review_listings._show` are the two *staff* readers the gate names: a
+    # review step whose reader is served the neutral label would be a review
+    # step that cannot review. `review_queue` refuses a non-staff actor
+    # before any row is read, which is the clause `may_read_unverified_text`
+    # asks for.
     return [
         {
             "id": listing.id,

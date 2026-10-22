@@ -229,9 +229,10 @@ def test_a_book_with_no_isbn_cannot_be_self_published(seller, student, settings,
     )
 
 
-def test_an_unverified_book_sends_the_listing_to_review(seller, book, settings):
+def test_an_unverified_book_sends_the_listing_to_review(seller, unverified_book, settings):
     """DATA-MODEL §6.1: review is required when the `books` row is unverified."""
     settings.LISTING_REVIEW_ALL = False
+    book = unverified_book
     assert book.staff_verified_at is None
     listing = _create(seller, book)
     listing = services.publish_listing(seller, listing, listing.version)
@@ -492,3 +493,168 @@ def test_the_open_offer_cancellation_is_recorded_as_s4():
             "an open offer (JOURNEYS J2 step 11, EC-2) — the buyer is left "
             "with a silent disappearance"
         )
+
+
+# --- A-29 §2: a listing on an unverified book reaches no buyer ------------
+
+
+def test_an_unverified_book_keeps_a_listing_off_the_list_with_the_flag_off(
+    seller, unverified_book, settings
+):
+    """**A-29 §2, and the flag is OFF, which is the whole point.**
+
+    Before A-29 this was true only as a *side effect* of
+    `LISTING_REVIEW_ALL=true` routing every publish to `PENDING_REVIEW`. A
+    test asserting that default was asserting a routing preference: the
+    property evaporated the day the flag flipped, and the diff that flipped
+    it would have been green. Here the flag is off, so the only thing holding
+    the listing back is `books.staff_verified_at`.
+    """
+    settings.LISTING_REVIEW_ALL = False
+    listing = services.publish_listing(
+        seller, _create(seller, unverified_book), 1
+    )
+    assert listing.status == "PENDING_REVIEW", (
+        "with LISTING_REVIEW_ALL off, a listing on an unverified book went "
+        f"to {listing.status} — A-29 §2's condition is not a condition, it "
+        "is still the flag"
+    )
+
+
+def test_review_pass_is_refused_while_the_book_is_unchecked_and_names_why(
+    seller, unverified_book, staff
+):
+    """The reviewer cannot pass the listing past the catalogue decision.
+
+    **The message text is asserted, not the exception type** (rule 10's sixth
+    disguise): a refusal for the wrong reason — a bad version, a disallowed
+    edge — raises the same class and would read as this guard working.
+    """
+    listing = services.publish_listing(seller, _create(seller, unverified_book), 1)
+    with pytest.raises(TransitionNotAllowed) as caught:
+        services.moderate_listing(
+            staff, listing, "REVIEW_PASS", "seller terms", "Photos match.", 30
+        )
+    assert "staff_verified_at IS NULL" in caught.value.context["detail"], (
+        "the transition was refused for some other reason: "
+        f"{caught.value.context['detail']!r}"
+    )
+
+    # **The exit exists**, which is the half that stops this being a listing
+    # nobody can ever approve. J2-staff step 7, reachable from the same
+    # command by `--verify-book`.
+    from apps.catalog.services import verify_book
+
+    verify_book(staff, unverified_book)
+    listing.refresh_from_db()
+    updated = services.moderate_listing(
+        staff, listing, "REVIEW_PASS", "seller terms", "Photos match.", 30
+    )
+    assert updated.status == "LIVE"
+
+
+@pytest.mark.parametrize("target", sorted(services.BUYER_REACHABLE_STATUSES))
+def test_no_buyer_reachable_status_is_reachable_on_an_unverified_book(
+    seller, unverified_book, target
+):
+    """Every member of the set, not just `LIVE`.
+
+    `RESERVED` and `CLOSED_TRANSFERRED` are reachable only *through* `LIVE`
+    today, so a test on `LIVE` alone would be asserting the shape of
+    `LISTING_TRANSITIONS` rather than the property. Driven through
+    `_transition` directly, with the row put in a status the edge exists
+    from, because the public callers cannot express the illegal move.
+    """
+    listing = _create(seller, unverified_book)
+    from_status = next(
+        s for s, to in services.LISTING_TRANSITIONS.items() if target in to
+    )
+    Listing.all_objects.filter(id=listing.id).update(status=from_status)
+    listing.refresh_from_db()
+    with pytest.raises(TransitionNotAllowed) as caught:
+        services._transition(
+            listing, target, listing.version, actor=seller, action="test.a29"
+        )
+    assert "A-29 §2" in caught.value.context["detail"]
+
+
+def test_a_photo_on_a_forced_live_unverified_listing_is_not_served_to_a_stranger(
+    seller, unverified_book, pending_student, staff, open_the_gate, jpeg_with_exif
+):
+    """**The second layer** (rule 12: one layer is never enough).
+
+    `_transition` refuses to *put* a listing in a buyer-reachable status on
+    an unverified book. This refuses to *serve* one that got there some other
+    way — a direct UPDATE, a data fix, a fixture like `s2_listing`. The row
+    is forced to `LIVE` through `all_objects.update`, which is exactly the
+    path that bypasses layer one, and the gate is opened so the refusal
+    cannot be the gate's.
+
+    Three readers, because the layer has to refuse one of them and only one:
+    the stranger is refused, **the seller is not** — their own upload step
+    still works — and the stranger is served once the book is checked.
+    """
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.utils import timezone
+
+    from apps.catalog.services import verify_book
+    from apps.core.errors import NotFound
+
+    listing = _create(seller, unverified_book)
+    photo = services.add_photo(
+        seller, listing,
+        SimpleUploadedFile("p.jpg", jpeg_with_exif, content_type="image/jpeg"),
+    )
+    Listing.all_objects.filter(id=listing.id).update(
+        status="LIVE", published_at=timezone.now()
+    )
+    open_the_gate(listing.campus)
+    pending_student.status = "ACTIVE"
+    pending_student.adult_verified = True
+    pending_student.save(update_fields=["status", "adult_verified"])
+
+    with pytest.raises(NotFound):
+        services.get_photo_for_download(pending_student, listing.id, photo.sha256)
+    assert services.get_photo_for_download(
+        seller, listing.id, photo.sha256
+    ).sha256 == photo.sha256, "the seller lost their own photo to A-29's read layer"
+
+    verify_book(staff, unverified_book)
+    assert services.get_photo_for_download(
+        pending_student, listing.id, photo.sha256
+    ).sha256 == photo.sha256, (
+        "the read layer refuses a stranger after the catalogue decision too, "
+        "so it is not measuring `staff_verified_at` at all"
+    )
+
+
+def test_the_review_command_prints_authors_and_can_check_the_book(
+    seller, unverified_book, staff, capsys
+):
+    """Two halves of J2-staff step 3 that did not exist.
+
+    **`authors` reached no reviewer at all** — not `queue_rows`, not
+    `_show` — while rendering on four student-facing pages, so for that one
+    field there was no review step to speak of. It prints on `_show` rather
+    than on the queue line because the queue line truncates the title to 48
+    characters, which makes anything past character 48 invisible there.
+
+    **And `--verify-book` is the exit.** A-29 §2 refuses `REVIEW_PASS` while
+    the catalogue row is unchecked, so without this flag the reviewer reaches
+    a listing they can never approve.
+    """
+    from django.core.management import call_command
+
+    listing = services.publish_listing(seller, _create(seller, unverified_book), 1)
+
+    call_command("review_listings", "--staff", staff.email, "--listing", str(listing.id))
+    shown = capsys.readouterr().out
+    assert "B S Grewal" in shown, f"`authors` is still not printed:\n{shown}"
+
+    call_command(
+        "review_listings", "--staff", staff.email,
+        "--listing", str(listing.id), "--verify-book",
+    )
+    capsys.readouterr()
+    unverified_book.refresh_from_db()
+    assert unverified_book.staff_verified_at is not None

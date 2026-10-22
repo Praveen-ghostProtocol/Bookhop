@@ -9,6 +9,12 @@ requires one row per edition across every campus. The *gate* applies to
 listings, not to the catalogue — a student on a closed campus may look up an
 ISBN and find nothing listed, which is S3's "we don't recognise that ISBN" vs
 "not on your campus yet" distinction.
+
+**A second gate does apply here, and it is A-29's.** `staff_verified_at` is a
+condition on reading the four seller-written strings, not a decoration:
+`served_book_text` is the only place that decision is made, and every read
+path goes through it. Being global is exactly what made the catalogue a
+publishing surface, so the gate is on the *text*, not on the row.
 """
 
 import logging
@@ -17,7 +23,6 @@ import unicodedata
 
 from django.db import IntegrityError, transaction
 
-from apps.core.contact import contact_channels_in
 from apps.core.errors import DuplicateIsbn, NotFound, NotPermitted, ValidationFailed
 from apps.core.services import record_audit
 
@@ -34,6 +39,9 @@ __all__ = [
     "validate_isbn13",
     "normalise_title",
     "prescribed_for_course",
+    "served_book_text",
+    "may_read_unverified_text",
+    "SELLER_WRITTEN_TEXT",
 ]
 
 #: Anything that is not a letter, a digit or a space, stripped from
@@ -47,25 +55,85 @@ _COLLAPSE_SPACE = re.compile(r"\s+")
 #: later switch to the indexed `%` operator does not change which rows match.
 TRIGRAM_THRESHOLD = 0.3
 
-#: **API-CONTRACT A-28.** One of `apps/core/contact.py`'s three limbs applies
-#: to catalogue text. `linked` does not: `Physics/Chemistry Combined` and
-#: `Maths I/II` are real titles. `dialable` does not either: the separators
-#: that join `+91 98400 12345` into twelve digits also join
-#: `Journal 2019 2020 2021` into twelve, so **no threshold separates them**
-#: and two attempts to find one each broke on first contact. A guard that
-#: fires on legitimate catalogue data is edited rather than obeyed
-#: (`CLAUDE.md` rule 13); rule 13's first resort — rename our own name —
-#: cannot apply, because the colliding names are publishers' and authors'.
+#: **API-CONTRACT A-29 §1.** The columns on `books` a *seller* writes in free
+#: text. The ISBN is not here — thirteen checksummed digits are an identifier,
+#: not prose — and neither is `language`, `publication_year` or
+#: `origin_country`, which are an enum and two bounded numbers.
 #:
-#: **The layer that still catches a `t.me/priya` or a phone number in a
-#: title** (rule 12, and an exemption without this line is a widening) is the
-#: human review queue: at pilot every listing stops at `PENDING_REVIEW` and
-#: the moderator is shown the title, edition and publisher. *That layer
-#: exists only while `LISTING_REVIEW_ALL` is true*, so the exemption is
-#: conditional and
-#: `tests/unit/test_catalog.py::test_the_catalogue_exemptions_rest_on_a_flag_that_is_still_true`
-#: goes **red**, not green and not skipped, in the diff that flips it.
-CATALOGUE_CHANNEL_KINDS = ("addressed",)
+#: A-26, A-27 and A-28 each tried to filter these. The defect was never
+#: textual: a seller writes into a **global** row (ADR-002 §2) that is served
+#: to every buyer of that ISBN with no human in between, and a slur or a
+#: sentence about a lecturer fits through that hole exactly as well as a phone
+#: number. `served_book_text` below is the gate that closes it, and there is
+#: **no text rule on catalogue text at all** — not an empty one (A-29 §3).
+SELLER_WRITTEN_TEXT = ("title", "authors", "edition_label", "publisher")
+
+
+def _withheld():
+    """What a withheld row reads as. **Built per call, not a module constant**:
+    `authors` has to be a list because the model's is (a reader doing
+    `list(...)` over a `None` would crash on the unverified branch only, which
+    is the branch nobody exercises by hand), and one shared list handed to
+    every caller is one `append` away from a leak across requests.
+    """
+    return {"title": None, "authors": [], "edition_label": None, "publisher": None}
+
+
+def may_read_unverified_text(book, reader) -> bool:
+    """A-29 §1, asked as one property. Three clauses, one place.
+
+    **Staff may read it** — that is what a review step is for, and
+    `queue_rows` and `review_listings --listing` are the two readers that
+    exist. **The book's own author may read it**, so a seller is never shown
+    a label in place of words they typed. Everybody else is served the ISBN.
+    """
+    if getattr(book, "staff_verified_at", None) is not None:
+        return True
+    if getattr(reader, "is_staff_member", False):
+        return True
+    reader_id = getattr(reader, "id", None)
+    return reader_id is not None and getattr(book, "created_by_id", None) == reader_id
+
+
+def served_book_text(book, reader=None):
+    """A-29 §1 — **the one decision**, asked once and read by every surface.
+
+    Returns the four `SELLER_WRITTEN_TEXT` values as `reader` may be served
+    them, plus `withheld`, so the four read paths route through this rather
+    than each asking `staff_verified_at` their own way (`CLAUDE.md` rule 11).
+
+    ### `reader` IS THE ACTOR THE ROW WAS REACHED *THROUGH*, AND THAT IS A
+    ### NARROWING OF A-29 §1 THAT IS DECLARED HERE RATHER THAN ASSUMED
+
+    A-29 §1 says the free text is *"served only to the actor who created
+    it"*. A **catalogue-identity read** — `/sell/find-book?isbn=`,
+    `GET /api/v1/books?isbn=` or `?q=` — reaches the row by ISBN or by title
+    over a record nobody owns, so it passes no reader at all and is neutral
+    **even for the student who typed the text**. A listing read passes the
+    actor whose listing it is, and the staff surfaces pass the reviewer.
+    Three callers, one rule, and the rule is about what the row was reached
+    through rather than about which URL asked.
+
+    **Measured, because it is the one place A-29 as written cannot hold:**
+    `tests/contract/test_a28_the_layer_that_was_named.py::test_a_poisoned_catalogue_row_reaches_a_student_without_any_listing`
+    creates the book **as the seller** and then signs that same seller in to
+    `/sell/find-book`. Under A-29 §1 read literally the seller is the author
+    and is served the raw string, and that test stays red. It is escalated in
+    the slice note: either the exception is narrowed as it is here, or that
+    test has to read as somebody else — and the second is QA's file, not
+    mine.
+    """
+    if book is None:
+        return {**_withheld(), "withheld": False}
+    if may_read_unverified_text(book, reader):
+        return {
+            "title": book.title,
+            "authors": list(book.authors or []),
+            "edition_label": book.edition_label,
+            "publisher": book.publisher,
+            "withheld": False,
+        }
+    return {**_withheld(), "withheld": True}
 
 
 def normalise_isbn13(raw):
@@ -225,47 +293,6 @@ def search_books(q: str, limit: int = 20):
     return list(base.filter(title_norm__contains=needle).order_by("title")[:limit])
 
 
-#: The sentence each limb earns. Keyed by limb so a limb added to
-#: `CATALOGUE_CHANNEL_KINDS` without a sentence fails loudly below rather
-#: than borrowing a wrong one. **One limb applies to catalogue text (A-28),
-#: so there is one sentence**: a digit run — an ISBN in the title, a phone
-#: number, a three-year journal range — is no longer refused here at all, and
-#: a message describing that refusal would describe something that cannot
-#: happen (rule 9's corollary).
-_CATALOGUE_REFUSAL = {
-    "addressed": (
-        "An email address or a handle here would appear on every listing of "
-        "this ISBN, including listings by sellers who never typed it. Enter "
-        "what is printed on the book; buyers and sellers arrange handovers "
-        "through BookHop.",
-        "No email addresses or handles.",
-    ),
-}
-
-
-def _refuse_contact_channel(field, value):
-    """API-CONTRACT A-26, as corrected by A-27 and settled by A-28. Raises on
-    an off-platform address. A digit run is not one: see
-    `CATALOGUE_CHANNEL_KINDS`.
-
-    **Worse than F49, which is why it is here and not only on
-    `display_name`:** `books` is global (ADR-002 §2), so a channel typed into
-    a title renders on *every* listing of that ISBN, including listings by
-    sellers who never typed it.
-    """
-    channels = contact_channels_in(value, CATALOGUE_CHANNEL_KINDS)
-    if channels:
-        # Sorted, so the sentence is stable if a second limb is ever ruled
-        # back in.
-        message, field_error = _CATALOGUE_REFUSAL[channels[0]]
-        raise ValidationFailed(
-            message,
-            detail=f"{field} carries a contact channel: {', '.join(channels)}",
-            field_errors={field: [field_error]},
-        )
-    return value
-
-
 def create_book(actor, **fields) -> Book:
     """API-CONTRACT §3. Raises `DuplicateIsbn` (→ 409 via `IntegrityError`).
 
@@ -286,7 +313,6 @@ def create_book(actor, **fields) -> Book:
         raise ValidationFailed(
             "Enter the book's title.", field_errors={"title": ["Required."]}
         )
-    _refuse_contact_channel("title", title)
     language = fields.get("language") or "en"
     if language not in LANGUAGES:
         raise ValidationFailed(
@@ -299,12 +325,10 @@ def create_book(actor, **fields) -> Book:
         raise ValidationFailed(
             "Enter the authors as a list.", field_errors={"authors": ["A list of names."]}
         )
-    # Per element, and the list-ness check above stays — one does not replace
-    # the other (A-26). A channel in `authors[1]` renders exactly as widely as
-    # one in `title`.
-    author_names = [_refuse_contact_channel("authors", " ".join(str(a).split())) for a in authors]
-    for field in ("edition_label", "publisher"):
-        _refuse_contact_channel(field, fields.get(field))
+    # The list-ness check above stays. A string is iterable, so iterating a
+    # bare `"Grewal"` would store six authors of one character each — which
+    # is why the type check is not replaced by the per-element work here.
+    author_names = [" ".join(str(a).split()) for a in authors]
     year = fields.get("publication_year")
     if year not in (None, ""):
         try:

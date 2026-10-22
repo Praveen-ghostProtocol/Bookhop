@@ -27,16 +27,30 @@ def _actor(request):
     return session_user(request)
 
 
-def book_payload(book):
+def book_payload(book, reader=None):
     """One book. **No price of any kind** — a catalogue price would be a price
-    history by another name (ADR-003 §2.2)."""
+    history by another name (ADR-003 §2.2).
+
+    **A-29 §1: the four seller-written strings come from `served_book_text`.**
+    Every route in this module is a catalogue-identity read — by ISBN, by
+    title, or by id — so none of them passes a `reader` and all of them serve
+    the neutral form of an unverified row. `reader` exists on the signature
+    because `POST` serialises the row the actor just wrote and that actor is
+    its author: a creator shown a label in place of their own words would
+    read it as the write having failed.
+
+    `text_withheld` is the flag a client renders the BookHop-voiced label
+    from. The ISBN is always present, which is the identity A-29 §1 names.
+    """
+    text = services.served_book_text(book, reader)
     return {
         "id": book.id,
         "isbn13": book.isbn13,
-        "title": book.title,
-        "authors": list(book.authors or []),
-        "edition_label": book.edition_label,
-        "publisher": book.publisher,
+        "title": text["title"],
+        "authors": text["authors"],
+        "edition_label": text["edition_label"],
+        "publisher": text["publisher"],
+        "text_withheld": text["withheld"],
         "publication_year": book.publication_year,
         "language": book.language,
         "staff_verified": book.staff_verified_at is not None,
@@ -76,7 +90,7 @@ def books(request, body, user):
             publication_year=body.get("publication_year"),
             language=body.get("language") or "en",
         )
-        return 201, book_payload(book)
+        return 201, book_payload(book, user)
 
     _signed_in(user)
     isbn = request.GET.get("isbn")

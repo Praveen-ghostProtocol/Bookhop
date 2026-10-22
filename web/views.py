@@ -882,26 +882,52 @@ def _rupees(paise):
     return f"{whole:,}" if part == 0 else f"{whole:,}.{part:02d}"
 
 
-def _book_of(book):
+def _book_of(book, reader=None):
     """The bibliographic identity of a `books` row, as plain values.
 
     Reading `listing.book` at the call site is an attribute hop on the object
     L1 returned, which is what `account()` already does for
     `campus_verification_method`. It is **not** a query L3 composed: no
     filter, no manager, no `.objects`.
+
+    **A-29 §1's gate, and the decision is not made here.** The four
+    seller-written strings come from `apps.catalog.services.served_book_text`,
+    which is the one place that asks; this function only maps its answer onto
+    the keys the templates read. `reader` is the actor the row was reached
+    *through* — the owner of the listing being rendered — and
+    `/sell/find-book` passes none, because an ISBN lookup over a global row
+    reaches it through nothing anybody owns.
+
+    **The withheld form is the ISBN and nothing else, and that is half of
+    A-29 §1 rather than all of it.** A-29 asks for *"the ISBN and a neutral,
+    BookHop-voiced label"*. The ISBN is data and it is here. The label is a
+    student-facing sentence, which means a `pgettext` context and a row in
+    both catalogues — `templates/**` and `locale/**`, neither of which is
+    mine. So `withheld` is published in the dict for the template to render
+    the label from, and until it does the biblio line reads `ISBN 978…`,
+    which identifies the edition and claims nothing. Escalated in the slice
+    note; **no sentence is invented here**, because an untranslated literal
+    in this file is the exact defect
+    `tests/contract/test_copy_catalogue_is_the_shipped_copy.py` was written
+    against.
     """
-    authors = getattr(book, "authors", None) or []
+    text = _catalog().served_book_text(book, reader)
+    isbn = getattr(book, "isbn13", None)
     return {
-        "title": getattr(book, "title", None),
-        "authors": ", ".join(str(a) for a in authors),
-        "edition": getattr(book, "edition_label", None),
-        "publisher": getattr(book, "publisher", None),
+        # `""` and not `None` on the withheld-and-no-ISBN path: a template
+        # renders `None` as the four letters, and a pre-ISBN book is a real
+        # row (`test_a_book_with_no_isbn_cannot_be_self_published`).
+        "title": (f"ISBN {isbn}" if isbn else "") if text["withheld"] else text["title"],
+        "authors": ", ".join(str(a) for a in text["authors"]),
+        "edition": text["edition_label"],
+        "publisher": text["publisher"],
         "year": getattr(book, "publication_year", None),
-        "isbn": getattr(book, "isbn13", None),
+        "isbn": isbn,
+        "withheld": text["withheld"],
     }
 
 
-def _listing_row(listing, today=None):
+def _listing_row(listing, reader=None, today=None):
     """One listing as the values a template renders, and nothing more.
 
     The template maps no enum and formats no money. Every judgement — which
@@ -946,7 +972,7 @@ def _listing_row(listing, today=None):
     wrote_days = (now - written).days if written is not None else None
     return {
         "id": getattr(listing, "id", None),
-        "book": _book_of(getattr(listing, "book", None)),
+        "book": _book_of(getattr(listing, "book", None), reader),
         "status": status,
         "status_word": pgettext(*word) if word else None,
         "price": _rupees(getattr(listing, "asking_price_paise", None)),
@@ -1150,7 +1176,7 @@ def sell(request):
     return _page(
         request,
         "sell.html",
-        rows=[_listing_row(listing) for listing in _items(mine)],
+        rows=[_listing_row(listing, user) for listing in _items(mine)],
         flash=request.session.pop("flash", None),
     )
 
@@ -1435,7 +1461,7 @@ def sell_photos(request, listing_id):
         request,
         "sell_photos.html",
         status=400 if form.errors else 200,
-        row=_listing_row(listing),
+        row=_listing_row(listing, user),
         form=form,
         photos=photos,
         photo_count=len(photos),
@@ -1653,7 +1679,7 @@ def listing_detail(request, listing_id):
     return _page(
         request,
         "listing.html",
-        row=_listing_row(listing),
+        row=_listing_row(listing, user),
         seller=_seller_block(listing),
         photos=photos,
         save_data=_save_data(request),

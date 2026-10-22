@@ -752,3 +752,84 @@ def test_a_photo_whose_file_is_missing_is_404_and_never_500(client_as, seller, b
         "500 here is indistinguishable from the application being broken"
     )
     assert _code(response) == "NOT_FOUND"
+
+
+# --- A-29 §1 at the boundary ----------------------------------------------
+
+
+def test_a_catalogue_lookup_withholds_an_unverified_row_from_its_own_author(
+    client_as, student, unverified_book
+):
+    """`GET /api/v1/books?isbn=` is a catalogue-identity read, so it is
+    neutral **even for the student who wrote the row** — the narrowing of
+    A-29 §1 that `apps/catalog/services.served_book_text` declares.
+
+    The ISBN is still there, because that is the identity A-29 §1 serves in
+    place of the strings, and `text_withheld` is the flag a client renders
+    the label from.
+    """
+    body = client_as(student).get(
+        "/api/v1/books", {"isbn": unverified_book.isbn13}
+    ).json()
+    row = body["items"][0]
+    assert row["isbn13"] == unverified_book.isbn13
+    assert row["text_withheld"] is True
+    for field in ("title", "edition_label", "publisher"):
+        assert row[field] is None, f"{field} was published for an unchecked row"
+    assert row["authors"] == []
+
+
+def test_a_catalogue_lookup_serves_a_checked_row(client_as, student, book):
+    """The other side, so the first test is not passing on a payload that
+    withholds everything from everybody."""
+    row = client_as(student).get("/api/v1/books", {"isbn": book.isbn13}).json()["items"][0]
+    assert row["text_withheld"] is False
+    assert row["title"] == book.title
+
+
+def test_the_create_response_hands_the_author_back_their_own_words(
+    client_as, student
+):
+    """`POST /api/v1/books` serialises the row the actor just wrote, and that
+    actor is its author. A creator shown `null` where their title should be
+    reads it as the write having failed."""
+    row = client_as(student).post(
+        "/api/v1/books",
+        data=json.dumps({
+            "isbn13": "9780544251793",
+            "title": "@War: The Rise of the Military-Internet Complex",
+            "authors": ["Shane Harris"],
+        }),
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+    ).json()
+    assert row["text_withheld"] is False
+    assert row["title"] == "@War: The Rise of the Military-Internet Complex"
+
+
+def test_a_listing_payload_withholds_a_book_its_reader_did_not_write(
+    client_as, seller, unverified_book
+):
+    """A seller who lists an ISBN somebody else added gets the ISBN, not the
+    other student's unreviewed prose. `books` is global, so this is the
+    reader A-26 was originally written about — now answered by the gate
+    rather than by a filter on the writer.
+    """
+    from apps.listings import services
+
+    listing = services.create_listing(
+        seller, book=unverified_book, asking_price_paise=30000, condition="GOOD",
+        annotation_level="NONE", damage_flags=[], no_damage=True, language="en",
+        category="PRESCRIBED_TEXTBOOK",
+    )
+    # `seller` is `student`, who wrote the row, so the reader has to be
+    # somebody else for this to measure anything: the row's author is moved
+    # aside rather than the reader, because the listing read is own-rows only.
+    from apps.catalog.models import Book
+
+    Book.objects.filter(id=unverified_book.id).update(created_by=None)
+
+    row = client_as(seller).get(f"/api/v1/listings/{listing.id}").json()
+    assert row["book"]["text_withheld"] is True
+    assert row["book"]["title"] is None
+    assert row["book"]["isbn13"] == unverified_book.isbn13

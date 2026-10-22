@@ -97,12 +97,13 @@ def listings(request, body, user):
             no_damage=bool(body.get("no_damage")),
             suspect_reproduction_flag=bool(body.get("suspect_reproduction_flag")),
         )
-        return 201, services.listing_payload(listing)
+        return 201, services.listing_payload(listing, actor)
 
+    reader = _signed_in(user)
     page = services.my_listings(
-        _signed_in(user), cursor=request.GET.get("cursor"), limit=request.GET.get("limit")
+        reader, cursor=request.GET.get("cursor"), limit=request.GET.get("limit")
     )
-    return 200, _page_payload(page, services.listing_payload)
+    return 200, _page_payload(page, lambda row: services.listing_payload(row, reader))
 
 
 #: The body field that carries JOURNEYS J2 step 6's seller-terms tick.
@@ -155,10 +156,11 @@ def _resolve_book(book_id):
 @endpoint(methods=["GET"], actor=_actor)
 def my_listings(request, body, user):
     """§5.2 `GET /api/v1/listings/mine`. The seller's own, newest first."""
+    reader = _signed_in(user)
     page = services.my_listings(
-        _signed_in(user), cursor=request.GET.get("cursor"), limit=request.GET.get("limit")
+        reader, cursor=request.GET.get("cursor"), limit=request.GET.get("limit")
     )
-    return 200, _page_payload(page, services.listing_payload)
+    return 200, _page_payload(page, lambda row: services.listing_payload(row, reader))
 
 
 @endpoint(methods=["GET"], actor=_actor)
@@ -173,7 +175,7 @@ def listing_detail(request, body, user, listing_id=None):
     contract requires `403 GATE_CLOSED`.
     """
     actor = _signed_in(user)
-    return 200, services.listing_payload(services.get_own_listing(actor, listing_id))
+    return 200, services.listing_payload(services.get_own_listing(actor, listing_id), actor)
 
 
 @endpoint(
@@ -216,7 +218,7 @@ def publish(request, body, user, listing_id=None):
     actor = _may_write(user, purposes=("listing_publication",))
     listing = services.get_own_listing(actor, listing_id)
     updated = services.publish_listing(actor, listing, body.get("expected_version"))
-    return 200, services.listing_payload(updated)
+    return 200, services.listing_payload(updated, actor)
 
 
 @endpoint(
@@ -227,7 +229,7 @@ def withdraw(request, body, user, listing_id=None):
     actor = _may_write(user)
     listing = services.get_own_listing(actor, listing_id)
     updated = services.withdraw_listing(actor, listing, body.get("expected_version"))
-    return 200, services.listing_payload(updated)
+    return 200, services.listing_payload(updated, actor)
 
 
 # --- book requests ----------------------------------------------------------
