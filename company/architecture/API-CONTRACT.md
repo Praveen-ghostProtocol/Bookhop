@@ -264,11 +264,15 @@ def withdraw_consent(user, purpose_key, mechanism, ip, user_agent) -> None
 def accept_seller_terms(user, notice_version, ip) -> None
 def update_profile(user, *, display_name=None, locale=None) -> User
 #   Stack M for display_name, Stack S for locale (§2.5).
-def request_correction(actor, *, subject: str, stated_problem: str) -> DataSubjectRequest
+def request_correction(actor, *, stated_problem: str) -> DataSubjectRequest
 #   s12(1)-(2). Stack S. NOT IMPLEMENTED — S2 (§2.5 status note, QA F24).
-#   Creates a data_subject_requests row, kind='CORRECTION', due_at = +7 days.
+#   Creates a data_subject_requests row, kind='CORRECTION', due_at = +7 days,
+#   with the text in `stated_problem` — a column added for it (DATA-MODEL
+#   A-29). It does NOT reuse `nominee`, which holds a third party's data.
 #   Free text, not an enum of correctable fields: staff decide, and an enum
 #   here would be a list where a judgement belongs.
+#   (The separate `subject` argument in the 2026-10-22 draft is withdrawn:
+#    redundant with free text.)
 def decide_correction(staff, dsr, *, outcome: str, applied: dict, note: str) -> DataSubjectRequest
 #   Staff-only. Applies the correction, writes audit_log and completes the DSR.
 def erase_account(user, reason='USER_REQUEST') -> None         # DATA-MODEL §10.1, one transaction

@@ -445,12 +445,49 @@ would be purpose creep. Consequence: repeat-transfer-@90d undercounts
 delete-and-rejoin users. Said out loud in §9.2.
 
 ### `data_subject_requests` — S1
-`(id, user_id NULL, user_pseudonym, kind CHECK IN ('ACCESS','CORRECTION','ERASURE','NOMINATION'), received_at, due_at, completed_at, outcome, nominee jsonb NULL)`
+`(id, user_id NULL, user_pseudonym, kind CHECK IN ('ACCESS','CORRECTION','ERASURE','NOMINATION'), received_at, due_at, completed_at, outcome, nominee jsonb NULL, **stated_problem text NULL**)`
 
 `due_at = received_at + 7 days` — **not 90**. `COMPLIANCE.md` §1.8 is explicit
 that 90 days is DPDP's ceiling and the operative number is **7 days** because
 the tightest applicable clock governs. **Nomination (s14) is included** because
 it is in the Act and nobody builds it.
+
+> **A-29 · `stated_problem` added, and the nominee column is NOT reused ·
+> cto, 2026-10-22** *(backend's pre-S2 check: the correction endpoint was
+> unimplementable as scheduled, because this table had nowhere to carry
+> **what** the student wants corrected)*
+>
+> **Backend flagged it before S2 found it, and refused the obvious workaround
+> for the right reason:** *a column holding two unrelated things is how the
+> next contract divergence starts.* Confirmed — **and there is a stronger
+> reason than tidiness, which is why this is a ruling and not a preference.**
+>
+> **The nominee payload is personal data about a THIRD PARTY.** It holds
+> another living person's name and contact details, given by the subject, with
+> that person's own retention, access and — eventually — notification
+> implications. **A correction request is the subject's own words about their
+> own record.** Two different data subjects, two different access rules, two
+> different reasons to keep or erase. **One column would force one retention
+> rule and one access rule onto both**, and the first time someone reasons
+> about "who is in this column" they would get it wrong for half the rows.
+>
+> - `stated_problem text NULL` — **the student's own words, free text.** Per
+>   `API-CONTRACT.md` §3 this is deliberately not an enum of correctable
+>   fields: **an enum there is a list where a judgement belongs** (rule 11),
+>   and staff read the text. One column, not two — my §3 signature's separate
+>   `subject` argument is withdrawn as redundant with free text.
+> - **Both sides of the kind split are constrained, not just the one being
+>   added** (rule 12's both-sides corollary, which exists because checking one
+>   side passes):
+>   `CHECK (kind <> 'CORRECTION' OR stated_problem IS NOT NULL)` **and**
+>   `CHECK (kind <> 'NOMINATION' OR nominee IS NOT NULL)` **and**
+>   `CHECK (kind <> 'CORRECTION' OR nominee IS NULL)`.
+> - Retention: 1 year, with the row (§7 row 18's family). `stated_problem` is
+>   the subject's own personal data and is purged with the request.
+>
+> **A third right needing a payload gets a third column, deliberately** — and
+> if that ever reaches four, the answer is a child table keyed by kind, not a
+> `payload jsonb` that means something different per row.
 
 ---
 

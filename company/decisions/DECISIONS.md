@@ -3870,3 +3870,148 @@ to it. The wide mark lets you skip that decision, which is most of why it is
 tempting.** Scoping it is what forced the realisation that the gap was one row
 and not one test — **and that distinction is what kept the guard able to catch
 the next row.**
+
+---
+
+## D-059 — S1 APPROVED AND COMPLETE. Committed 5799170
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified on the commit, clean tree:** PostgreSQL `1183 passed, 65
+skipped, 3 xfailed`; SQLite `1118 passed, 131 skipped, 2 xfailed`. Zero
+failures.
+
+**Code review: APPROVED. QA: PASS.** Both gates, per rule 5.
+
+### What review checked last, because the approval turned on it
+**A just-un-vacuumed guard can pass for a *new* wrong reason.** It measured
+per handler that the real token is present **and a bogus token absent** for
+all eight gated handlers — so the guard against the authorization bypass is
+**live rather than merely no longer vacuous.** The same run confirmed the old
+`or` would have rescued all eight.
+
+### The principle extracted from the mark decision, stated so it copies
+**`xfail` belongs on an assertion with one subject.** An aggregate assertion
+has one outcome for N subjects, so marking the aggregate makes the
+expected-failure state satisfiable by **any** subject: a second unreachable
+row keeps it xfailing, strictness never fires because it never xpasses, and
+**the known failure buys silence for the new one** — and the day the known gap
+is fixed the tripwire still does not fire if the new one is present.
+
+**Where a guard asserts over a set, express the expected failure by removing
+the known subject, never by marking the aggregate.** QA's version is safe
+rather than merely convenient because the exclusion **both** removes the row
+**and** attaches its own per-row strict xfail: one gap, two live tripwires.
+
+### Nothing was weakened
+Four modified test files, **no deleted assertion, test, skip or xfail line
+anywhere.** The charter metric is at zero for this slice.
+
+### Review's one real complaint, and it is mine
+**Four consecutive rounds measured a tree that was moving underneath them** —
+unexplained numbers, assertion-free files counted as coverage, a mid-review
+edit that made a suite red after it was reported green. Its judgement: **the
+work is good; the commit discipline around it is the weakest thing left**, and
+**a review and a QA pass are both statements about an artefact, which mean
+nothing against a tree being edited while it is measured.**
+
+**Adopted from S2: the tree freezes when a slice goes to review** — no agent
+edits until the verdict returns — **and each agent's work commits separately**,
+since bulk commits have been erasing the authorship that D-058's independence
+property depends on.
+
+### A schema gap caught before S2 rather than during it
+**The correction endpoint is not implementable as the schema stands:** there
+is no column for *what* the student wants corrected, only a payload belonging
+to a different right. Backend's reason for flagging early is the one to keep:
+**the obvious workaround is to reuse that column, and a column holding two
+unrelated things is how the next contract divergence starts.** Same failure as
+the wrong stack placement, in the schema rather than the prose.
+
+### A project-instruction edit that should not pass by silence
+`CLAUDE.md` gained ~20 lines this slice. Review has no objection on substance
+but correctly refused to wave it through: **a project-instruction edit riding
+in on a slice commit is the founder's and the CTO's to ratify, not a
+reviewer's.** I wrote them and should not also ratify them. Routed — with the
+standing counter-argument that **eighteen rules which are really twelve will
+be obeyed and nineteen will not**, and I have been adding rather than
+consolidating.
+
+### Standing gaps, each with a tripwire
+**No WCAG 2.2 AA pass** — a structural sweep exists; the keyboard walkthrough
+and the performance percentile skip with stated reasons. **Two live criticals**
+awaiting an ownership migration that needs a superuser. **The correction
+endpoint absent**, so a suspended student has no correction path at all.
+**The deletion test's independence deferred to S4**, against five independent
+derivations. **Nothing deployed, no backup restored, no CI.**
+
+---
+
+## D-060 — Rules consolidated 18 → 13 by root cause; rule 9 corrected
+**Date:** 2026-10-22 · **Decider:** ceo-planning, on cto ratification
+
+### The correction that mattered: rule 9 endorsed the defect it was meant to catch
+As written, rule 9 required a test asserting a named control **exists**. QA
+found **a trigger-existence check passing while the table it guarded was
+freely updatable**, because a surviving sibling satisfied it. **So the rule's
+literal text was satisfied by the exact test that failed.**
+
+Corrected: a conformance test asserts **both that the control exists and that
+its property holds.** **Existence diagnoses — it fails by name, so you know
+which guard went missing. Behaviour guarantees.** Ship both, never only the
+first.
+
+**Two smaller defects fixed:** the old rule 12 said *"four disguises"* and
+listed five, then referred to *"all five"* nine lines later — **a rule set
+that miscounts its own list is poorly placed to enforce the rule about
+lists** — and a hard count that would go stale next slice is now
+"repeatedly".
+
+### Consolidation by cause, not by compression
+Rules 1–8 are governance and founder-facing; untouched. **The ten engineering
+rules were five root causes written twice:**
+
+- **A document's claim is not evidence** (was 9 + 17)
+- **A passing check is not evidence** (was 12 + 16 — the refusal-on-the-wrong-
+  signal case is the same family, now its sixth disguise)
+- **One definition, not many copies** (was 10 + 11 + 15 — **the per-entry
+  match rule is precisely the "where an invariant cannot be expressed" branch;
+  they were one rule written twice**)
+- **One layer is never enough, and layers do different jobs** (was 14 + 18)
+- **A guard that collides with the contract gets edited** (was 13, unchanged)
+
+**18 → 13. 212 lines → 171.**
+
+**The condition the CTO attached, and it governed how I did it: the instances
+must survive the merge.** These rules are obeyed because each carries the
+incident that produced it — **an agent follows "assert the message text"
+because it has read what happened when someone didn't.** So: five headings
+with the findings as evidence beneath, not deletion. Every incident is still
+there.
+
+**And this was the last cheap consolidation** — at 13 it is still one page.
+
+### The gap deliberately NOT given a rule
+None of the rules is about end-to-end behaviour; they are all about claims and
+controls, and **a seam between artefacts is specified nowhere, so no
+spec-first test reaches it.** The CTO's judgement, which I accept:
+**adding a nineteenth rule for that would be adding more of the kind of thing
+that already missed it.**
+
+It is in TASKS' definition of done instead, where it binds per slice:
+**one real journey exercised end to end through the actual UI, by a client
+that was served the pages.** A checkbox, not a principle — **and currently the
+only thing in the project that closes that seam.** Verified present at line
+614, alongside the review-freeze rule at line 24.
+
+### The schema gap closed on a better reason than tidiness
+`stated_problem` added; **the nominee column explicitly not reused.** Backend's
+argument was sound, but the CTO's is decisive: **the nominee payload is
+personal data about a third party — another living person's name and contact
+details, with their own retention and notification implications — while a
+correction request is the subject's own words about their own record. Two
+different data subjects.** One column would force one retention rule and one
+access rule onto both, **and the first person to reason about "who is in this
+column" would be wrong for half the rows.**
+
+Both-sides applied rather than only constraining the new case, and **a
+redundant "subject" argument withdrawn from the CTO's own signature — free
+text plus a separate "what area" field was a list sneaking back in.**

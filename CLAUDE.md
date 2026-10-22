@@ -44,149 +44,107 @@ the prompt — do not collapse the role into the main context.
 8. These four numbers are **unverified planning assumptions**, not facts:
    5 lakh Chennai students · 20% participation · 2 transfers/year ·
    Rs 300 book value.
-9. **Every control a document names must have a conformance test asserting
-   that control exists in code.** A document may not assert a property; it
-   must require a check for it. No claim about a control may be quoted in a
-   launch packet, an ADR or a report until its conformance test passes.
+9. **A document's claim is not evidence.**
 
-   **A conformance test must assert the control at the boundary the document
-   claims, not at the boundary the implementation chose.** Otherwise it
-   measures the floor the floor has, and passes.
+    Every control a document names must have a conformance test asserting
+    **both that the control exists and that its property holds.** Existence
+    diagnoses — it fails by name, so you know which guard went missing.
+    Behaviour guarantees. Ship both; never only the first.
 
-   *Why (D-026):* in one pass, four separate defects were all the same shape —
-   a specification stronger than its implementation, with no test for the gap.
-   A token list named 22 tokens while 15 were enforced. A section named four
-   controls, two of which did not exist. A test was specified that **cannot be
-   written**. A clause read stronger than the floor it guaranteed. In each
-   case the document was the thing that was wrong. The claim and the check are
-   one artefact, or they drift.
+    The test must assert the control **at the boundary the document claims,
+    not the boundary the implementation chose.** And every cross-engine or
+    cross-library claim is labelled `VERIFIED HERE` or `ASSUMED THERE`: an
+    unverified claim about platform behaviour is a prediction and is written
+    as one.
 
-   *Why the added clause (D-041):* the discovery gate's conformance test
-   passed while the enforced floor sat three statements below the ADR, because
-   the test asserted what the trigger checked rather than what the document
-   specified. **Every defect these rules caught was inside one artefact; the
-   worst defects found since were at the seams between artefacts — and a seam
-   is not specified anywhere, so no spec-first test can reach it.** Rules are
-   about claims and controls. None of them is about end-to-end behaviour,
-   which is why a suite of 835 tests passed while nobody had ever been served
-   a page.
+    *Earned:* a token list named 22 and enforced 15. A section named four
+    controls, two of which did not exist. A test was specified that **could
+    not be written**. A trigger-existence check passed on one engine **while
+    the table it guarded was freely updatable**, because a surviving sibling
+    satisfied it — so the earlier wording of this rule was satisfied by the
+    exact test that failed. A probe was green on both engines **for two
+    different wrong reasons**, and the document recorded one of them as
+    deliberate.
 
-10. **Never hand-copy a rule into code.** One imported definition, many
-    readers. Three hand-made copies of one legal rule existed in three files
-    by three authors and disagreed — and the agent whose job was to catch the
-    divergence judged the control against its own copy. This was not
-    carelessness; it was everyone independently doing the obvious thing.
+    *Corollary:* when an explanation and a measurement disagree, **delete the
+    explanation** — even when it lives in a document whose job is to explain.
 
-11. **A list that cannot express its own exceptions gets edited instead of
-    extended.** When one entry causes a false positive, the entry is deleted
-    and coverage is silently lost. Give a list a per-entry match rule, not a
-    flat membership test.
-
-12. **A check that cannot fail is worse than no check**, because it is
-    reported as coverage. Found eight times, in four disguises:
+10. **A passing check is not evidence.** A check that cannot fail is worse
+    than no check, because it is reported as coverage. Found repeatedly, in
+    six disguises:
 
     - **A test that passes vacuously.** Where a property cannot be tested on
-      the available engine, the test **skips with a reason naming the engine
-      and the slice** — it never passes.
+      the available engine, the test **skips with a reason naming engine and
+      slice** — it never passes.
     - **A requirement that cannot be satisfied, or cannot be violated.** A
       criterion gated on a value that does not exist; a criterion broader than
-      its own rationale, which the primary journey must violate to work; a
-      route whose storage was never allowed. These surface only when someone
-      tries to build against them.
-    - **A guard whose fixture cannot produce the condition.** The locale guard
-      passed because its fixture published no Tamil row; the gate guard passed
-      because it tested the floor the floor had.
+      its own rationale, which the main journey must violate to work. These
+      surface only when someone tries to build against them.
+    - **A guard whose fixture cannot produce the condition.**
     - **A measuring instrument that does not assert it measured.** The
-      accessibility harness reached four pages of eleven, because seven
-      redirect without a session and a non-200 counted as a skip — a third of
-      the target silently uncovered, **reported as coverage for a whole
-      slice.** An instrument must assert its own reach, and any number it
-      produces is quoted with the count of subjects actually reached.
-    - **A check that has not started yet.** A test forward-dated to a slice
-      that does not exist can skip **forever** — the endpoint ships at an
-      unpredicted path, nothing runs, and the decision it encodes is forgotten
-      while the file reads as coverage for the whole window. From outside,
-      *"not yet running"* and *"running and passing trivially"* are
-      indistinguishable. **Invert it: once the owning app exists, a ruled path
-      that does not resolve is a failure, not a skip** — and assert that
-      failure branch still exists, so nobody converts it back.
+      accessibility harness reached four pages of eleven and **reported
+      coverage for a whole slice.** An instrument asserts its own reach, and
+      any number it produces is quoted with the count actually reached.
+    - **A check that has not started.** A forward-dated test can skip
+      **forever**. From outside, *"not yet running"* and *"running and passing
+      trivially"* are indistinguishable. **Invert it: once the owning app
+      exists, a ruled path that does not resolve is a failure** — and assert
+      that failure branch still exists.
+    - **A refusal on the wrong signal.** A database validates a function's
+      syntax at creation but resolves names at the first execution of *each
+      branch*, so a guard can be created cleanly and fail the first time
+      someone does the forbidden thing — **and the worst form of that failure
+      still blocks the operation, so it looks like the guard working.**
+      Exercise every refusal path and **assert the message text, not the exit
+      status.**
 
-    Two rules that follow from all five:
+    *Corollaries.* **Where a rule splits a set, both sides are rows, and a
+    test enforces that** — checking only the permitted side passes. **Write a
+    guard for a guard when the guard is forward-dated or silent**; the one
+    written here caught its own author's bug on its first run. And **a mark
+    must be as narrow as the gap it marks**: an expected-failure mark belongs
+    on one subject, because marking an aggregate lets a second failure hide
+    inside the first.
 
-    **Where a rule splits a set, both sides are rows, and a test enforces
-    that.** Checking only the permitted side passes, and it is how a wrong
-    placement survives review.
+11. **One definition, not many copies.** Never hand-copy a rule into code —
+    one imported definition, many readers. **Ask the property; do not
+    enumerate the cases.**
 
-    **A guard for a guard is worth writing when the guard is forward-dated or
-    silent.** The one written here caught its own author's bug on its first
-    run — a path-existence check that matched everything, because the URL
-    config ends in a catch-all, which would have made every assertion in the
-    file pass vacuously the moment its app was installed.
+    Where an invariant genuinely cannot be expressed — SQL has no portable
+    character classes — use a list, **declare its ceiling in the same place**,
+    point at the layer that generalises, and **give each entry its own match
+    rule**. A flat list gets *edited* when one entry misfires, and coverage is
+    silently lost with it.
 
-    The last is the most consequential, because everything downstream trusts
-    the instrument. **A harness that silently covers a third of its target
-    exists without being a control.**
+    *Earned:* three hand-made copies of one legal rule disagreed, and the
+    agent whose job was to catch the divergence judged the control against its
+    own copy. A whitespace list could never have caught zero-width space,
+    which is a *format* character: it survives a strip and renders as nothing.
+    One token was deleted to fix a false positive and **took three unrelated
+    tokens with it.**
+
+12. **One layer is never enough, and layers do different jobs.** Before
+    granting any exemption, **name the other layer that still catches it** —
+    if none does, it is a widening, not a clarification.
+
+    And **a control that guarantees a *state* does not thereby detect a *bad
+    input*.** A constraint proving every box is filled does not prove any is
+    true. A database proving no float is stored does not prove none was
+    passed — it rounds silently, and **a rounded money value is a wrong value
+    that looks right.** The schema is the floor; **detection lives above it**,
+    and the obvious test passes while the defect ships. The test that matters
+    is never "the column is of integer type" — it is "passing a non-integer is
+    refused."
 
 13. **A guard that fires on the contracts it protects will be edited, not
-    obeyed.** Seen three times. The alternative to resolving a false positive
-    is never a stricter control — it is a red test on mandated names and an
-    edit to a protected file under schedule pressure. When a guard collides
-    with a name, the order of resort is:
-    1. **Rename our own name.** Always preferred: costs one rename, leaves the
-       control at full strength, adds nothing to any document.
-    2. **Exempt the shape, ratified**, and only when the colliding name is
+    obeyed.** The alternative to resolving a false positive is never a
+    stricter control — it is a red test on mandated names and an edit to a
+    protected file under schedule pressure. Order of resort:
+    1. **Rename our own name.** Costs one rename, leaves the control at full
+       strength, adds nothing to any document.
+    2. **Exempt the shape, ratified** — only when the colliding name is
        mandated by a frozen contract and so is not ours to rename.
-    3. **Widen the allowance — founder escalation.** Nothing has needed this
-       yet.
-
-14. **Prefer two independent layers over one strict layer.** An exemption in
-    one layer is affordable only when another layer independently rejects the
-    same thing. Before granting any exemption, state which other layer still
-    catches it — and if none does, it is a widening, not a clarification.
-
-15. **An invariant beats a list.** Ask the property, don't enumerate the
-    cases. Twice now a list has been the wrong answer: a money-token list
-    enforced 15 of 22 entries, and a whitespace list could never have caught
-    zero-width space or a byte-order mark, because those are *format*
-    characters rather than whitespace — they survive a strip and render as
-    nothing. The replacement asks Unicode, per character, whether anything
-    printable and non-format is present; it consults no list and can gain no
-    entries. Where an invariant genuinely cannot be expressed — SQL has no
-    portable character classes — use a list, **declare its ceiling in the same
-    place**, and point at the layer that generalises.
-
-16. **A refused operation is not evidence a guard fired for the right
-    reason.** PostgreSQL validates plpgsql syntax at creation but resolves
-    identifiers and operators at the first execution of *each branch*, so a
-    guard can be created cleanly, pass every happy path, and fail the first
-    time someone does the forbidden thing — and the worst form of that failure
-    still blocks the operation, so it looks like the guard working. Exercise
-    every refusal path and **assert the message text, not the exit status.**
-
-17. **Label every cross-engine or cross-library claim `VERIFIED HERE` or
-    `ASSUMED THERE`.** An unverified claim about platform behaviour is a
-    prediction and must be written as one, in any architecture document, not
-    just the one about engine differences.
-
-    *Why:* rule 9 asks whether a control exists. It does not ask whether a
-    document's *explanation* of that control is true — and three predictions
-    turned out wrong inside documents that had passing conformance tests. The
-    worst was a probe that was green on both engines **for two different wrong
-    reasons**: on one it compared untyped integers, on the other it never
-    reached the constraint at all, and the document recorded the wrong reason
-    as deliberate.
-
-18. **A control that guarantees a *state* does not thereby detect a *bad
-    input*.** Seen three times. A constraint proving every box is filled does
-    not prove any is true. A guard proving a column cannot hold a float does
-    not prove none was passed. A database proving no float is stored does not
-    prove none was sent — PostgreSQL rounds `300.75` to `301` silently, and
-    **a rounded money value is a wrong value that looks right.**
-
-    In each case the schema is the floor, **detection lives above it**, and
-    the obvious test passes while the defect ships. So the test that matters
-    is never "the column is of integer type" — it is "passing a non-integer
-    is refused."
+    3. **Widen the allowance — founder escalation.** Nothing has needed this.
 
 ## Assignment format
 

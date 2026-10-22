@@ -21,6 +21,15 @@ notifications and analytics.
    not a slice.
 3. **Code Review never approves its own code. Test & QA verifies behaviour
    independently of implementation** (`CLAUDE.md` rule 5, cto charter).
+3a. **The tree freezes when a slice goes to review. No agent edits until the
+   verdict returns, and each agent's work commits separately.** Adopted
+   2026-10-22 on review's observation that **four consecutive rounds measured
+   a tree that was moving underneath them** — one mid-edit syntax error
+   produced seven spurious failures in a run that had to be discarded.
+   **A review and a QA pass are both statements about an artefact, and they
+   mean nothing against an artefact being edited while measured.** Separate
+   commits are the other half: bulk commits erase which agent did what, and
+   authorship is what makes a finding traceable to the work that caused it.
 4. **Instrumentation ships inside the slice that creates the behaviour**, not
    later. D-009's entire mitigation depends on this, and a retrofit is how it
    fails. A slice whose metric rows are not written is not done.
@@ -602,6 +611,14 @@ A slice is done when **all** of these are true:
 - [ ] Migration applied and reversible; `migrate` from empty succeeds.
 - [ ] L1 service functions match `API-CONTRACT.md` §3 exactly.
 - [ ] L2 and L3 both work; **L3 works with JavaScript disabled**.
+- [ ] **One real journey exercised end to end through the actual UI, by a
+      client that was served the pages.** Added 2026-10-22 and it is not a
+      restatement of the line above. `CLAUDE.md` rule 9's own D-041 note
+      records the reason: **"a suite of 835 tests passed while nobody had ever
+      been served a page."** Every rule in that set is about claims and
+      controls, **and the worst defects found since were at the seams between
+      artefacts — a seam is specified nowhere, so no spec-first test reaches
+      it.** This checkbox is the only thing in the project that does.
 - [ ] Every new personal-data field has a `COMPLIANCE.md` §7 row, or an
       escalation raised.
 - [ ] Instrumentation rows are written by the behaviour, not by a later job.
