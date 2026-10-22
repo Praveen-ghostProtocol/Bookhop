@@ -234,3 +234,148 @@ def test_a_reading_list_is_scoped_to_its_campus(book, signup_campus, closed_camp
     # Case and whitespace are normalised, because a student types what is on
     # the timetable and a reading list is typed by staff.
     assert len(services.prescribed_for_course(signup_campus, " ma8151 ")) == 1
+
+
+# --- A-26: catalogue text is not a contact channel -------------------------
+#
+# Backend found this writing F49's boundary sweep and escalated rather than
+# chose: `create_book` validated `title` for non-empty, `authors` for being a
+# list, and `publisher` and `edition_label` not at all, so
+# `"Engineering Mathematics wa.me/919840012345"` became a channel on **every**
+# listing of that ISBN — `books` is global, so this is wider than F49, which
+# reached only the seller's own listings. API-CONTRACT A-26 is the ruling:
+# `dialable` and `addressed` apply; `linked` does not.
+#
+# **Both sides are rows** (`CLAUDE.md` rule 10's corollary). The permitted
+# side is the expensive one to get wrong: `linked` is exempt precisely
+# because real titles contain slashes, and a table that only listed refusals
+# would pass with the exemption silently removed.
+
+
+def _create(student, **over):
+    """`create_book` with one field replaced. No ISBN — `isbn13` is NULL
+    UNIQUE, so the accepted rows do not need thirteen made-up digits each."""
+    fields = {"title": "Engineering Mathematics", "authors": ["B S Grewal"]}
+    fields.update(over)
+    return services.create_book(student, **fields)
+
+
+@pytest.mark.parametrize(
+    "field,value,why",
+    [
+        ("title", "Physics/Chemistry Combined", "the title A-26 exempts `linked` for"),
+        ("title", "Maths I/II", "roman numerals around a slash"),
+        ("title", "Advanced Microeconomics & Public Policy", "an ampersand"),
+        ("title", "NCERT Class 12 Physics Part I", "digits that are a class, not a number"),
+        ("title", "Engineering Mathematics — Volume 2", "an em dash and a volume number"),
+        ("publisher", "S. Chand & Co.", "initials, an ampersand and a full stop"),
+        ("publisher", "Tata McGraw-Hill", "a hyphen inside a name"),
+        ("edition_label", "3rd ed., 2019 reprint", "a year is four digits"),
+        ("edition_label", "Vol. I/II", "a slash in an edition label"),
+        ("authors", ["H. K. Dass", "Dr. R. S. Aggarwal"], "initials and titles"),
+        # The declared gap, asserted as a gap so the suite cannot be read as
+        # covering it. `apps/core/contact.py` lists it; A-26 names the review
+        # queue as the layer that catches it, and the test below pins the
+        # flag that queue depends on.
+        ("title", "Discrete Maths t.me/priya", "`linked` is exempt — the review queue catches this"),
+    ],
+)
+def test_real_catalogue_text_is_accepted(student, field, value, why):
+    book = _create(student, **{field: value})
+    assert getattr(book, field) == value, why
+
+
+CHANNELS_THAT_MUST_BE_REFUSED = [
+    ("98400 12345", "dialable", "a mobile number with a space in it"),
+    ("priya.r@gmail.com", "addressed", "an email address"),
+    ("wa.me/919840012345", "dialable", "a WhatsApp link — caught by its digits, not by `linked`"),
+]
+
+
+@pytest.mark.parametrize("channel,kind,why", CHANNELS_THAT_MUST_BE_REFUSED)
+@pytest.mark.parametrize("field", ["title", "authors", "publisher", "edition_label"])
+def test_a_contact_channel_in_catalogue_text_is_refused(student, field, channel, kind, why):
+    """All four fields, because all four render on every listing of the ISBN.
+
+    `authors` is a **list**, and it is the second element that carries the
+    channel — a per-element check, not a check of the list's first entry.
+    """
+    from apps.catalog.models import Book
+
+    before = Book.objects.count()
+    value = ["B S Grewal", f"B S Grewal {channel}"] if field == "authors" else f"Grewal {channel}"
+    with pytest.raises(ValidationFailed) as caught:
+        _create(student, **{field: value})
+    # The *kind* is asserted, not merely the refusal: `wa.me/91…` must be
+    # refused by `dialable`, because `linked` is exempt here and a test that
+    # only asserted "refused" would still pass if the exemption were dropped
+    # and then re-dropped for the wrong reason.
+    assert kind in caught.value.context["detail"], why
+    assert field in caught.value.context["field_errors"]
+    assert Book.objects.count() == before, "refused before the row exists"
+
+
+def test_the_authors_list_check_still_stands(student):
+    """A-26: *"each element is checked, and the list-ness check stays — one
+    does not replace the other."* A string is iterable, so a per-element
+    check that replaced the type check would validate `"Grewal"` one
+    character at a time and store a row with 6 authors."""
+    with pytest.raises(ValidationFailed) as caught:
+        _create(student, authors="B S Grewal")
+    assert "authors" in caught.value.context["field_errors"]
+
+
+def test_the_catalogue_applies_the_limbs_a26_ruled_and_no_others():
+    """The exemption is a *named* limb, not an accident of a short tuple.
+
+    This fails by name in three directions: a limb added to
+    `apps/core/contact.py` without an A-26 ruling, `linked` quietly added
+    here, and `linked` deleted from the shared definition — which would leave
+    the exemption above describing something that no longer exists.
+    """
+    from apps.core.contact import CHANNEL_KINDS
+
+    assert set(services.CATALOGUE_CHANNEL_KINDS) == set(CHANNEL_KINDS) - {"linked"}
+
+
+def test_a_misspelled_limb_name_raises_rather_than_guarding_nothing():
+    """Rule 10: the subset is passed by name, so a typo must be loud. A
+    `kinds` that silently matched nothing would be a guard reported as
+    coverage while refusing nothing at all."""
+    from apps.core.contact import contact_channels_in
+
+    with pytest.raises(KeyError):
+        contact_channels_in("98400 12345", ("dialble",))
+
+
+def test_the_linked_exemption_rests_on_a_flag_that_is_still_true():
+    """**The guard for the conditional exemption** — it fails, it does not skip.
+
+    A-26 exempts `linked` from catalogue text because real titles contain
+    slashes. Rule 12 required naming the layer that still catches
+    `t.me/priya` in a title, and that layer is the human review queue: at
+    pilot `LISTING_REVIEW_ALL=true`, every listing stops at `PENDING_REVIEW`
+    and the moderator is shown the title, edition and publisher (F50).
+
+    So the exemption is **conditional on a flag**, and rule 10's fifth
+    disguise says what a conditional check must not be: forward-dated, or
+    skipped, both of which are indistinguishable from passing trivially.
+    Inverted — this asserts the condition the exemption rests on, and goes
+    red in the same diff as the one-line change that removes it.
+
+    Asserted against `bookhop.settings.base`, the **default**, not
+    `django.conf.settings`, which any test may override for a scenario.
+    """
+    from bookhop.settings import base
+
+    assert base.LISTING_REVIEW_ALL is True, (
+        "LISTING_REVIEW_ALL has been flipped off, and that removes the only "
+        "layer standing behind API-CONTRACT A-26's `linked` exemption: "
+        "`t.me/priya` in a book title is accepted by `create_book` and "
+        "renders on every listing of that ISBN, with no moderator between "
+        "the seller and the buyer. Before this ships, either extend `linked` "
+        "to the catalogue fields in apps/catalog/services.CATALOGUE_CHANNEL_KINDS "
+        "(and accept that it refuses `Physics/Chemistry Combined`, which is "
+        "why A-26 did not), or put a second layer in front of the queue and "
+        "amend A-26 to name it. This is a contract amendment, not a test fix."
+    )

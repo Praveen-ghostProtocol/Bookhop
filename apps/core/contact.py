@@ -98,11 +98,25 @@ CHANNEL_KINDS = {
 }
 
 
-def contact_channels_in(text):
-    """The kinds of off-platform channel in `text`, sorted. `[]` if none."""
+def contact_channels_in(text, kinds=None):
+    """The kinds of off-platform channel in `text`, sorted. `[]` if none.
+
+    `kinds` restricts which limbs are applied; `None` applies all of them.
+    **The subset is a caller's ruling, not a caller's reimplementation**
+    (rule 11): `apps/catalog` applies `("addressed", "dialable")` under
+    API-CONTRACT A-26 because a real book title contains a slash
+    (`Physics/Chemistry Combined`), and a limb that fires on legitimate
+    content gets edited rather than obeyed (rule 13). It passes the names; it
+    does not keep its own copy of the predicates.
+
+    A name that is not a limb **raises** rather than matching nothing: a
+    typo'd kind would be a guard that silently stopped guarding and was still
+    reported as coverage (rule 10).
+    """
     subject = str(text or "")
-    return sorted(kind for kind, matches in CHANNEL_KINDS.items() if matches(subject))
+    selected = CHANNEL_KINDS if kinds is None else {k: CHANNEL_KINDS[k] for k in kinds}
+    return sorted(kind for kind, matches in selected.items() if matches(subject))
 
 
-def has_contact_channel(text):
-    return bool(contact_channels_in(text))
+def has_contact_channel(text, kinds=None):
+    return bool(contact_channels_in(text, kinds))

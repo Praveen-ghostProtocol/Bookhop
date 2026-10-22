@@ -17,6 +17,7 @@ import unicodedata
 
 from django.db import IntegrityError, transaction
 
+from apps.core.contact import contact_channels_in
 from apps.core.errors import DuplicateIsbn, NotFound, NotPermitted, ValidationFailed
 from apps.core.services import record_audit
 
@@ -45,6 +46,22 @@ _COLLAPSE_SPACE = re.compile(r"\s+")
 #: `pg_trgm`'s default `similarity()` cut-off is 0.3 and this matches it, so a
 #: later switch to the indexed `%` operator does not change which rows match.
 TRIGRAM_THRESHOLD = 0.3
+
+#: **API-CONTRACT A-26.** Two of `apps/core/contact.py`'s three limbs apply to
+#: catalogue text. `linked` does not: `Physics/Chemistry Combined` and
+#: `Maths I/II` are real titles, and a guard that fires on legitimate
+#: catalogue data is edited rather than obeyed (`CLAUDE.md` rule 13). Rule
+#: 13's first resort — rename our own name — cannot apply, because the
+#: colliding name is a publisher's.
+#:
+#: **The layer that still catches a `t.me/priya` in a title** (rule 12, and
+#: an exemption without this line is a widening) is the human review queue:
+#: at pilot every listing stops at `PENDING_REVIEW` and the moderator is
+#: shown the title, edition and publisher. *That layer exists only while
+#: `LISTING_REVIEW_ALL` is true*, so the exemption is conditional and
+#: `tests/unit/test_catalog.py::test_the_linked_exemption_rests_on_a_flag_that_is_still_true`
+#: goes **red**, not green and not skipped, in the diff that flips it.
+CATALOGUE_CHANNEL_KINDS = ("addressed", "dialable")
 
 
 def normalise_isbn13(raw):
@@ -204,6 +221,26 @@ def search_books(q: str, limit: int = 20):
     return list(base.filter(title_norm__contains=needle).order_by("title")[:limit])
 
 
+def _refuse_contact_channel(field, value):
+    """API-CONTRACT A-26. Raises if `value` addresses someone off-platform.
+
+    **Worse than F49, which is why it is here and not only on
+    `display_name`:** `books` is global (ADR-002 §2), so a channel typed into
+    a title renders on *every* listing of that ISBN, including listings by
+    sellers who never typed it.
+    """
+    channels = contact_channels_in(value, CATALOGUE_CHANNEL_KINDS)
+    if channels:
+        raise ValidationFailed(
+            "Enter what is printed on the book. A phone number or an email "
+            "address here would appear on every listing of this ISBN, and "
+            "buyers and sellers arrange handovers through BookHop.",
+            detail=f"{field} carries a contact channel: {', '.join(channels)}",
+            field_errors={field: ["No phone numbers or email addresses."]},
+        )
+    return value
+
+
 def create_book(actor, **fields) -> Book:
     """API-CONTRACT §3. Raises `DuplicateIsbn` (→ 409 via `IntegrityError`).
 
@@ -224,6 +261,7 @@ def create_book(actor, **fields) -> Book:
         raise ValidationFailed(
             "Enter the book's title.", field_errors={"title": ["Required."]}
         )
+    _refuse_contact_channel("title", title)
     language = fields.get("language") or "en"
     if language not in LANGUAGES:
         raise ValidationFailed(
@@ -236,6 +274,12 @@ def create_book(actor, **fields) -> Book:
         raise ValidationFailed(
             "Enter the authors as a list.", field_errors={"authors": ["A list of names."]}
         )
+    # Per element, and the list-ness check above stays — one does not replace
+    # the other (A-26). A channel in `authors[1]` renders exactly as widely as
+    # one in `title`.
+    author_names = [_refuse_contact_channel("authors", " ".join(str(a).split())) for a in authors]
+    for field in ("edition_label", "publisher"):
+        _refuse_contact_channel(field, fields.get(field))
     year = fields.get("publication_year")
     if year not in (None, ""):
         try:
@@ -265,7 +309,7 @@ def create_book(actor, **fields) -> Book:
                     isbn13=digits,
                     title=title,
                     title_norm=normalise_title(title),
-                    authors=[" ".join(str(a).split()) for a in authors],
+                    authors=author_names,
                     edition_label=(fields.get("edition_label") or None),
                     publisher=(fields.get("publisher") or None),
                     publication_year=year,
