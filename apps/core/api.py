@@ -71,6 +71,13 @@ GENERIC_MESSAGES = {
     "IDEMPOTENCY_KEY_REUSED": _("That looks like a different request with a key already used."),
     "IDEMPOTENCY_IN_PROGRESS": _("Still working on the last one. Try again in a moment."),
     "TRANSITION_NOT_ALLOWED": _("That cannot be done at this stage."),
+    # S2. Both are raised with their own sentence at every site; these are the
+    # fallbacks, and they exist so a future raise with no message cannot render
+    # a bare code to a student.
+    "DUPLICATE_ISBN": _("We already have that book — check it is the same edition."),
+    "SELLER_TERMS_NOT_ACCEPTED": _("Please read and accept the seller terms first."),
+    "TOO_MANY_PHOTOS": _("That listing already has four photos."),
+    "LISTING_ALREADY_RESERVED": _("Someone is already arranging to take this book."),
     "GUARD_FAILED": _("That cannot be done at this stage."),
     "RATE_LIMITED": _("Too many requests. Please try again later."),
     "METHOD_NOT_ALLOWED": _("That request could not be sent. Please try again."),
@@ -116,13 +123,56 @@ def error_response(exc, request_id=None):
     return response
 
 
+def jsonable(payload):
+    """`payload` with every value in the form the response will carry.
+
+    **One canonicalisation, used by the response and by the stored replay**,
+    and that is a correctness requirement rather than tidiness. API-CONTRACT
+    §4.1 promises a replay *"returns the stored response"* — so the bytes a
+    retry gets must be the bytes the first caller got, and a second
+    serialisation rule would make them differ in exactly the fields that are
+    hardest to notice.
+
+    **Found by running the journey.** `store_idempotent_response` wrote the
+    handler's dict straight into `idempotency_keys.response_body`, a
+    `JSONField` whose encoder does **not** take `default=str` — so any payload
+    containing a `datetime` raised *"Object of type datetime is not JSON
+    serializable"* **after the mutation had committed**. The student saw a
+    500 for a listing, a want or a correction request that had actually been
+    created. S1 never hit it because no S1 response carried a timestamp;
+    `POST /requests` and `POST /account/correction` both do.
+    """
+    return json.loads(json.dumps(payload, default=str))
+
+
 def json_response(payload, status=200):
     return HttpResponse(
         json.dumps(payload, default=str), status=status, content_type="application/json"
     )
 
 
+#: Content types whose body Django parses itself, from the raw stream.
+#:
+#: **Reading `request.body` first makes `request.FILES` raise**
+#: (*"You cannot access body after reading from request's data stream"*), and
+#: that is a 500 on the only multipart endpoint in the product —
+#: `POST /api/v1/listings/{id}/photos`.
+#:
+#: **Found by running the journey, not by a test.** Every photo unit test
+#: calls `add_photo` directly with a file object, so the decorator was never
+#: in the path; the first client to send a real multipart upload got a 500
+#: with an exception message the contract forbids echoing. This is the same
+#: shape as the S1 defect TASKS §4's checkbox was added for, one layer up.
+_STREAM_PARSED = ("multipart/form-data", "application/x-www-form-urlencoded")
+
+
 def _parse_body(request):
+    content_type = (request.content_type or "").lower()
+    if content_type.startswith(_STREAM_PARSED):
+        # Django will parse this into `request.POST` / `request.FILES` when
+        # the handler asks. Touching `request.body` here would consume the
+        # stream and make that raise.
+        return {key: value for key, value in request.POST.items()}
     if not request.body:
         return {}
     try:
@@ -183,6 +233,11 @@ def endpoint(*, methods, idempotent_write=None, actor=None):
                         getattr(user, "id", None), key, idempotent_write, body
                     )
                 status, payload = handler(request, body, user, *args, **kwargs)
+                # Canonicalised **before** storing and returning, so the
+                # replay and the original are the same bytes — and so a
+                # timestamp in the payload cannot make the store raise after
+                # the mutation has already committed. See `jsonable`.
+                payload = jsonable(payload)
                 if row is not None:
                     store_idempotent_response(row, status, payload)
                 return json_response(payload, status=status)

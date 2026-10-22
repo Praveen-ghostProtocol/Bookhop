@@ -19,6 +19,7 @@ urlpatterns = [
     path("account/consents/<str:purpose_key>", api.set_consent, name="api-account-consent-set"),
     path("account/export", api.export, name="api-account-export"),
     path("account/nominee", api.nominee, name="api-account-nominee"),
+    path("account/correction", api.correction, name="api-account-correction"),
     path("account/erase", api.erase, name="api-account-erase"),
     path("account", api.account, name="api-account"),
     path("notices/<str:kind>", api.notice, name="api-notice"),

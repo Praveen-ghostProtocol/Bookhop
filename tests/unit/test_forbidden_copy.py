@@ -109,16 +109,70 @@ def scanned_files():
     return files
 
 
+#: The three places a student-facing English string is actually written.
+#:
+#: **Not "every double-quoted string"**, which was the first draft and was
+#: wrong in a way worth recording: it matched `class="price"` in
+#: `templates/listing.html` and reported a **CSS class** as banned copy. A
+#: class name is not shown to anybody, and a guard that flags one teaches the
+#: next reader that the guard is noise — which is how a guard gets switched
+#: off (`CLAUDE.md` rule 13).
+_TRANSLATE_TAG = re.compile(r'{%\s*(?:translate|trans)\s+"((?:[^"\\]|\\.)*)"', re.S)
+_BLOCKTRANSLATE = re.compile(
+    r'{%\s*blocktranslate[^%]*%}(.*?){%\s*endblocktranslate\s*%}', re.S
+)
+_PO_STRING = re.compile(r'^(?:msgid|msgstr)(?:\[\d+\])?\s+"((?:[^"\\]|\\.)*)"', re.M)
+
+
+def translatable_strings(source):
+    """The individual student-facing strings in `source`.
+
+    **Needed because the label rule is about a string's shape.** Asking *"is
+    this four words with no full stop"* of a whole template is meaningless;
+    it has to be asked of each string a student is actually shown.
+
+    A `blocktranslate` body keeps its `{{ placeholders }}`, which is correct:
+    *"Asking ₹{{ amount }}"* is the label, and the placeholder is part of its
+    shape.
+    """
+    found = []
+    for pattern in (_TRANSLATE_TAG, _BLOCKTRANSLATE, _PO_STRING):
+        found.extend(match.group(1) for match in pattern.finditer(source))
+    return found
+
+
 def findings(text):
-    """Every banned token, phrase or label in `text`, whole-word."""
+    """Warranting words and forbidden phrases, over the whole text.
+
+    **The label rule is not here** — it is `label_findings`, applied per
+    string, because a label rule applied to a file is a label rule applied to
+    prose. See `apps.core.copy_rules.is_label_shaped`.
+    """
     hits = []
     lowered = text.lower()
-    for word in sorted(all_inflections() | set(BANNED_LABELS)):
+    for word in sorted(all_inflections()):
         if re.search(rf"\b{re.escape(word)}\b", lowered):
             hits.append(word)
     for phrase in BANNED_PHRASES:
         if phrase in lowered:
             hits.append(phrase)
+    return hits
+
+
+def label_findings(source):
+    """Banned labels, asked **per string** and only of label-shaped ones.
+
+    cto's scope correction, 2026-10-22: the bare-label rule's rationale is
+    about how a field is labelled, so scanning prose with it was over-breadth
+    of the same kind criterion 7f had. `Price` and `Max price` are still
+    findings; *"This is the price you're asking"* is not, and
+    `BANNED_PHRASES` covers the sentence it appears in.
+    """
+    from apps.core.copy_rules import banned_label_in
+
+    hits = []
+    for candidate in translatable_strings(source):
+        hits.extend(banned_label_in(candidate))
     return hits
 
 
@@ -138,7 +192,8 @@ def test_no_shipped_english_string_contains_a_banned_word():
 
     offenders = []
     for name, source in files:
-        for word in findings(translatable_text(source)):
+        cleaned = translatable_text(source)
+        for word in findings(cleaned) + label_findings(cleaned):
             if word not in excepted:
                 offenders.append(f"{name}: {word!r}")
     assert offenders == [], (
@@ -172,7 +227,10 @@ def test_the_scan_reads_a_real_corpus_and_is_not_vacuous():
         ("<p>A trusted seller</p>", "trusted", "a judgement about a person"),
         ("<p>Guaranteed authentic</p>", "guaranteed", "two in one phrase"),
         ("<p>Pay the listed price</p>", "pay the listed price", "Ban 2's phrase"),
-        ("<p>Price</p>", "price", "the bare label ADR-003 §2.3 forbids"),
+        ("<p>The price is fixed</p>", "the price is fixed",
+         "cto 2026-10-22: the same claim in the active voice, caught by nothing before"),
+        ("<p>We set price for you</p>", "set price", "the second of the three added phrases"),
+        ("<p>That is the price final</p>", "price final", "the third"),
         ("<p>We offer full protection</p>", "protection",
          "an inflection, enumerated rather than stemmed — 'protect' would not match it"),
         ("<p>Your data is protected</p>", "protected", "the participle"),
@@ -185,6 +243,57 @@ def test_the_detector_catches_each_banned_shape(text, word, why):
     assert word in findings(translatable_text(text)), (
         f"{why}: {text!r} produced {findings(translatable_text(text))}"
     )
+
+
+@pytest.mark.parametrize(
+    "label,hit,why",
+    [
+        ("Price", True, "the bare label ADR-003 §2.3 forbids"),
+        ("Max price", True, "cto 2026-10-22: still a finding after the scope correction"),
+        ("Price:", True, "a colon does not make it prose"),
+        ("Asking price", False, "the contract's own name for the figure"),
+        ("Max asking price", False, "the filter label, qualified"),
+        ("Asking ₹{{ amount }}", False, "the short form, qualified"),
+        ("This is the price you are asking", False,
+         "prose: five words. BANNED_PHRASES covers the sentence, the label rule does not"),
+        ("You cannot change the price later.", False,
+         "prose ending in a full stop - JOURNEYS J2 step 5's own copy"),
+        ("To ask a different price, take this down.", False, "prose"),
+    ],
+)
+def test_the_label_rule_applies_to_labels_and_not_to_prose(label, hit, why):
+    """**cto's scope correction, 2026-10-22, as the test that defines it.**
+
+    The bare-label rule's rationale is about how a field is *labelled*;
+    scanning prose with it was over-breadth of the same kind criterion 7f
+    had - a control broader than the rationale it was written from, and
+    invisible because it still read protective.
+
+    Both sides are rows, because checking only the permitted side passes
+    (rule 10's corollary). `Price` and `Max price` must still fire.
+    """
+    from apps.core.copy_rules import banned_label_in
+
+    assert bool(banned_label_in(label)) is hit, why
+
+
+def test_a_css_class_is_not_copy():
+    """The extractor's own guard, and it caught a real false positive.
+
+    The first draft matched every double-quoted string, so `class="price"` in
+    `templates/listing.html` was reported as banned copy. A class name is
+    shown to nobody, and a guard that flags one teaches the next reader that
+    the guard is noise - which is how a guard gets switched off.
+    """
+    source = '<p class="price"><span class="price__sym">x</span>{{ row.asking_price_paise }}</p>'
+    assert label_findings(translatable_text(source)) == []
+    assert translatable_strings(source) == []
+
+
+def test_the_label_rule_still_sees_a_label_in_a_real_template_line():
+    """The other direction, so the narrowed extractor did not narrow to zero."""
+    source = '<p>{% translate "Price" context "listing.price.row" %}</p>'
+    assert label_findings(translatable_text(source)) == ["price"]
 
 
 @pytest.mark.parametrize(

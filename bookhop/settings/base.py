@@ -36,6 +36,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.core",
     "apps.accounts",
+    "apps.catalog",
+    "apps.listings",
 ]
 
 MIDDLEWARE = [
@@ -196,6 +198,24 @@ LOGGING = {
 # plus an evidence-checked management command, and a settings flag would be a
 # bypass. See apps/core/services.assert_discovery_open.
 LISTING_REVIEW_ALL = True  # TASKS §6.4; one-line change once the data says so
+
+# --- S2: listing photo storage ---------------------------------------------
+# Stripped photo bytes live as files under this directory, never as rows
+# (apps/listings/storage.py says why). **It must be included in the backup
+# scope**: a tested restore that restores the database and not this directory
+# passes its own test and loses every photo. Raised to platform-sre for
+# INFRA.md §3 and recorded in the S2 slice note.
+MEDIA_ROOT = env("BOOKHOP_MEDIA_ROOT", str(BASE_DIR / "media"))
+
+# The nginx `internal` location that serves MEDIA_ROOT. **Empty in
+# development on purpose**: with it set, Django returns an empty body and
+# an `X-Accel-Redirect` header, which only nginx understands -- so a
+# default value here would make every photo a blank image on the
+# founder's machine, and the authorisation would still look like it
+# worked. Set it in production (`INFRA.md` §1); `apps.listings.services.
+# photo_response` reads the bytes itself when it is empty, and the
+# authorisation above it is identical either way.
+MEDIA_INTERNAL_PREFIX = env("BOOKHOP_MEDIA_INTERNAL_PREFIX", "")
 
 # --- S1: the tombstone email salt ------------------------------------------
 # COMPLIANCE.md §7 rows 3 and 24. The salt is a server-side secret that is

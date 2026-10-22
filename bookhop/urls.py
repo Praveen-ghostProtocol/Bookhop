@@ -22,6 +22,8 @@ urlpatterns = [
     # URLconf, so L2 has nowhere else to mount. Raised in the S1 slice note as
     # a one-line TASKS clarification rather than taken silently.
     path("api/v1/", include("apps.accounts.urls")),
+    path("api/v1/", include("apps.catalog.urls")),
+    path("api/v1/", include("apps.listings.urls")),
 ]
 
 # `web/**` is frontend-developer's tree and is written concurrently, so S0 must

@@ -66,6 +66,7 @@ from .models import (
     CAMPUS_VERIFICATION_METHODS,
     CONSENT_MECHANISMS,
     CONSENT_PURPOSES,
+    INSTITUTIONAL_EMAIL,
     LOCALES,
     REQUIRED_CONSENT_PURPOSES,
     TOMBSTONE_REASONS,
@@ -76,6 +77,7 @@ from .models import (
     EmailLoginToken,
     NoticeVersion,
     PersonalDataAccessLog,
+    SellerTermsAcceptance,
     User,
     UserTombstone,
 )
@@ -94,6 +96,14 @@ log = logging.getLogger("bookhop.security")
 #: Bound to a module-level name so it is an export rather than an unused
 #: import; `web/context.py` reads `services.CAMPUS_VERIFICATION_METHODS`.
 CAMPUS_VERIFICATION_METHODS = CAMPUS_VERIFICATION_METHODS
+
+#: S2: `apps.listings.services.seller_block` compares the seller's
+#: verification method against this to decide whether the campus-mail trust
+#: line renders. Re-exported here rather than imported from `.models` by the
+#: listings app, so there is one import path for the value and the escalated
+#: spelling divergence (`COMPLIANCE.md` §7 row 6 says `EMAIL_DOMAIN`) has one
+#: place to be fixed.
+INSTITUTIONAL_EMAIL = INSTITUTIONAL_EMAIL
 
 #: ADR-001 §2.5 and API-CONTRACT §5.1: a magic link is single-use with a
 #: 10-minute expiry.
@@ -259,9 +269,9 @@ def request_magic_link(email: str, ip, user_agent) -> None:
 
     raw = secrets.token_urlsafe(32)
     with transaction.atomic():
-        user = User.objects.filter(email=address).first()
+        user = User.all_objects.filter(email=address).first()
         if user is None:
-            user = User.objects.create(
+            user = User.all_objects.create(
                 email=address, campus=campus, city_id=campus.city_id,
                 status="PENDING_VERIFICATION",
             )
@@ -341,8 +351,8 @@ def consume_magic_link(token: str, ip, user_agent):
         if not claimed:
             raise TokenAlreadyUsed("That link has already been used. Ask for a new one.")
 
-        user = User.objects.select_for_update().get(id=row.user_id) if _supports_locking() else (
-            User.objects.get(id=row.user_id)
+        user = User.all_objects.select_for_update().get(id=row.user_id) if _supports_locking() else (
+            User.all_objects.get(id=row.user_id)
         )
         if user.status == "SUSPENDED":
             raise Suspended("This account cannot sign in.")
@@ -532,7 +542,7 @@ def _discard_or_tombstone(user):
     if has_appended_rows:
         erase_account(user, reason="MINOR_DISCOVERED")
         return "TOMBSTONED"
-    User.objects.filter(id=user.id).delete()
+    User.all_objects.filter(id=user.id).delete()
     return "DELETED"
 
 
@@ -828,19 +838,209 @@ def _activate_if_ready(user):
         record_audit(user, "accounts.activated", user, after={"status": "ACTIVE"})
 
 
-def accept_seller_terms(user, notice_version, ip) -> None:
-    """r.6(4)(a)'s prior written contract. **S2, not S1.**
+def current_seller_terms(user=None):
+    """The published `SELLER_TERMS` notice for this student's locale, or None.
 
-    `seller_terms_acceptances` is an S2 table (DATA-MODEL §2) because the
-    listing-create service is what refuses without it. The frozen signature is
-    here from S0 and stays; the body lands with `apps/listings`.
+    Goes through `allowed_locale` for the reason `GET /notices/{kind}` does
+    (REVIEW-S1 B4): `users.locale` is a stored preference that API-CONTRACT
+    §2.1 lets win over the header, so it is a second way to ask for a gated
+    locale. A student whose `locale` is `ta` with the flag off accepts the
+    English terms, not an unreviewed Tamil translation — and **what they
+    accepted is what the acceptance row records**, which is the whole point of
+    versioning a notice.
     """
-    raise NotImplementedError(
-        "apps.accounts.services.accept_seller_terms() lands in S2 with the "
-        "`seller_terms_acceptances` table (DATA-MODEL §2) and `create_listing`, "
-        "which is the caller that refuses without it. The frozen signature is "
-        "API-CONTRACT.md §3. Do not work around this."
+    from apps.core.i18n import allowed_locale
+
+    return current_notice("SELLER_TERMS", allowed_locale(getattr(user, "locale", "en")))
+
+
+def has_accepted_seller_terms(user, notice_version) -> bool:
+    """Has this student accepted **this** version? r.6(4)(a).
+
+    Version-exact on purpose. Accepting v1 does not cover v2: the contract is
+    the one that was shown, and a notice that can be changed under a student
+    who already agreed is not a prior written contract.
+    """
+    if notice_version is None:
+        return False
+    return SellerTermsAcceptance.objects.filter(
+        user_pseudonym=user.person_pseudonym, notice_version=notice_version
+    ).exists()
+
+
+def accept_seller_terms(user, notice_version, ip) -> None:
+    """API-CONTRACT §3. r.6(4)(a)'s prior written contract. **S2.**
+
+    `COMPLIANCE.md` §2.4: one row per version accepted, logged with the
+    version and the timestamp. `create_listing` refuses without it, which is
+    why the table and this body land in the slice that has a listing to
+    create.
+
+    **Idempotent**, by the unique key rather than by a read-then-write: a
+    student who taps "I agree" twice has one acceptance, and the second is not
+    a second piece of evidence about the same consent.
+    """
+    require_actor(user, checks=("status", "adult", "campus"))
+    if notice_version is None:
+        raise ValidationFailed(
+            "We cannot record that right now. Please try again shortly.",
+            detail=(
+                "accept_seller_terms needs the notice version the student "
+                "agreed to; no SELLER_TERMS notice is published."
+            ),
+        )
+    if notice_version.kind != "SELLER_TERMS":
+        raise ValidationFailed(
+            "We cannot record that right now. Please try again shortly.",
+            detail=f"notice kind is {notice_version.kind!r}, not SELLER_TERMS",
+        )
+    with transaction.atomic():
+        row, created = SellerTermsAcceptance.objects.get_or_create(
+            user_pseudonym=user.person_pseudonym,
+            notice_version=notice_version,
+            defaults={"user": user, "accepted_at": timezone.now(), "ip": ip or None},
+        )
+        if created:
+            record_audit(
+                user, "accounts.seller_terms_accepted", row,
+                after={"notice_version": notice_version.version,
+                       "notice_sha256": notice_version.sha256},
+            )
+
+
+# --- s12(1)-(2) correction (API-CONTRACT §2.5 Stack S, QA-S1 F24) ----------
+
+
+#: The longest correction text we store. A free-text box with no bound is a
+#: free-text box somebody pastes a database into, and `stated_problem` is
+#: personal data on a one-year clock.
+MAX_STATED_PROBLEM = 2000
+
+
+def request_correction(actor, *, stated_problem: str):
+    """API-CONTRACT §3. s12(1)–(2). **Stack S.**
+
+    **This endpoint is the justification for `display_name` sitting in Stack
+    M**, and §2.5 forbids quoting that reasoning as satisfied until the
+    conformance test is green. Measured by QA as F24: §2.5 named the route
+    twice and nothing implemented it, so *the correction right had no path at
+    all* while a suspended student was — correctly — refused a rename.
+
+    Stack S, so it survives suspension, a missing campus verification and a
+    withdrawn consent. *A right that a precondition can switch off is not a
+    right.*
+
+    Writes a `data_subject_requests` row, `kind='CORRECTION'`,
+    `due_at = received_at + 7 days` — **not 90** (`COMPLIANCE.md` §1.8: 90 is
+    DPDP's ceiling and the tightest applicable clock governs).
+
+    **The text goes in `stated_problem` and never in `nominee`** (DATA-MODEL
+    A-29). The nominee column holds personal data about a **third party**,
+    with its own retention and access rules; a correction is the subject's own
+    words about their own record. One column forced onto two data subjects is
+    how the next contract divergence starts, and the schema refuses it: three
+    CHECK constraints, both sides of the split.
+    """
+    require_actor(actor, checks=STACK_S)
+    text = " ".join(str(stated_problem or "").split())
+    if not _has_visible_character(text):
+        raise ValidationFailed(
+            "Tell us what is wrong with your information, in your own words.",
+            field_errors={"stated_problem": ["Required."]},
+        )
+    if len(text) > MAX_STATED_PROBLEM:
+        raise ValidationFailed(
+            "That is longer than we can take. Please shorten it.",
+            field_errors={"stated_problem": [f"{MAX_STATED_PROBLEM} characters at most."]},
+        )
+    now = timezone.now()
+    with transaction.atomic():
+        row = DataSubjectRequest.objects.create(
+            user=actor,
+            user_pseudonym=actor.person_pseudonym,
+            kind="CORRECTION",
+            received_at=now,
+            due_at=now + DSR_DEADLINE,
+            stated_problem=text,
+        )
+        # The audit row records that a correction was asked for and when it is
+        # due. **It does not record the text**: the student's words are
+        # personal data on a one-year clock in a row that gets purged, and
+        # `audit_log` is append-only and never purged, so copying the text
+        # there would outlive its own retention rule.
+        record_audit(
+            actor, "accounts.correction_requested", row,
+            after={"kind": "CORRECTION", "due_at": row.due_at, "length": len(text)},
+        )
+    log.info(
+        "accounts.correction_requested",
+        extra={"pseudonym": str(actor.person_pseudonym), "due_at": row.due_at.isoformat()},
     )
+    return row
+
+
+def decide_correction(staff, dsr, *, outcome: str, applied: dict, note: str):
+    """API-CONTRACT §3. Staff-only. Applies the correction and completes the DSR.
+
+    `applied` is `{field: new_value}` over the fields a correction may touch.
+    **It is a narrow set and not "any column on `users`"**: a staff screen that
+    can write any field is the admin-insider risk `THREAT-MODEL.md` §5.8 calls
+    the weakest area, and the two fields a student can be wrong about in a
+    record they can see are their display name and their locale.
+
+    Writes `audit_log`, writes `personal_data_access_log` — staff read the
+    student's words to decide — and completes the request.
+    """
+    if not getattr(staff, "is_staff_member", False):
+        raise NotPermitted("That is a staff-only action.")
+    _check_enum(outcome, CORRECTION_OUTCOMES, "correction outcome")
+    if not str(note or "").strip():
+        raise ValidationFailed(
+            "Record why this was decided.", field_errors={"note": ["Required."]}
+        )
+    changes = dict(applied or {})
+    for field in changes:
+        if field not in CORRECTABLE_FIELDS:
+            raise ValidationFailed(
+                "That is not a field a correction can change.",
+                detail=f"{field!r} is not in {sorted(CORRECTABLE_FIELDS)}",
+            )
+    if outcome == "APPLIED" and not changes:
+        raise ValidationFailed(
+            "Say what was corrected.",
+            detail="outcome APPLIED with no applied fields is a completion with no change",
+        )
+
+    now = timezone.now()
+    with transaction.atomic():
+        subject = dsr.user
+        if changes and subject is not None:
+            update_profile(
+                subject,
+                display_name=changes.get("display_name"),
+                locale=changes.get("locale"),
+            )
+        DataSubjectRequest.objects.filter(id=dsr.id).update(
+            completed_at=now, outcome=outcome
+        )
+        dsr.refresh_from_db()
+        log_personal_data_access(
+            staff, dsr.user_pseudonym, sorted(changes) or ["stated_problem"],
+            purpose="s12 correction request",
+        )
+        record_audit(
+            staff, "accounts.correction_decided", dsr,
+            before={"completed_at": None},
+            after={"outcome": outcome, "fields": sorted(changes)},
+        )
+    return dsr
+
+
+#: The outcomes a correction decision may record.
+CORRECTION_OUTCOMES = ("APPLIED", "REFUSED", "PARTIAL")
+
+#: What a correction may change. Narrow on purpose — see `decide_correction`.
+CORRECTABLE_FIELDS = ("display_name", "locale")
 
 
 # --- profile, export, nomination ------------------------------------------
@@ -1195,6 +1395,7 @@ def erase_account(user, reason="USER_REQUEST") -> None:
         EmailLoginToken.objects.filter(user=user).delete()
         CampusVerification.objects.filter(user=user).delete()
         _delete_sessions_for(user)
+        _detach_listing_rows(user, now)
 
         DataSubjectRequest.objects.create(
             user=user,
@@ -1211,6 +1412,61 @@ def erase_account(user, reason="USER_REQUEST") -> None:
             after={"status": "TOMBSTONED", "reason": reason, "purge_due_at": now + RETENTION_FLOOR},
         )
     log.info("accounts.erased", extra={"pseudonym": str(user.person_pseudonym), "reason": reason})
+
+
+def _detach_listing_rows(user, now):
+    """DATA-MODEL §10.1 steps 5 and 6, for the tables S2 creates.
+
+    **Step 6 — NULL the FK, keep the pseudonym.** `listings.seller_pseudonym`
+    and `book_requests.requester_pseudonym` survive, because the transaction
+    record has to keep referring to someone: the counterparty's dispute needs
+    it and §9.2's repeat-transfer metric groups by it. *"Pseudonymisation is
+    one-way"* — the pseudonym→identity mapping was destroyed one statement
+    ago, when `users.email` went NULL.
+
+    **Step 5 — the photo objects.** Photos are not deleted now. A live listing
+    keeps working for the buyer who is mid-handover with it, and §10.1 says
+    the clock is `closed_at + 1 year`. What this does is **make sure the clock
+    is started**: a listing that was still open has no `closed_at`, so
+    `purge_due_at` would be NULL and the photos would never expire. Every
+    non-terminal listing is withdrawn here, which both closes the listing the
+    seller can no longer manage and sets the retention clock on its photos.
+    `apps.listings.jobs.purge_listing_media` is what actually deletes the
+    bytes, and it ships in this slice — *the expiry job ships in the same
+    slice as the retention it expires.*
+
+    **Called inside `erase_account`'s single transaction.** A partial erasure
+    is worse than none: a NULLed FK with a surviving photo object is a row
+    nobody can find and a file nobody will purge.
+
+    Imported locally rather than at module scope: `apps.listings` imports
+    `apps.accounts.services`, so a top-level import here is a cycle. Flagged
+    in the slice note as the one place the dependency runs both ways.
+    """
+    from apps.listings.models import BookRequest, Listing, ListingPhoto
+
+    open_listings = list(
+        Listing.all_objects.filter(seller_id=user.id)
+        .exclude(status__in=("CLOSED_TRANSFERRED", "WITHDRAWN", "REJECTED", "REMOVED_LEGAL"))
+        .values_list("id", flat=True)
+    )
+    if open_listings:
+        Listing.all_objects.filter(id__in=open_listings).update(
+            status="WITHDRAWN", closed_at=now, purge_due_at=now + RETENTION_FLOOR,
+        )
+    # Every listing of theirs, open or already closed, loses the FK. The
+    # pseudonym stays. A closed listing already has its own `purge_due_at`
+    # from whatever closed it, so it is not rewritten -- a later clock would
+    # extend a retention that is already running.
+    Listing.all_objects.filter(seller_id=user.id).update(seller=None)
+    ListingPhoto.all_objects.filter(
+        listing__seller_pseudonym=user.person_pseudonym, purge_due_at__isnull=True
+    ).update(purge_due_at=now + RETENTION_FLOOR)
+
+    BookRequest.all_objects.filter(requester_id=user.id, status="OPEN").update(
+        status="WITHDRAWN", closed_at=now, purge_due_at=now + RETENTION_FLOOR
+    )
+    BookRequest.all_objects.filter(requester_id=user.id).update(requester=None)
 
 
 def _delete_sessions_for(user):
@@ -1295,8 +1551,8 @@ ERASURE_STEPS = (
     (3, "delete email_login_tokens and sessions", "S1", True),
     (3, "delete push_subscriptions, notification_preferences", "S7", False),
     (4, "delete campus_verifications; campus_verified stays", "S1", True),
-    (5, "schedule listing_photos object deletion at closed_at + 1 year", "S2", False),
-    (6, "NULL the FK and keep the pseudonym on listings, book_requests", "S2", False),
+    (5, "schedule listing_photos object deletion at closed_at + 1 year", "S2", True),
+    (6, "NULL the FK and keep the pseudonym on listings, book_requests", "S2", True),
     (6, "NULL the FK and keep the pseudonym on transfers", "S4", False),
     (6, "NULL the FK and keep the pseudonym on threads, messages, support_*", "S5", False),
     (6, "NULL the FK and keep the pseudonym on reports, disputes", "S6", False),

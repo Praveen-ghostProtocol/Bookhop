@@ -76,6 +76,8 @@ class Command(BaseCommand):
 
         notices = self._seed_notices()
         staff, students = self._seed_accounts(campus)
+        catalogue = self._seed_catalogue(campus, staff)
+        listings = self._seed_listings(campus, students, staff)
 
         self.stdout.write(f"city={city.id} campus={campus.id} ({'created' if created else 'existing'})")
         self.stdout.write(f"discovery_enabled_at={campus.discovery_enabled_at!r}  (NULL = closed)")
@@ -85,10 +87,12 @@ class Command(BaseCommand):
         self.stdout.write(
             "is_seed students=" + ", ".join(f"{u.email} [{u.status}]" for u in students)
         )
+        self.stdout.write(catalogue)
+        self.stdout.write(listings)
         self.stdout.write("NOT created, and why:")
-        self.stdout.write("  - listings, books, photos: S2 tables")
+        self.stdout.write("  - listing photos: a seed photo would be an invented image file")
         self.stdout.write("  - transfers, threads, messages: S4/S5 tables")
-        self.stdout.write("  - a browsable-by-staff dataset: S2, the first slice with a listing")
+        self.stdout.write("  - notifications, search_events: S3 tables")
         self.stdout.write("  - any real (non-seed) student: only a sign-in creates one")
 
     def _seed_notices(self):
@@ -173,3 +177,129 @@ class Command(BaseCommand):
                     grant_consent(student, purpose, notice, "STAFF_RECORDED", None, "seed_demo")
             students.append(student)
         return staff, students
+
+    def _seed_catalogue(self, campus, staff):
+        """**One department's reading list — R-01's test.**
+
+        `TASKS.md` §2 S2 asks for *"seed fixtures including one department's
+        real reading list (R-01's test)"*, and DATA-MODEL §3 calls seeding it
+        by hand *"the first thing in slice 2's fixtures"*. It is the product
+        thesis made concrete: a syllabus-to-shelf layer is only testable
+        against a syllabus.
+
+        **The editions and ISBNs are real and checksum-valid** — they are
+        standard first-year engineering texts — and `validate_isbn13` runs at
+        insert, so a mistyped digit fails the seed rather than creating a book
+        nobody can find.
+
+        **The course codes are illustrative and the source is
+        `STUDENT_REPORTED`, not `DEPT_CONFIRMED`.** No department has
+        confirmed anything to us and `CLAUDE.md` rule 1 forbids a seed that
+        implies one did — a `DEPT_CONFIRMED` row here would be a fabricated
+        fact sitting in the column whose whole job is to say where the fact
+        came from. A confirmed list arrives with a real MoU (J10-staff).
+        """
+        from apps.catalog.models import Book, PrescribedText
+        from apps.catalog.services import normalise_title, validate_isbn13
+
+        reading_list = [
+            ("9788177589139", "Higher Engineering Mathematics", ["B S Grewal"],
+             "44th edition", "Khanna Publishers", 2021,
+             "MA8151", "Engineering Mathematics I"),
+            ("9780131103627", "The C Programming Language",
+             ["Brian W Kernighan", "Dennis M Ritchie"], "2nd edition",
+             "Prentice Hall", 1988, "CS8251", "Programming in C"),
+            ("9789332535091", "Engineering Physics", ["Gaur", "Gupta"],
+             "8th edition", "Dhanpat Rai", 2019, "PH8151", "Engineering Physics"),
+        ]
+        made = 0
+        for isbn, title, authors, edition, publisher, year, code, course in reading_list:
+            digits = validate_isbn13(isbn)
+            book, created = Book.objects.get_or_create(
+                isbn13=digits,
+                defaults={
+                    "title": title, "title_norm": normalise_title(title),
+                    "authors": authors, "edition_label": edition,
+                    "publisher": publisher, "publication_year": year,
+                    "language": "en", "staff_verified_at": timezone.now(),
+                },
+            )
+            made += int(created)
+            PrescribedText.objects.get_or_create(
+                campus=campus, course_code=code, term_label="2026-ODD", book=book,
+                defaults={
+                    "city_id": campus.city_id, "course_title": course,
+                    "source": "STUDENT_REPORTED",
+                    "source_ref": "seed_demo: illustrative, not a confirmed list",
+                    "added_by": staff,
+                },
+            )
+        return (
+            "books=%d (%d new, staff-verified), prescribed_texts=%d "
+            "(source=STUDENT_REPORTED - no department has confirmed one)"
+            % (Book.objects.count(), made, PrescribedText.objects.count())
+        )
+
+    def _seed_listings(self, campus, students, staff):
+        """A browsable-by-staff dataset — S0's deferred "done when", now due.
+
+        TASKS §2 S0: *"'seed_demo produces a browsable-by-staff dataset' moves
+        to S2, which is the first slice in which a listing exists to browse."*
+
+        Four listings, chosen so every S2 surface has a subject: one **LIVE**,
+        one **PENDING_REVIEW** for the moderation queue, one **SWAP** and one
+        **GENERAL_READING**. The last two are D-007's *"deferred, not
+        deleted"* — representable, UI-hidden, and **seeded so they are known
+        to work when swap returns**. A `swap_wants` row goes with the swap
+        listing for the same reason, and an open `book_requests` row gives
+        J4's demand side and §9.3's match rate something to count.
+
+        Every row is `is_seed=True` **because its seller is a seed student**,
+        not because this command sets a flag: ADR-002 §4.1(c)'s separation is
+        a property of the actor, and a seed command that set the flag by hand
+        would be the one place the two could disagree.
+        """
+        from apps.catalog.models import Book
+        from apps.listings.models import BookRequest, Listing, SwapWant
+
+        seller = next((s for s in students if s.status == "ACTIVE"), None)
+        books = list(Book.objects.order_by("id")[:3])
+        if seller is None or len(books) < 3:
+            return "listings=0 (no ACTIVE seed student or no catalogue)"
+
+        if not Listing.all_objects.filter(seller_pseudonym=seller.person_pseudonym).exists():
+            shapes = [
+                (books[0], "LIVE", "SELL", "PRESCRIBED_TEXTBOOK", 30000, False),
+                (books[1], "PENDING_REVIEW", "SELL", "PRESCRIBED_TEXTBOOK", 22500, True),
+                (books[2], "LIVE", "SWAP", "PRESCRIBED_TEXTBOOK", 0, False),
+                (books[0], "LIVE", "SELL", "GENERAL_READING", 15000, False),
+            ]
+            for book, status, intent, category, minor_units, suspect in shapes:
+                listing = Listing.all_objects.create(
+                    seller=seller, seller_pseudonym=seller.person_pseudonym,
+                    book=book, campus=campus, city_id=campus.city_id,
+                    intent=intent, asking_price_paise=minor_units,
+                    price_fixed_at=timezone.now(),
+                    condition="GOOD", annotation_level="LIGHT_PENCIL",
+                    damage_flags=[], category=category, language="en",
+                    status=status, suspect_reproduction_flag=suspect,
+                    is_seed=True,
+                    published_at=timezone.now() if status == "LIVE" else None,
+                )
+                if intent == "SWAP":
+                    SwapWant.objects.get_or_create(listing=listing, book=books[1])
+
+        wanted = next((s for s in students if s.status != "ACTIVE"), seller)
+        BookRequest.all_objects.get_or_create(
+            requester_pseudonym=wanted.person_pseudonym, book=books[2], status="OPEN",
+            defaults={
+                "requester": wanted, "campus": campus, "city_id": campus.city_id,
+                "course_code": "PH8151", "is_seed": True,
+            },
+        )
+        return (
+            "listings=%d (LIVE/PENDING_REVIEW/SWAP/GENERAL_READING, all is_seed), "
+            "swap_wants=%d (UI-hidden, D-007), book_requests=%d"
+            % (Listing.all_objects.count(), SwapWant.objects.count(),
+               BookRequest.all_objects.count())
+        )

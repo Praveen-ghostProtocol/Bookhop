@@ -15,10 +15,17 @@ or a stub that names its slice, with no third state. The two tests below are the
 two halves, and `test_the_partition_covers_every_contract_name` is what stops a
 name quietly leaving both sets.
 
-`accept_seller_terms` is the one that stays a stub: `seller_terms_acceptances`
-is an **S2** table (DATA-MODEL §2) and `create_listing` is the caller that
-refuses without it, so implementing it here would be a function with no table
-and no caller.
+**S2 empties `PENDING`, and the empty set is asserted rather than deleted.**
+`accept_seller_terms` was the one remaining stub: `seller_terms_acceptances`
+is an S2 table (DATA-MODEL §2) and `create_listing` is the caller that refuses
+without it, so S1 implementing it would have been a function with no table and
+no caller. Both now exist.
+
+The parametrised test below therefore runs over nothing, which is exactly the
+shape `CLAUDE.md` rule 10 is about — so
+`test_the_pending_set_is_empty_because_every_stub_landed` asserts the
+**reason** it is empty, and `test_no_service_function_is_a_silent_stub` is the
+standing control that a future slice cannot add one back unannounced.
 """
 
 import inspect
@@ -51,9 +58,22 @@ def test_signature_matches_the_frozen_contract(name, params):
 #: The names still awaiting a later slice, each with the slice that lands it.
 #: A name here must raise and must say which slice; a name absent from here must
 #: **not** raise `NotImplementedError` at all.
-PENDING = {
-    "accept_seller_terms": "S2",
-}
+PENDING = {}
+
+
+def test_the_pending_set_is_empty_because_every_stub_landed():
+    """Why `PENDING` is empty, asserted so emptiness is a fact and not a gap.
+
+    An empty parametrisation silently runs zero assertions. This says what the
+    zero means: `accept_seller_terms` was the last stub and S2 implemented it
+    against the table and the caller that make it meaningful.
+    """
+    assert PENDING == {}, PENDING
+    fn = getattr(services, "accept_seller_terms")
+    source = inspect.getsource(fn)
+    assert "NotImplementedError" not in source, (
+        "accept_seller_terms is listed as landed but still raises"
+    )
 
 
 @pytest.mark.parametrize("name,slice_name", sorted(PENDING.items()))
@@ -99,5 +119,24 @@ def test_the_partition_covers_every_contract_name():
     both and be checked by neither."""
     assert set(PENDING) <= set(SIGNATURES)
     implemented = set(SIGNATURES) - set(PENDING)
-    assert implemented and set(PENDING), "one side of the partition is empty"
     assert implemented | set(PENDING) == set(SIGNATURES)
+
+    # **The "one side is empty" assertion is gone, and that is the point of
+    # this comment.** It was right while a stub existed: an empty `PENDING`
+    # with a stub still in the code is the gap. S2 landed the last stub, so
+    # `PENDING` is legitimately empty — and asserting it must not be would
+    # mean the suite could only go green again by keeping a stub, which is a
+    # test demanding the defect it was written to catch.
+    #
+    # What replaces it is the thing that was actually wanted: **no name may be
+    # in neither set** (the line above), and **no implemented name may still
+    # be a stub** — asserted by behaviour below rather than by bookkeeping, so
+    # a future slice cannot add a stub and forget to register it.
+    for name in sorted(implemented):
+        source = inspect.getsource(getattr(services, name))
+        assert "raise NotImplementedError" not in source, (
+            f"{name} is on the implemented side of the partition and still "
+            "raises NotImplementedError. Add it to PENDING with its slice, or "
+            "implement it — a stub that nothing declares is how a frontend "
+            "gets built against behaviour that does not exist."
+        )

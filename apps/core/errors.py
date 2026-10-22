@@ -155,6 +155,69 @@ class UnderEighteen(ServiceError):
     http_status = 403
 
 
+# --- S2: catalogue, listings, photos, book requests ------------------------
+#
+# API-CONTRACT §2.2's status table is the authority. Two of these use codes the
+# table does not list by name — `DUPLICATE_ISBN` and `TOO_MANY_PHOTOS` — and
+# that is within the contract rather than an amendment, because the table says
+# "**Example** codes" and the 409/422 rows describe exactly these shapes
+# (uniqueness; a valid request the object's state forbids). Flagged in the
+# slice note as the two codes S2 adds, the same way S1 flagged `FORBIDDEN`.
+
+
+class DuplicateIsbn(ServiceError):
+    """409. `create_book` on an ISBN the catalogue already has.
+
+    A refusal rather than a silent reuse: API-CONTRACT §3 names it on the
+    signature, and the student is sent back to confirm the edition they are
+    holding, which is the confirmation edition-locking rests on.
+    """
+
+    code = "DUPLICATE_ISBN"
+    http_status = 409
+
+
+class SellerTermsNotAccepted(ServiceError):
+    """403. r.6(4)(a)'s prior written contract is not on file for this version.
+
+    §2.2's 403 row names `SELLER_TERMS_NOT_ACCEPTED` explicitly. JOURNEYS J2
+    step 6: rendered as the terms screen again, never as an error page.
+    """
+
+    code = "SELLER_TERMS_NOT_ACCEPTED"
+    http_status = 403
+
+
+class TooManyPhotos(ServiceError):
+    """422. The fifth photo on a listing (DATA-MODEL §3: max 4).
+
+    422, not 400: the request is valid and it is the *listing's state* — four
+    photos already — that forbids it, which is §2.2's own 403-vs-422 rule
+    applied to an object rather than to an actor.
+    """
+
+    code = "TOO_MANY_PHOTOS"
+    http_status = 422
+
+
+class UnsupportedImage(ServiceError):
+    """400. Not a JPEG, PNG or WebP, or not a readable one.
+
+    400 rather than 422: the bytes the client sent are the problem, and
+    JOURNEYS J2 step 8 requires the format list to be given back.
+    """
+
+    code = "VALIDATION_FAILED"
+    http_status = 400
+
+
+class TransitionNotAllowed(ServiceError):
+    """422. The listing state machine (DATA-MODEL §6.1) forbids this move."""
+
+    code = "TRANSITION_NOT_ALLOWED"
+    http_status = 422
+
+
 class AuditChainBroken(ServiceError):
     """verify_audit_chain found a row whose hash does not follow its predecessor."""
 

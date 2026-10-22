@@ -370,3 +370,195 @@ def complete_evidence():
         "campus_mou_ref": "MOU-DEMO-1",
         "notice_version_ids": [1, 2, 3],
     }
+
+
+# --- S2: catalogue, listings, photos ---------------------------------------
+
+
+@pytest.fixture
+def seller_terms_notice(db):
+    """A published `SELLER_TERMS` version. r.6(4)(a)'s prior written contract.
+
+    Separate from `privacy_notice` because `create_listing` refuses against
+    **this** kind specifically, and a fixture that published one notice of
+    every kind would make "the seller accepted the seller terms" true by
+    accident — the condition the guard tests need to be able to produce and
+    to withhold.
+    """
+    from apps.accounts.models import NoticeVersion
+
+    return NoticeVersion.objects.create(
+        kind="SELLER_TERMS", version="2026-11-01.1", locale="en",
+        body_md="# Seller terms\n\nYour own description. No photocopies.",
+        sha256="2" * 64,
+    )
+
+
+@pytest.fixture
+def book(db):
+    """A catalogue row with a **checksum-valid** ISBN-13.
+
+    `9788177589139` is a real check digit, computed rather than invented: a
+    fixture with a bad checksum would make `create_book` refuse and every
+    listing test would fail for a reason that has nothing to do with listings.
+    """
+    from apps.catalog.models import Book
+    from apps.catalog.services import normalise_title
+
+    return Book.objects.create(
+        isbn13="9788177589139",
+        title="Engineering Mathematics",
+        title_norm=normalise_title("Engineering Mathematics"),
+        authors=["B S Grewal"],
+        edition_label="44th edition",
+        publisher="Khanna",
+        publication_year=2021,
+        language="en",
+    )
+
+
+@pytest.fixture
+def seller(db, student, seller_terms_notice, privacy_notice):
+    """`student`, ACTIVE, with `listing_publication` consent and seller terms.
+
+    Everything `create_listing`'s Stack M needs and nothing more, so a test
+    that wants to assert one precondition *fails* can drop one piece rather
+    than assemble six.
+    """
+    from apps.accounts.services import accept_seller_terms, grant_consent
+
+    student.status = "ACTIVE"
+    student.save(update_fields=["status"])
+    grant_consent(student, "listing_publication", privacy_notice, "SIGNUP_FORM", None, "pytest")
+    accept_seller_terms(student, seller_terms_notice, None)
+    student.refresh_from_db()
+    return student
+
+
+@pytest.fixture
+def s2_listing(db, seller, book):
+    """A LIVE seed listing — the fixture `test_price_immutable.py` reserved in S0.
+
+    S0 wrote that file with this fixture raising `NotImplementedError` and a
+    note that *"by the time `listings` exists a missing fixture is a gap in
+    S2's work, not a property of S0"*. This is S2 filling the seam in.
+
+    It is **LIVE rather than DRAFT** because the trigger must be shown to
+    refuse a price change on a listing that is actually being offered to
+    people — a draft nobody can see is the easy case.
+    """
+    from apps.listings.services import create_listing, publish_listing
+    from apps.listings.models import Listing
+
+    listing = create_listing(
+        seller, book=book, asking_price_paise=30000, condition="GOOD",
+        annotation_level="LIGHT_PENCIL", damage_flags=["COVER_DAMAGE"],
+        language="en", category="PRESCRIBED_TEXTBOOK",
+    )
+    listing = publish_listing(seller, listing, listing.version)
+    if listing.status != "LIVE":
+        # LISTING_REVIEW_ALL is true at pilot, so publish lands in
+        # PENDING_REVIEW. The trigger is about the column, not the status, so
+        # the row is moved on directly rather than through a staff fixture --
+        # and `all_objects.update` deliberately does NOT touch the price, so
+        # it is also a live demonstration that a legitimate update passes.
+        Listing.all_objects.filter(id=listing.id).update(
+            status="LIVE", published_at=timezone_now()
+        )
+        listing.refresh_from_db()
+    return listing
+
+
+def timezone_now():
+    from django.utils import timezone
+
+    return timezone.now()
+
+
+@pytest.fixture
+def jpeg_with_exif():
+    """A minimal JPEG carrying a real APP1/EXIF segment with a GPS tag.
+
+    **Built here rather than checked in as a binary**, so a reader can see
+    exactly what is being stripped and the test cannot pass because the
+    fixture quietly lost its EXIF. The GPS tag is the point: a photo of a book
+    on a desk carries the desk's coordinates, which is a student's home
+    address (`COMPLIANCE.md` §7 row 9).
+    """
+    import struct
+
+    # APP1 payload: "Exif\0\0" + a little-endian TIFF header with one IFD
+    # entry, GPSInfo (0x8825). The content does not have to be a navigable
+    # GPS IFD for the test's purpose -- what matters is that the marker and
+    # the bytes are present before stripping and absent after.
+    exif = b"Exif\x00\x00" + b"II*\x00" + struct.pack("<I", 8)
+    exif += struct.pack("<H", 1) + struct.pack("<HHII", 0x8825, 4, 1, 26) + b"\x00" * 4
+    app1 = b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif
+    # SOF0, correct to the JPEG specification: length(2) + precision(1) +
+    # height(2) + width(2) + component-count(1) + 3 bytes per component = 11.
+    # The component-count byte was missing from the first draft of this
+    # fixture, so the declared length overran the segment by one and the
+    # parser reported "segment structure broken". **The parser caught the
+    # fixture**, which is the right direction for both of them — and it is
+    # the reason the parser refuses a bad length instead of slicing past it.
+    sof = (
+        b"\xff\xc0" + struct.pack(">H", 11) + b"\x08"
+        + struct.pack(">HH", 3, 2) + b"\x01" + b"\x01\x11\x00"
+    )
+    sos = b"\xff\xda" + struct.pack(">H", 8) + b"\x01\x01\x00\x00\x3f\x00"
+    return b"\xff\xd8" + app1 + sof + sos + b"\x00\x00" + b"\xff\xd9"
+
+
+@pytest.fixture
+def png_with_text():
+    """A minimal PNG carrying a `tEXt` metadata chunk."""
+    import struct
+    import zlib
+
+    def chunk(kind, payload):
+        return (
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", 2, 3, 8, 0, 0, 0, 0)
+    idat = zlib.compress(b"\x00\x00\x00" * 3)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"tEXt", b"Comment\x00taken at home")
+        + chunk(b"IDAT", idat)
+        + chunk(b"IEND", b"")
+    )
+
+
+@pytest.fixture
+def open_the_gate(db, legal_entity, complete_evidence):
+    """Open a campus's discovery gate **through the authorised path**.
+
+    `Campus.objects.update(discovery_enabled_at=…)` is refused by migration
+    `core/0003`'s trigger, which is the control QA-S0 F3 / REVIEW-S0 M0 added
+    and is working exactly as intended — a test that worked around it by
+    disabling the trigger would be testing a database we do not ship.
+
+    So this creates the `gate_authorisations` row the trigger requires and
+    then opens the gate, which is also the only sequence a real campus can
+    take (ADR-002 §4.1(b)).
+    """
+    from django.utils import timezone
+
+    from apps.core.models import Campus, GateAuthorisation
+
+    def _open(campus):
+        GateAuthorisation.objects.create(
+            gate="C", scope_type="CAMPUS", scope_id=campus.id,
+            legal_entity=legal_entity, evidence=complete_evidence,
+            authorised_by_human="A Human",
+        )
+        Campus.objects.filter(id=campus.id).update(discovery_enabled_at=timezone.now())
+        campus.refresh_from_db()
+        return campus
+
+    return _open

@@ -131,6 +131,104 @@ MONEY_TOKEN_SHAPE_EXEMPTIONS = (
     "consume",    # consume_magic_link — a frozen signature (API-CONTRACT §3)
 )
 
+#: ADR-003 §2.3 W1c, **RATIFIED by cto 2026-10-22** (rule 13 rung 2, third
+#: instance). The shapes W1c's **source** guard exempts — and **only** the
+#: source guard: `money_tokens_in` is untouched, so every schema assertion
+#: still sees every token in every column name on both introspection routes.
+#:
+#: **Ratified as an invariant, not as three names** (rule 11):
+#:
+#:   > A money-shaped name is permitted only if it CANNOT carry a
+#:   > per-transaction value.
+#:
+#: That is exactly what P14 protects — s194-O turns on a *determinable gross
+#: amount per transaction* — so a declaration identical for every transaction
+#: cannot be the thing the rule forbids. Two shapes satisfy it by
+#: construction and nothing else does; `source_shape_exempt` is the predicate.
+#:
+#: **Everything per-instance stays forbidden**: a `@property`,
+#: `@cached_property`, method, model field, serialiser key or response key.
+#: QA's `settled_price_paise` property fails both shapes, which is the case
+#: W1c exists for because it is invisible to every schema assertion.
+SOURCE_GUARD_SHAPE_EXEMPTIONS = (
+    "A: an ORM lookup that ENDS at the permitted column — "
+    "`(<relation>__)*asking_price_paise(__<suffix>)?`, suffix from Django's "
+    "lookup registry. A query key, not storage.",
+    "B: an UPPER_SNAKE_CASE bound whose value is a literal int AND which "
+    "`tests/unit/test_exempted_bound_is_pinned.py` proves equals the bound in "
+    "a real CHECK constraint. There is one of it, not one per row.",
+)
+
+#: **Why shape B carries a condition that shape A does not** (rule 12, asked
+#: before the allowance rather than after it).
+#:
+#: Shape A has a second layer: a lookup can only reference the permitted
+#: column, and W1's whitelist guarantees that column is the **only** money
+#: column and is an integer. To write `settled_price__gte` an attacker first
+#: needs a `settled_price` column, and the whitelist kills the column.
+#:
+#: Shape B had none. **A constant is not a column, so the whitelist does not
+#: reach it at all** — and an exemption with no other catcher is a widening.
+#: The pin supplies the missing layer: a free-floating money constant
+#: (`TYPICAL_SALE_PRICE_PAISE = 30000`) matches no CHECK and fails. It also
+#: closes a rule 11 gap, because the bound otherwise exists twice — once as a
+#: constant and once as a CHECK — free to drift.
+#:
+#: **Measured before ratification, and it is the half that does the work:**
+#: `MAX_OFFER_PAISE` **passes the shape test and is rejected only by the pin**,
+#: because shape B needs a CHECK to pin to and there is no offer-amount column
+#: to have one. The shape rules alone would have admitted exactly the S4 case
+#: this ratification exists to forbid. *A bound on a quantity we refuse to
+#: store is a quantity we are about to start storing.*
+SHAPE_B_REQUIRES_A_PINNED_CHECK = True
+
+
+def _lookup_suffixes():
+    """Django's own lookup registry for an integer column.
+
+    Asked of Django rather than listed here (rule 11): a hand-written list of
+    lookups is a list that gains `__range` the first time someone needs it,
+    and the one it does not have is the one that reads as a hole.
+    """
+    from django.db.models import IntegerField
+
+    names = set(IntegerField.get_lookups())
+    # Related-field lookups a traversal can end in, which are registered on
+    # the descriptor rather than on the field.
+    return names | {"exact", "in", "isnull", "range"}
+
+
+def source_shape_exempt(name):
+    """Does `name` match a ratified W1c shape? ADR-003 §2.3, 2026-10-22.
+
+    **Shape A — an ORM lookup that ENDS at the permitted column.** An optional
+    relation prefix, then `asking_price_paise`, then at most one registered
+    lookup suffix. `listing__asking_price_paise__lte` is exempt;
+    `asking_price_paise__total` is **not**, because `total` is not a lookup —
+    which is the discriminating case, and it is a test rather than a claim.
+
+    **Shape B — an UPPER_SNAKE_CASE bound.** Shape only; the value and the pin
+    to a real CHECK are `tests/unit/test_exempted_bound_is_pinned.py`'s, because
+    neither is visible from a name. **The two tests are one control**: this
+    predicate without that test is the widening cto refused to grant.
+    """
+    lowered = str(name)
+    # Shape B: UPPER_SNAKE_CASE. `name.upper() == name` is not enough -- it is
+    # true of `_` and of `A1` -- so the test is that it has a letter and no
+    # lowercase one.
+    if any(ch.isalpha() for ch in lowered) and lowered == lowered.upper():
+        return "B"
+    parts = lowered.split("__")
+    if not parts:
+        return None
+    column = MONEY_COLUMN[1]
+    if parts[-1] == column:
+        return "A"
+    if len(parts) >= 2 and parts[-2] == column and parts[-1] in _lookup_suffixes():
+        return "A"
+    return None
+
+
 #: ADR-003 §3 — the only permissible future fee shape, pre-approved before
 #: anyone builds one: `fee_asked_paise` computed from the asking price, and
 #: `fee_paid` as a **boolean, never an amount**.

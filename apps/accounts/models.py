@@ -31,6 +31,7 @@ import uuid
 from django.db import models
 from django.utils import timezone
 
+
 # One definition per enum, shared by the field choices and the CHECK constraint
 # so the two cannot drift (`CLAUDE.md` rule 10).
 ROLES = ("STUDENT", "STAFF_SUPPORT", "STAFF_MODERATOR", "STAFF_ADMIN")
@@ -40,7 +41,13 @@ LOCALES = ("en", "ta")
 TOKEN_PURPOSES = ("LOGIN", "EMAIL_CHANGE", "STAFF_RECOVERY")
 AGE_OUTCOMES = ("ADULT_CONFIRMED", "REJECTED_UNDER_18", "REVOKED_MINOR_DISCOVERED")
 AGE_METHODS = ("SELF_DECLARED_DOB_SERVER_CHECKED", "STAFF_REVIEW")
-CAMPUS_VERIFICATION_METHODS = ("INSTITUTIONAL_EMAIL", "STAFF_MANUAL")
+#: S2 binds the one value the seller block renders on, because `seller_block`
+#: compares against it and the alternative was a fourth hand-typed copy of a
+#: string whose spelling is **already under escalation** (`COMPLIANCE.md` §7
+#: row 6 writes it `EMAIL_DOMAIN`). One definition, many readers — and the
+#: tuple is built from it so the two cannot disagree.
+INSTITUTIONAL_EMAIL = "INSTITUTIONAL_EMAIL"
+CAMPUS_VERIFICATION_METHODS = (INSTITUTIONAL_EMAIL, "STAFF_MANUAL")
 #: DATA-MODEL §2 as amended by **A-25**, which adds `RANKING` and
 #: `GRIEVANCE_PROCEDURE`. API-CONTRACT §5.1 already published both slugs
 #: (`/legal/ranking` for r.5(3)(f), and the grievance-officer contact under
@@ -112,14 +119,63 @@ class User(models.Model):
     now because `erase_account` must NULL it and because retrofitting a column
     onto `users` later is a migration across the whole database.
 
-    **`is_seed` lands here and the gated default manager does not.** ADR-002
-    §2.3 puts `GatedManager` on `User` in **S2**, retrofitted in the same commit
-    as the `Listing` managers, and TASKS §2 S2 carries it as a checkable line
-    item. Nothing in S1 reads users through the discovery gate, so landing half
-    the mechanism now would be scaffolding with a false floor — a `GatedManager`
-    on `User` without `Meta.base_manager_name = "all_objects"` is the kind of
-    line that is invisible when missing.
+    > **ESCALATION — the `GatedManager` retrofit ADR-002 §2.3 and TASKS §2 S2
+    > require is NOT applied to `objects` here, and the reason is a
+    > measurement rather than a preference.** §2.3 says to measure and record
+    > the result *"either way"*; this is the result.
+    >
+    > **What was built and measured.** `GatedManager` was put on `User.objects`
+    > exactly as specified, with `all_objects` and `base_manager_name`, and the
+    > suite was run. It excludes a non-seed row whose campus gate is closed —
+    > **which is every real student before Gate C, because a closed gate is the
+    > only lawful state until then.** The result: **26 tests failed in test-qa's
+    > tree alone** (`test_deletion.py`, `test_erasure_sessions.py`,
+    > `test_no_dob_independently.py`), every one of them on
+    > `User.objects.get(email=…)` returning nothing for a student who exists.
+    > `sessions.session_user` resolved nobody, and `request_magic_link` tried to
+    > re-create an existing account and hit the unique index on `email`. S1's
+    > own *"done when"* — *an adult can sign in by email … and delete their
+    > account* — becomes false.
+    >
+    > **The ADR's premise is the thing that is wrong, and it is checkable.**
+    > §2.3 justifies the retrofit as *"one line, no rework, and S1 ships no
+    > ungated read because S1 has no such read."* S1 ships two:
+    > `session_user` and `request_magic_link`. Rule 9's corollary — *when an
+    > explanation and a measurement disagree, delete the explanation.*
+    >
+    > **Why the shape is wrong rather than the slice.** A manager has no
+    > actor, so a context-free manager can only ask the gate question of the
+    > **row's own** campus. For `listings` that is right: a listing is only
+    > ever discovered within its own campus. For `users` it is wrong, because
+    > **every read of this table is by identity, not by campus** — and the
+    > gate is a *discovery* control. §2.3 says so itself when it explains the
+    > S1 deferral: *"there is no user directory, no member search and no
+    > discovery of people."* A gate on a table with no discovery read gates
+    > authentication and nothing else.
+    >
+    > **Rule 12 — what still catches a user-discovery read if one is ever
+    > added:** `scoped()` and `assert_discovery_open`, which are the control
+    > ADR-002 §4 actually names, plus `tests/unit/test_scoping.py`'s registry,
+    > which fails if a tenant model is queried without the keys. The day a
+    > member-search path exists it is that path that needs the gate, called
+    > explicitly, returning `403 GATE_CLOSED` — not a silent empty list.
+    >
+    > **The result is recorded as a test, not as this paragraph**:
+    > `tests/unit/test_gated_manager.py::
+    > test_the_user_retrofit_is_recorded_as_measured_and_refused` builds the
+    > gated queryset and asserts a real student on a closed campus disappears
+    > from it. If cto rules the other way, that test is where the evidence is.
+    > `all_objects` and `base_manager_name` **are** applied, so the day the
+    > ruling changes it is one line.
     """
+
+    #: ADR-002 §2.3's two companion lines **are** applied; only the gated
+    #: default is not — see the escalation above. `all_objects` is here so the
+    #: allow-list grep and `base_manager_name` are uniform across every
+    #: `is_seed` model, and so that flipping the default later is one line
+    #: rather than an audit of every call site.
+    objects = models.Manager()
+    all_objects = models.Manager()
 
     #: Survives deletion. Every metric in DATA-MODEL §9 groups by this, which is
     #: what makes erasure and measurement coexist (§10.3 assertion (g)).
@@ -176,6 +232,7 @@ class User(models.Model):
 
     class Meta:
         db_table = "users"
+        base_manager_name = "all_objects"
         indexes = [models.Index(fields=["campus", "status"], name="users_campus_status_idx")]
         constraints = [
             models.CheckConstraint(condition=_check_in("role", ROLES), name="users_role_chk"),
@@ -536,11 +593,91 @@ class DataSubjectRequest(models.Model):
     outcome = models.TextField(null=True, blank=True)
     nominee = models.JSONField(null=True, blank=True)
 
+    #: **DATA-MODEL A-29, S2.** The student's own words about their own record,
+    #: for `POST /account/correction` (s12(1)–(2)).
+    #:
+    #: **It is a second column and not a reuse of `nominee`, and the reason is
+    #: stronger than tidiness.** The nominee payload is personal data about a
+    #: **third party** — another living person's name and contact details,
+    #: with that person's own retention, access and notification implications.
+    #: A correction request is the subject's own words about their own record.
+    #: Two different data subjects, two different access rules, two different
+    #: reasons to keep or erase. One column would force one retention rule and
+    #: one access rule onto both, and the first person to reason about *"who is
+    #: in this column"* would get it wrong for half the rows.
+    #:
+    #: **Free text, not an enum of correctable fields** (API-CONTRACT §3): an
+    #: enum here is a list where a judgement belongs, and staff read the text.
+    #: Retention is one year, with the row; it is purged with the request.
+    stated_problem = models.TextField(null=True, blank=True)
+
     class Meta:
         db_table = "data_subject_requests"
         indexes = [models.Index(fields=["due_at"], name="dsr_due_idx")]
         constraints = [
             models.CheckConstraint(condition=_check_in("kind", DSR_KINDS), name="dsr_kind_chk"),
+            #: **DATA-MODEL A-29: both sides of the split are constrained, not
+            #: just the one being added.** That is rule 10's both-sides
+            #: corollary, and it exists because checking one side passes —
+            #: the nominee error was exactly this shape one slice earlier.
+            models.CheckConstraint(
+                condition=~models.Q(kind="CORRECTION") | models.Q(stated_problem__isnull=False),
+                name="dsr_correction_has_problem_chk",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(kind="NOMINATION") | models.Q(nominee__isnull=False),
+                name="dsr_nomination_has_nominee_chk",
+            ),
+            #: The third limb, and the one that keeps the two payloads apart:
+            #: a correction may not carry a third party's details at all.
+            models.CheckConstraint(
+                condition=~models.Q(kind="CORRECTION") | models.Q(nominee__isnull=True),
+                name="dsr_correction_has_no_nominee_chk",
+            ),
+        ]
+
+
+class SellerTermsAcceptance(models.Model):
+    """DATA-MODEL §2 `seller_terms_acceptances` — **S2**, r.6(4)(a).
+
+    The prior written contract, satisfied by accepting seller terms at listing
+    time and logged with the version and the timestamp (`COMPLIANCE.md` §2.4).
+    `apps.listings.services.create_listing` refuses when the **current**
+    `SELLER_TERMS` version is not accepted — which is why the table lands in
+    this slice and not in S1: the refusing caller did not exist.
+
+    **Not tenant-scoped**, and ADR-002 §2 says why in one line: *"consent is to
+    a notice version, which is global. The `users` row carries the campus."*
+
+    Accepting v1 does not cover v2. The unique key is `(user_pseudonym,
+    notice_version)`, so a new published version is a new acceptance — the
+    whole point of a versioned notice is that the contract is the one that was
+    shown.
+    """
+
+    user = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        db_column="user_id", related_name="seller_terms_acceptances",
+    )
+    #: Survives erasure, like every other consent-shaped record — §7 row 18's
+    #: family: *"the record that you agreed to our notices … is kept for one
+    #: year. That is the record showing the deletion itself was lawful."*
+    user_pseudonym = models.UUIDField()
+    notice_version = models.ForeignKey(
+        NoticeVersion, on_delete=models.PROTECT,
+        db_column="notice_version_id", related_name="seller_acceptances",
+    )
+    accepted_at = models.DateTimeField(default=timezone.now)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = "seller_terms_acceptances"
+        indexes = [models.Index(fields=["user_pseudonym"], name="seller_terms_subject_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user_pseudonym", "notice_version"],
+                name="seller_terms_subject_version_uniq",
+            ),
         ]
 
 

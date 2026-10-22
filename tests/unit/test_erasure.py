@@ -295,18 +295,33 @@ def test_every_erasure_step_is_executed_or_names_its_slice():
             )
 
 
+#: The slices whose erasure steps `erase_account` runs today. **S2 added
+#: itself**, which is the registry working as intended: steps 5 and 6 were
+#: entered in S1 as pending with their slice named, and the slice that built
+#: `listings` and `book_requests` flipped them rather than discovering them.
+EXECUTING_SLICES = {"S1", "S2"}
+
+
 def test_the_steps_this_slice_claims_are_the_ones_it_can_run():
-    """The other direction: an entry marked executed in S1 must name only
-    tables that exist, or the registry is a wish list."""
+    """The other direction: an entry marked executed must name only tables
+    that exist, or the registry is a wish list.
+
+    **The slice check is a set rather than `== "S1"`** since S2: an executed
+    entry must belong to a slice that has actually shipped, and a step
+    attributed to S4 while marked executed is still the defect this catches.
+    """
     from django.apps import apps as django_apps
 
     existing = {model._meta.db_table for model in django_apps.get_models()}
     for step, what, slice_name, executed in ERASURE_STEPS:
         if not executed:
             continue
-        assert slice_name == "S1", f"step {step} is executed but attributed to {slice_name}"
+        assert slice_name in EXECUTING_SLICES, (
+            f"step {step} is executed but attributed to {slice_name}, which has "
+            "not shipped — a registry entry cannot run before its slice"
+        )
         for table in ("user_tombstones", "users", "email_login_tokens", "campus_verifications",
-                      "data_subject_requests"):
+                      "data_subject_requests", "listings", "book_requests", "listing_photos"):
             if table in what.replace(" ", "_") or table in what:
                 assert table in existing, f"step {step} names {table}, which does not exist"
 

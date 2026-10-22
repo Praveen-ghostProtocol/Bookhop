@@ -436,6 +436,14 @@ HANDLER_GATES = {
     "export": "_stack_s(",
     "nominee": "_stack_s(",
     "erase": "_stack_s(",
+    # **S2, and it is the endpoint §2.5 named twice and nobody built.**
+    # Stack S: s12(1)-(2) correction is a statutory right, so a suspended
+    # student, one who never finished campus verification and one who
+    # withdrew every optional consent can all reach it. It is also what makes
+    # `display_name` sitting in Stack M defensible — QA-S1 F24 measured that
+    # the justification was unbuilt, which is why the route being placed here
+    # matters as much as the route existing.
+    "correction": "_stack_s(",
     "notice": None,              # public, unauthenticated (r.4(2))
 }
 

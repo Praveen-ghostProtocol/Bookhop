@@ -312,6 +312,46 @@ def test_the_s1_append_only_tables_refuse_with_p0001(engine, table, operation, s
     assert operation in message, f"TG_OP did not interpolate for {operation}: {message}"
 
 
+# --- 6. listings_price_is_immutable (listings/0002) · S2 ------------------
+
+
+def test_changing_the_asking_price_is_refused_with_p0001(engine, s2_listing):
+    """ADR-003 §2.2's trigger, measured by **SQLSTATE and message**, not by
+    "the statement failed".
+
+    This is the sixth body and the first one that could not be executed until
+    now (`POSTGRES-FIRST-RUN.md` §0). `CLAUDE.md` rule 10's last bullet is the
+    whole reason this assertion is here and not just in
+    `test_price_immutable.py`: PostgreSQL resolves identifiers at the first
+    execution of **each branch**, so a body that is created cleanly can fail
+    the first time someone does the forbidden thing — and that failure still
+    blocks the UPDATE. `P0001` is `raise_exception` and nothing else is, so it
+    separates *the guard fired* from *the guard crashed*: an unresolvable
+    identifier would be `42703` (`undefined_column`) and a bad operator
+    `42883`, both of which also refuse the statement.
+    """
+    requires_postgres(engine)
+    from django.apps import apps as django_apps
+
+    Listing = django_apps.get_model("listings", "Listing")
+    sqlstate, message = refusal(
+        lambda: Listing.all_objects.filter(id=s2_listing.id).update(asking_price_paise=1)
+    )
+    assert sqlstate == RAISE_EXCEPTION, (
+        f"the price guard refused with {sqlstate}, not a RAISE. 42703 means the "
+        f"body references a column that does not exist and crashed; it would "
+        f"still have blocked the UPDATE. Message: {message}"
+    )
+    assert "P14" in message, message
+    assert "asking_price_paise" in message, message
+    # `RAISE ... , OLD.id` -- the `%` interpolation that migration core/0002
+    # had to pass params=None for. If it did not interpolate, the message
+    # carries a literal `%` and the listing id is lost from the diagnostic.
+    assert str(s2_listing.id) in message, (
+        f"OLD.id did not interpolate into the refusal: {message}"
+    )
+
+
 # --- the file's own guard -------------------------------------------------
 
 
@@ -343,8 +383,13 @@ def test_every_plpgsql_body_in_the_migrations_has_a_sqlstate_assertion_here(engi
         "assertion in this file, so a guard that kept its text and changed its "
         "mechanism would pass the build:\n" + "\n".join(missing)
     )
-    assert len(bodies) == 6, (
-        f"the migrations now define {len(bodies)} plpgsql bodies, not the six S1 "
-        "ships. Add the refusal assertions, then update that count in the same "
-        "commit — the count is here so a new body cannot arrive unmeasured."
+    assert len(bodies) == 7, (
+        f"the migrations now define {len(bodies)} plpgsql bodies, not the seven "
+        "S2 ships. Add the refusal assertions, then update that count in the "
+        "same commit — the count is here so a new body cannot arrive unmeasured."
     )
+    # The count moved 6 -> 7 in S2 with `listings_price_is_immutable`, which is
+    # the body `POSTGRES-FIRST-RUN.md` §0 corrected "six bodies" down to five
+    # for, because `listings` did not exist. **It is the only one of the seven
+    # that the first PostgreSQL run could not execute**, so its refusal
+    # assertion above is the one that was never a regression test until now.

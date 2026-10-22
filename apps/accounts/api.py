@@ -402,6 +402,39 @@ def nominee(request, body, user):
     return 201, {"recorded": True, "kind": row.kind, "nominee_name": row.nominee["name"]}
 
 
+@endpoint(
+    methods=["POST"], idempotent_write="POST /api/v1/account/correction", actor=_actor
+)
+def correction(request, body, user):
+    """§5.1 / §2.5 `POST /account/correction` — s12(1)–(2). **Stack S.**
+
+    **QA-S1 F24's gap, closed.** §2.5 named this route twice — once in the
+    Stack S table and once as *the justification for putting `display_name` in
+    Stack M* — and nothing implemented it, so a suspended student could
+    neither rename themselves (correctly refused) nor exercise the correction
+    right (absent). Until this was green, §2.5's `display_name` reasoning
+    could not be quoted as satisfied in any packet, ADR or report.
+
+    Stack S in full: a suspended student, a student who never finished campus
+    verification and a student who withdrew every optional consent can all
+    reach it. *A right that a precondition can switch off is not a right.*
+
+    The body is `{stated_problem}` — the student's own words, free text. It
+    lands in `data_subject_requests.stated_problem` and **never in
+    `nominee`**, which holds a third party's data (DATA-MODEL A-29).
+    """
+    _stack_s(user)
+    row = services.request_correction(user, stated_problem=body.get("stated_problem"))
+    return 201, {
+        "recorded": True,
+        "kind": row.kind,
+        "due_at": row.due_at,
+        "message": (
+            "We have your request. Someone will look at it and reply within seven days."
+        ),
+    }
+
+
 @endpoint(methods=["POST"], idempotent_write="POST /api/v1/account/erase", actor=_actor)
 def erase(request, body, user):
     """§5.1 `POST /account/erase`. Runs `erase_account`.
@@ -514,6 +547,7 @@ def notice(request, kind=None):
 
 __all__ = [
     "magic_link", "consume", "logout", "age_declaration", "consents", "set_consent",
-    "account", "export", "nominee", "erase", "notice", "RETAINED_AFTER_ERASURE",
+    "account", "export", "nominee", "correction", "erase", "notice",
+    "RETAINED_AFTER_ERASURE",
     "NOTICE_SLUGS",
 ]

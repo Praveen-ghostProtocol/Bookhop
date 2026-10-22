@@ -58,7 +58,7 @@ def session_user(request):
     user_id = request.session.get(SESSION_USER_KEY)
     if not user_id:
         return None
-    user = User.objects.filter(id=user_id).exclude(status="TOMBSTONED").first()
+    user = User.all_objects.filter(id=user_id).exclude(status="TOMBSTONED").first()
     if user is None:
         request.session.flush()
         return None
@@ -66,5 +66,5 @@ def session_user(request):
     # on every request: SESSION_SAVE_EVERY_REQUEST already gives the rolling
     # expiry, and a write per request would make every GET a write.
     if user.last_seen_at is None or (timezone.now() - user.last_seen_at).total_seconds() > 3600:
-        User.objects.filter(id=user.id).update(last_seen_at=timezone.now())
+        User.all_objects.filter(id=user.id).update(last_seen_at=timezone.now())
     return user

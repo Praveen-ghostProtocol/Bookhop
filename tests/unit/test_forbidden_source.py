@@ -91,7 +91,9 @@ from apps.core.p14 import (
     FORBIDDEN_RESPONSE_KEYS,
     MONEY_COLUMN,
     MONEY_WORDS_EXEMPT,
+    SOURCE_GUARD_SHAPE_EXEMPTIONS,
     money_tokens_in,
+    source_shape_exempt,
 )
 
 APPS = pathlib.Path(__file__).resolve().parents[2] / "apps"
@@ -292,13 +294,31 @@ def declared_identifiers():
 
 
 def test_no_declared_identifier_in_apps_is_money_shaped():
-    """The rule itself. One failure names the file and the identifier."""
+    """The rule itself. One failure names the file and the identifier.
+
+    **Two ratified shapes are skipped here and nowhere else** (ADR-003 §2.3's
+    `SOURCE_GUARD_SHAPE_EXEMPTIONS`, cto 2026-10-22): an ORM lookup that ends
+    at the permitted column, and an UPPER_SNAKE bound. The invariant is that
+    **a money-shaped name is permitted only if it cannot carry a
+    per-transaction value**, which is exactly what P14 protects.
+
+    **This predicate alone is a widening, and it is not granted alone.** Shape
+    A's second layer is W1's whitelist — you need a `settled_price` column
+    before you can write `settled_price__gte`, and the whitelist kills the
+    column. Shape B has no such layer, because a constant is not a column, so
+    `tests/unit/test_exempted_bound_is_pinned.py` is the layer: every shape-B
+    name must equal the bound in a real CHECK. Measured by cto before
+    ratifying — `MAX_OFFER_PAISE` passes the shape test and is caught only by
+    the pin.
+    """
     offenders = []
     for rel, name in declared_identifiers():
         lowered = name.lower()
         if lowered in PERMITTED:
             continue
         hits = money_tokens_in(lowered)
+        if hits and source_shape_exempt(name):
+            continue
         if hits:
             offenders.append(f"{rel}: {name} (tokens {hits})")
     assert offenders == [], (
@@ -449,3 +469,80 @@ def test_apps_contains_no_dynamic_attribute_construction():
 
 def test_the_permitted_set_is_exactly_the_two_adr_names():
     assert PERMITTED == {"asking_price_paise", "price_fixed_at"}
+
+
+# --- the ratified shape exemption, and what it must still refuse -----------
+
+
+@pytest.mark.parametrize(
+    "name,shape,why",
+    [
+        ("asking_price_paise__gte", "A", "the S2 collision: a CHECK's lower bound"),
+        ("asking_price_paise__lte", "A", "the S2 collision: a CHECK's upper bound"),
+        ("asking_price_paise__isnull", "A", "a registered lookup"),
+        ("listing__asking_price_paise__lte", "A",
+         "S4's traversal — the relation prefix is needed and is confirmed here"),
+        ("transfer__listing__asking_price_paise", "A", "two relations, ending at the column"),
+        ("MAX_ASKING_PRICE_PAISE", "B", "the bound, whose honest name carries both tokens"),
+    ],
+)
+def test_the_ratified_shapes_are_recognised(name, shape, why):
+    """Both halves of a hit, so neither can pass vacuously: the name **is**
+    money-shaped, and it **is** matched by the ratified shape."""
+    assert money_tokens_in(name.lower()), f"{name!r} is not money-shaped, so this proves nothing"
+    assert source_shape_exempt(name) == shape, why
+
+
+@pytest.mark.parametrize(
+    "name,why",
+    [
+        ("settled_price_paise", "QA's @property — the case W1c exists for, invisible to the schema"),
+        ("settled_price", "a property assigned rather than decorated"),
+        ("offered_price", "an offer amount; an accepted offer amount IS a settled consideration"),
+        ("offer_amount", "the same, under the other name"),
+        ("asking_price_paise__total", "`total` is NOT a lookup suffix — the discriminating case"),
+        ("cash_received", "a plain method"),
+        ("amount_due", "a model field"),
+        ("paid_amount_paise", "a jsonb payload key"),
+        ("asking_price_paise_settled", "a suffix that is not a lookup and not `__`-separated"),
+        ("sale_price_paise__gte", "a lookup on a column that is not the permitted one"),
+    ],
+)
+def test_the_exemption_cannot_swallow_a_forbidden_shape(name, why):
+    """**The half that makes the allowance affordable**, and it is where the
+    measurement went before cto ratified rather than after.
+
+    Every one of these is money-shaped and **none** matches a ratified shape,
+    so the guard still refuses it. `asking_price_paise__total` is the one to
+    read twice: it starts with the permitted column and is still refused,
+    because the exemption is "ends at the column, optionally plus a **lookup**"
+    and not "mentions the column".
+    """
+    assert money_tokens_in(name.lower()), f"{name!r} is not money-shaped, so this proves nothing"
+    assert source_shape_exempt(name) is None, why
+
+
+def test_a_free_floating_money_constant_matches_the_shape_and_is_caught_by_the_pin():
+    """**Rule 12, as the one test that shows where this exemption is weakest.**
+
+    `MAX_OFFER_PAISE` and `TYPICAL_SALE_PRICE_PAISE` both satisfy shape B —
+    UPPER_SNAKE, money-shaped — and **shape B has no second layer in this
+    file**, because a constant is not a column and W1's whitelist cannot reach
+    it. That is precisely why cto refused to grant shape B unpinned.
+
+    So this test asserts the gap honestly rather than pretending it is closed
+    here: the shape matches, and the control that catches it is
+    `tests/unit/test_exempted_bound_is_pinned.py`. If that file is ever
+    deleted, this comment is the only thing left saying the exemption was
+    conditional — so the pin test asserts its own registration too.
+    """
+    for name in ("MAX_OFFER_PAISE", "TYPICAL_SALE_PRICE_PAISE"):
+        assert source_shape_exempt(name) == "B"
+    import pathlib as _pathlib
+
+    pin = _pathlib.Path(__file__).with_name("test_exempted_bound_is_pinned.py")
+    assert pin.exists(), (
+        "shape B is exempted here and its only other layer is the pin test, "
+        f"which is missing: {pin}. ADR-003 §2.3 grants shape B *conditionally*."
+    )
+    assert len(SOURCE_GUARD_SHAPE_EXEMPTIONS) == 2
