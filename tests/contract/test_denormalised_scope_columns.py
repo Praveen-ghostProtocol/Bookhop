@@ -82,6 +82,40 @@ def _constraint_details(table):
         return connection.introspection.get_constraints(cur, table)
 
 
+def _composite_fks(table):
+    """Multi-column foreign keys on `table`, as `[(columns, parent)]`.
+
+    **Two catalogs, because Django's introspection has a shape difference
+    that is not a property difference.** On PostgreSQL `get_constraints`
+    reports one entry carrying all four columns. On SQLite it reports **one
+    entry per column**, so counting columns per entry finds none — the
+    composite FK is there and `PRAGMA foreign_key_list` is where it shows:
+    the rows of one constraint share an `id`, and a composite is an `id`
+    with more than one row.
+
+    Read from the engine's own catalog either way, never from the migration.
+    """
+    if connection.vendor != "sqlite":
+        return [
+            (tuple(meta.get("columns") or ()), meta.get("foreign_key"))
+            for meta in _constraint_details(table).values()
+            if meta.get("foreign_key") and len(meta.get("columns") or []) > 1
+        ]
+
+    grouped = {}
+    with connection.cursor() as cur:
+        # PRAGMA columns: id, seq, table, from, to, on_update, on_delete, match
+        cur.execute(f'PRAGMA foreign_key_list("{table}")')
+        for row in cur.fetchall():
+            grouped.setdefault(row[0], {"parent": row[2], "columns": []})
+            grouped[row[0]]["columns"].append(row[3])
+    return [
+        (tuple(entry["columns"]), (entry["parent"], None))
+        for entry in grouped.values()
+        if len(entry["columns"]) > 1
+    ]
+
+
 @pytest.fixture
 def open_gate(db, qa_evidence):
     """Open a campus **the only way it can lawfully be opened.**
@@ -236,12 +270,20 @@ def test_the_composite_foreign_key_exists_on_each_child(table):
 
     Read from the catalog rather than from the migration, because what matters
     is what the server installed.
+
+    **The engine branch is an introspection limit, not a second property.**
+    Django's SQLite introspection flattens a multi-column foreign key into
+    **one `get_constraints` entry per column**, so a `len(columns) > 1` test
+    sees four single-column FKs and concludes the composite one is missing —
+    while `PRAGMA foreign_key_list` shows one constraint spanning four
+    columns and the write is refused. QA's first version reported that
+    flattening as a missing control on SQLite, which was wrong in the
+    direction that cries wolf; the sibling structural tests in this file
+    already branch by engine and this one needed the same. The **property**
+    is asserted on both engines by the behavioural tests below, which is the
+    limb that cannot be fooled by an introspection shape.
     """
-    composite = [
-        name
-        for name, meta in _constraint_details(table).items()
-        if meta.get("foreign_key") and len(meta.get("columns") or []) > 1
-    ]
+    composite = _composite_fks(table)
     assert composite, (
         f"`{table}` has no multi-column foreign key, so ADR-002 §2's "
         "amendment is not implemented: *'A child row referencing a parent "
@@ -262,13 +304,38 @@ def test_the_city_key_cannot_disagree_with_its_campus():
     This one covers **every** tenant-scoped table, not just the children, and
     it is the one that decides whether a Chennai row can claim to be a Madurai
     row. Asserted on `listings` as the representative; the sweep over the rest
-    is `test_every_tenant_scoped_table_is_covered` below.
+    is `test_every_tenant_scoped_table_is_covered_or_recorded` below.
+
+    **Two mechanisms, one property, labelled** (`CLAUDE.md` rule 9). On
+    PostgreSQL it is the composite FK the ADR writes. **On SQLite it is a
+    trigger pair, and the reason is load-bearing rather than a shortcut:**
+    SQLite has no `ADD CONSTRAINT`, so an FK can only arrive by rebuilding
+    the table — and rebuilding `listings` would drop
+    `listings_price_immutable`, because a SQLite trigger belongs to its
+    table. That is ADR-003 §2.2's control, and trading P14's guard for
+    ADR-002's would be a widening dressed as a fix. The behavioural limb
+    below asserts the same refusal on both.
     """
+    if connection.vendor == "sqlite":
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                "AND tbl_name = 'listings' AND name LIKE '%campus_city%'"
+            )
+            triggers = sorted(name for (name,) in cur.fetchall())
+        assert triggers == [
+            "listings_campus_city_insert", "listings_campus_city_update"
+        ], (
+            "SQLite's stand-in for the `(campus_id, city_id)` FK is a trigger "
+            "pair, and **both directions are required**: a guard that checks "
+            "only INSERT is a guard an UPDATE walks past, which is the exact "
+            f"shape of the defect this control closes. Installed: {triggers}"
+        )
+        return
+
     composite = [
-        name
-        for name, meta in _constraint_details("listings").items()
-        if meta.get("foreign_key") == ("campuses", "id")
-        and len(meta.get("columns") or []) > 1
+        columns for columns, parent in _composite_fks("listings")
+        if parent and parent[0] == "campuses"
     ]
     assert composite, (
         "ADR-002 §2 (amendment) replaces its own nightly consistency check "
@@ -500,22 +567,54 @@ def test_an_inconsistent_city_on_a_book_request_is_refused(db, seller, signup_ca
     # nightly check is absent as well as the check.
 
 
-def test_the_attack_can_actually_produce_the_state(real_listing_with_photo):
-    """**Rule 10's third disguise, closed on this file.** *A guard whose
-    fixture cannot produce the condition.*
+def test_the_inconsistent_write_is_refused_and_the_writer_still_works(
+    real_listing_with_photo
+):
+    """**The regression this test became, and it succeeded itself out of its
+    old job.**
 
-    Every assertion above has a branch that passes when the database refuses
-    the write. That branch is correct and it is also how this whole file could
-    quietly become a no-op — if `_force` stopped writing anything, every test
-    would take the refusal branch and the file would be green while measuring
-    nothing. So: the write is performed, and the row is read back.
+    It used to be rule 10's third disguise closed from the other side: every
+    assertion above has a branch that passes when the database refuses the
+    write, so if `_force` ever stopped writing anything the whole file would
+    go green while measuring nothing. The old version proved `_force` worked
+    by performing the attack and reading the row back changed.
+
+    **The composite FK makes that impossible, which is the fix landing.** A
+    test asserting the inconsistent write *succeeds* cannot pass against a
+    database that refuses it, and deleting it would take the no-op guard with
+    it. So it keeps the shape that proved the attack was real and inverts the
+    verdict, in two limbs that have to be kept apart:
+
+    1. **The attack is attempted and refused**, by the constraint, naming it.
+    2. **`_force` still writes** — demonstrated on a column the FK does not
+       cover. Without this limb, a `_force` that silently stopped issuing
+       SQL would make limb 1 and every refusal branch above pass for the
+       wrong reason, which is the exact failure the old version existed to
+       prevent. The guard survives the fix instead of being replaced by it.
     """
     from apps.listings.models import ListingPhoto
 
     _listing, photo = real_listing_with_photo
-    _force("listing_photos", photo.id, is_seed=True)
-    refreshed = ListingPhoto.all_objects.get(id=photo.id)
-    assert refreshed.is_seed is True, (
-        "`_force` did not change the row, so every refusal branch above is "
-        "being taken for the wrong reason and this file asserts nothing"
+
+    # Limb 2 first, so a failure says "the writer is broken" rather than
+    # "the constraint held" when both are true.
+    _force("listing_photos", photo.id, width=4321)
+    assert ListingPhoto.all_objects.get(id=photo.id).width == 4321, (
+        "`_force` did not change a column no constraint guards, so it is not "
+        "writing at all — and every refusal above is being taken for the "
+        "wrong reason. This file would assert nothing."
+    )
+
+    # Limb 1: the same statement shape, on a column the composite FK covers.
+    with pytest.raises((IntegrityError, DatabaseError)) as caught:
+        with transaction.atomic():
+            _force("listing_photos", photo.id, is_seed=True)
+
+    text = str(caught.value).lower()
+    assert "foreign key" in text or "constraint" in text, (
+        "the write was refused by something other than the tenant-identity "
+        f"constraint, so this does not show the fix working: {caught.value!r}"
+    )
+    assert ListingPhoto.all_objects.get(id=photo.id).is_seed is False, (
+        "the row changed despite the refusal"
     )

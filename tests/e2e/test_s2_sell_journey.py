@@ -516,18 +516,25 @@ def test_the_four_photo_cap_survives_simultaneous_uploads(client_as, seller, boo
     uploads released together on a barrier so they contend rather than
     serialise by start-up latency.
 
-    **Measured, PostgreSQL 16.15: all six returned `201` and the listing
-    ended with nine photos.** Not two-into-five — every concurrent writer
-    passes, because `count() >= 4` is read inside each transaction under
-    READ COMMITTED with no lock on the listing row and no unique constraint
-    to collide on. The cap is not a cap under concurrency; it is a cap under
-    sequence, and the ceiling as written understates it by a factor the
-    second half of the note ("a fifth thumbnail") is reasoning from.
+    **First measured, PostgreSQL 16.15: all six returned `201` and the
+    listing ended with NINE photos.** Not two-into-five — every concurrent
+    writer passed, because `count() >= 4` was read inside each transaction
+    under READ COMMITTED with no lock on the listing row and no unique
+    constraint to collide on. The ceiling as written understated it by a
+    factor the second half of the note ("a fifth thumbnail") was reasoning
+    from, and S7's derivative generation would have sized its work off
+    `MAX_PHOTOS_PER_LISTING` believing it was enforced.
 
-    **QA is not prescribing the fix** and the declining of a two-body
-    counting trigger may well still be right. What is wrong is the number
-    the decision was made against, and S7's derivative generation will size
-    its work off `MAX_PHOTOS_PER_LISTING` believing it is enforced.
+    **Re-measured after the fix (`57c6689`): the cap holds at four.** The
+    `SELECT … FOR UPDATE` on the listing row serialises the count, so the
+    racers queue and the losers get `422 TOO_MANY_PHOTOS`. Run three times
+    to be sure the pass is the lock and not the scheduler.
+
+    **This test stays as the regression and is deliberately not softened to
+    "the fix is present".** The lock is one line and a later refactor that
+    moves the count outside the locked block would restore the defect with
+    every unit test still green — which is how it got here. The subject is
+    the number of rows, measured, not the mechanism.
     """
     from apps.listings.models import ListingPhoto
 
@@ -764,23 +771,31 @@ def test_the_backup_scope_and_the_restore_test_cover_the_same_things():
     explanation rather than keep the finding (`CLAUDE.md` rule 9's
     corollary).
 
-    **What is actually missing is one step further on.** §3.3's restore test
-    is seven numbered steps and **every one of them is about the database
-    dump**: fetch and decrypt, `pg_restore`, `migrate --check`,
-    `verify_audit_chain`, a read-only assertion set, print RESTORE OK. The
-    media tarball is produced nightly and **never opened by anything.** So
-    the backup is whole and the *test* of it is half — which is a different
-    failure from the one `storage.py` describes and a worse one, because the
-    sentence §3.3 ends on is *"a restore that has not been tested this month
-    is reported as untested, not as working"*, and this one reports as
-    working.
+    **What is actually missing is one step further on, and HALF of it has
+    now been closed.** §3.3 gained a step 5a on 2026-10-22 that sets
+    `session_replication_role = 'replica'` and re-runs every append-only
+    refusal — which is the right home for the `ENABLE ALWAYS` property QA
+    could not verify (F39), for the reason the amendment gives itself:
+    *"this test is the one context where we hold superuser legitimately."*
+    That half is addressed and this test asserts it stayed.
 
-    Paired with the test above, the consequence is concrete: restore from the
-    dump alone, as §3.3 does, and every photo URL in the pilot answers 500.
+    **The media half is not.** Every other step acts on the database dump:
+    fetch and decrypt, `pg_restore`, `migrate --check`, `verify_audit_chain`,
+    the replica-role pass, a read-only assertion set, print RESTORE OK. The
+    tarball `§3.1` produces nightly is **opened by nothing.** So the backup
+    is whole and the *test* of it is partial — and the sentence §3.3 ends on
+    is the standard it misses: *"a restore that has not been tested this
+    month is reported as untested, not as working."*
 
-    S8 and platform-sre own the fix. **S2 is when it has to be written down**,
-    because S2 is the slice that created the files and by S8 the restore
-    script will be written against a step list that never had them.
+    Paired with the photo test above, the consequence is concrete: restore
+    from the dump alone, as §3.3 does, and the product comes up with every
+    row intact and every photo gone. That used to be a 500 on every photo
+    URL; `57c6689` made it a 404, which is the right status and the same
+    lost data.
+
+    S8 and platform-sre own the fix. **S2 is when it has to be written
+    down**, because S2 is the slice that created the files and by S8 the
+    restore script will be written against a step list that never had them.
     """
     import pathlib
     import re
@@ -798,21 +813,33 @@ def test_the_backup_scope_and_the_restore_test_cover_the_same_things():
     )
 
     restore = text[text.index("### 3.3"):text.index("### 3.4")]
-    covers_media = bool(re.search(r"media|tar|photo", restore, re.I))
+
+    # The half that landed, asserted so it cannot quietly go away again.
+    assert "session_replication_role" in restore, (
+        "§3.3's step 5a — the `replica`-role pass that is the only place the "
+        "`ENABLE ALWAYS` property on all seven triggers can be verified "
+        "(QA-S2 F39) — is gone from the restore test. It was added on "
+        "2026-10-22 precisely because this is the one context where we hold "
+        "superuser legitimately; nowhere else can check it."
+    )
+
+    covers_media = bool(re.search(r"\bmedia\b|tarball|tar -|photo", restore, re.I))
     assert covers_media, (
-        "FINDING. `INFRA.md` §3.1 backs up the media directory and §3.3's "
-        "restore test never touches it: all seven steps act on the database "
-        "dump. A restore verified by that script restores every row, passes "
-        "`verify_audit_chain`, confirms `listings_price_immutable` is "
-        "present, prints RESTORE OK — and has not established that a single "
-        "photo came back. Combined with the 500 above, the state it leaves "
-        "is every photo URL in the pilot failing.\n\n"
+        "FINDING, the surviving half of F44. `INFRA.md` §3.1 backs up the "
+        "media directory as `media-<UTC-ts>.tar.gz` and **§3.3's restore "
+        "test never opens it.** Every step acts on the database dump — "
+        "including the new 5a, which is a correct addition and is about "
+        "triggers, not files. A restore verified by that script restores "
+        "every row, passes `verify_audit_chain`, re-proves every append-only "
+        "refusal under replica role, prints RESTORE OK — and has not "
+        "established that a single photo came back.\n\n"
         "§3.3's own closing sentence is the standard it misses: *'a restore "
         "that has not been tested this month is reported as untested, not as "
         "working.'* The media half has never been tested and is reported as "
         "working.\n\n"
         "The fix is a step 5b — extract the tarball and assert that a sample "
-        "of `listing_photos.storage_key` resolves to a file. Routed to cto "
+        "of `listing_photos.storage_key` resolves to a file. One line of "
+        "script and one assertion, in the same place 5a went. Routed to cto "
         "and platform-sre as an `INFRA.md` §3.3 amendment; not code, and not "
         "S2's to write."
     )

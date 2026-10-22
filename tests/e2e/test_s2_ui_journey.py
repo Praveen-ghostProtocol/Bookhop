@@ -263,3 +263,141 @@ def test_the_listing_page_shows_no_contact_detail_in_the_rendered_html(ui, book,
             "responses never contain a seller address, a phone number, an "
             "email, precise coordinates, a settled price'*."
         )
+
+
+# --------------------------------------------------------------------------
+# A-22's two consequences at the interface, both sides of each
+# --------------------------------------------------------------------------
+
+
+def test_publishing_onto_a_closed_campus_says_nobody_can_see_it(ui, book):
+    """**A-22's required disclosure, asserted as a control that exists AND
+    behaves** (`CLAUDE.md` rule 9).
+
+    The ruling that made the pre-gate write legal created a new way to
+    mislead somebody: a student does the whole sell flow, publishes, and
+    nothing happens, because the campus is closed. A-22 routed *"a required
+    disclosure string"* to design rather than leaving that as acceptable.
+
+    So the test is not *"a flash message appears"* — it is that the sentence
+    the seller is shown at the moment of publishing **says the listing is
+    not visible**. A confirmation that merely said "Published" would satisfy
+    a weaker test and be the defect.
+    """
+    from apps.listings.models import Listing
+
+    ui.get("/sell/find-book", {"isbn": book.isbn13})
+    ui.post("/sell", {
+        "isbn": book.isbn13, "condition": "GOOD", "annotation_level": "NONE",
+        "damage_flags": ["NONE_OF_THESE"], "language": "en",
+        "category": "PRESCRIBED_TEXTBOOK", "asking_price_rupees": "300",
+        "seller_terms": "on", "csrfmiddlewaretoken": csrf(ui),
+    })
+    listing = Listing.all_objects.order_by("-id").first()
+    assert listing.campus.discovery_enabled_at is None, (
+        "this test is about publishing onto a CLOSED campus"
+    )
+
+    published = ui.post(f"/sell/{listing.id}/publish", {
+        "expected_version": listing.version, "csrfmiddlewaretoken": csrf(ui),
+    }, follow=True)
+    assert published.status_code == 200, published.content[:300]
+    html = published.content.decode().lower()
+
+    assert "nobody can see this yet" in html, (
+        "A-22 requires a disclosure at publish on a closed campus, and the "
+        "seller was not given one. The whole basis for permitting the "
+        "pre-gate write is that nothing browsable is produced; a seller who "
+        "is not told that has been allowed to do work they think has "
+        f"landed.\n\n{published.content[:600]}"
+    )
+    assert "one campus at a time" in html, (
+        "the disclosure no longer carries the mechanism clause. Without it "
+        "the sentence reads as a fault rather than as how the product works."
+    )
+    for promise in ("soon", "shortly", "will open", "launching", "next week"):
+        assert promise not in html, (
+            f"the disclosure contains {promise!r}, which is an undertaking "
+            "that the campus will open. COPY-DECK v1.5: the string names no "
+            "date, because we do not have one."
+        )
+
+
+def test_a_listing_on_a_closed_campus_is_never_shown_as_stale(
+    client_as, seller, book, s2_listing
+):
+    """**The defect frontend found that QA's tests could not have**, and the
+    time-shifted fixture that pins it.
+
+    The stale notice — *"Listed 40 days ago — this may be gone"* — was
+    counting from `published_at`. Because A-22 lets a seller publish onto a
+    closed campus, a listing can sit at `LIVE` with `published_at` set and
+    nobody able to see it. **On the morning a campus finally opened, its
+    entire backlog would have greeted the first buyer with a staleness
+    warning** — wrong in both halves, since it had not been *listed* in the
+    sense a student reads it, and nothing *may be gone* from a listing
+    nobody could take.
+
+    The clock is now elapsed **visible** time: the later of publication and
+    the campus opening. Both sides are asserted, because a clock that simply
+    never fires would also pass the first half.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.listings.models import Listing
+
+    old = timezone.now() - timedelta(days=40)
+    Listing.all_objects.filter(id=s2_listing.id).update(
+        status="LIVE", published_at=old
+    )
+    s2_listing.refresh_from_db()
+    assert s2_listing.campus.discovery_enabled_at is None
+
+    client = client_as(seller)
+    html = client.get(f"/listing/{s2_listing.id}").content.decode()
+    assert "this may be gone" not in html.lower(), (
+        "a listing published 40 days ago onto a campus whose gate has never "
+        "opened is shown as stale. It has been visible for no time at all, "
+        "which is exactly what the clock should read."
+    )
+    assert "40 days ago" not in html.lower(), (
+        "the page quotes 40 days of visibility for a listing nobody could "
+        "see"
+    )
+
+
+def test_a_listing_visible_for_long_enough_IS_shown_as_stale(
+    client_as, seller, book, s2_listing, open_the_gate
+):
+    """**The other side**, so the fix is not a clock that never fires.
+
+    `CLAUDE.md` rule 10: a check that cannot fail is worse than no check. A
+    staleness notice suppressed everywhere would pass the test above and
+    silently remove a control `COMPETITORS.md` §3.5 calls the category's
+    oldest failure mode.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.listings.models import Listing
+
+    campus = open_the_gate(s2_listing.campus)
+    old = timezone.now() - timedelta(days=40)
+    Listing.all_objects.filter(id=s2_listing.id).update(
+        status="LIVE", published_at=old
+    )
+    # The campus opened long ago too, so visible time really is 40 days.
+    from apps.core.models import Campus
+
+    Campus.objects.filter(id=campus.id).update(discovery_enabled_at=old)
+    s2_listing.refresh_from_db()
+
+    html = client_as(seller).get(f"/listing/{s2_listing.id}").content.decode()
+    assert "this may be gone" in html.lower(), (
+        "a listing visible for 40 days on an open campus is NOT shown as "
+        "stale, so the staleness control does not fire at all and the test "
+        "above was passing for the wrong reason"
+    )

@@ -190,8 +190,12 @@ UNEXERCISED_M_PRECONDITIONS = {
     6: ("object is in actor's visible campus scope (ADR-002 §2) → else 404",
         "a 403 here would confirm the object exists and leak the catalogue "
         "(§2.2: 'the same body either way')"),
-    7: ("campus discovery gate open, or both parties are seed (ADR-002 §4) → "
-        "else 403 GATE_CLOSED",
+    # **Amended by A-22, 2026-10-22, on this file's own escalation.** The text
+    # below is §2.5's current wording, not the one QA tested against; the
+    # ruling and what it does and does not permit are in the test's docstring.
+    7: ("campus discovery gate open — on READS that can surface a row the "
+        "actor did not create, and not on writes of the actor's own rows "
+        "(ADR-002 §4) → else 403 GATE_CLOSED",
         "the gate is the control that keeps BookHop from operating a platform "
         "before the company may; §2.5 puts it in the standing preconditions so "
         "it is not a thing each discovery path remembers"),
@@ -532,48 +536,42 @@ def test_precondition_6_a_cross_campus_object_is_404_and_never_403(
         assert response.status_code != 403, "403 confirms the object exists"
 
 
-def test_precondition_7_the_gate_on_a_stack_m_write(
+def test_precondition_7_the_gate_is_a_read_control(
     sign_in, s2_actor, signup_campus, book, seller_terms_notice
 ):
-    """§2.5 precondition 7 — **exercisable now, and the contract and the code
-    disagree about it. This is an escalation to cto, not a build defect.**
+    """§2.5 precondition 7 — **the escalation this test raised is ruled, and
+    the ruling went against what this test used to assert.**
 
-    *7. campus discovery gate open, or both parties are seed (ADR-002 §4) →
-    else `403 GATE_CLOSED`*
+    *7. campus discovery gate open — on READS that can surface a row the
+    actor did not create, and not on writes of the actor's own rows
+    (ADR-002 §4) → else `403 GATE_CLOSED`*
 
-    §2.5 states its eight preconditions as **standing** — *"TWO stacks …
-    checked in L1 in this order"* — and its membership table puts *"listings
-    and photos, `book_requests`"* in Stack M with no carve-out. Read
-    literally, a real student on a campus with `discovery_enabled_at IS NULL`
-    must be refused `403 GATE_CLOSED` when they create a listing.
+    QA measured `201` where §2.5's old wording required `403 GATE_CLOSED`,
+    declined to pick a side, and escalated. **A-22 settled it from the
+    compliance rationale rather than from either document's precedent**: the
+    r.3(1)(b) trigger is the *browsable surface*, so a private intake nobody
+    can browse is a record and not a platform, and **blocking the write
+    protects nothing the law asks us to protect.** The ruling added a reason
+    QA did not have and should have had: blocking writes until discovery
+    opens means a campus launches with **zero listings and the first search
+    fails** — R-01, the register's top risk, materialising by design.
 
-    **Measured: they get `201`.**
+    So `201` is correct and this is now the regression. It is written as the
+    ruling's **two halves**, because a ruling recorded on only the permitted
+    side is the shape `CLAUDE.md` rule 10's corollary names — *"where a rule
+    splits a set, both sides are rows, and a test enforces that."*
 
-    And the other frozen contract says the implementation is right. ADR-002
-    §4 describes the gate as *"data, plus a server-side guard on **reads**,
-    plus a database write guard"* — the write guard being the one on
-    `discovery_enabled_at` itself, not on marketplace writes — and §4.1(c)
-    defines the closed state as *"the **discovery query** is additionally
-    restricted to `is_seed = true`"*. `INCORPORATION-AND-BLOCKERS` fixes the
-    trigger at *"the moment participants can **browse each other's**
-    listings"*, which a `DRAFT` nobody can see is not.
-
-    So this is `CLAUDE.md` rule 10's second disguise, named in the rule
-    itself: **a criterion broader than its own rationale, which the main
-    journey must violate to work** — and it surfaced, as the rule predicts,
-    *"only when someone tried to build against it"*.
-
-    **QA does not resolve it.** Either §2.5 is amended to scope precondition 7
-    to discovery reads, or the listing writes start refusing — and the second
-    reading has a real cost worth stating: accepting a listing means taking
-    the seller's r.6(4)(a) prior written contract, which is a thing BookHop
-    does with a seller before Gate C opens. The test asserts the
-    contradiction, so it cannot be forgotten, and names both readings.
+    **A-22, verbatim, on what each half contains:** *"Permitted pre-gate:
+    create a listing, upload its photos, record a want, read your own rows.
+    Still gated: all discovery, and `→ OFFERED`."*
     """
+    import io
     import json
+    import struct
 
     assert signup_campus.discovery_enabled_at is None, (
-        "this test is about a CLOSED campus"
+        "this test is about a CLOSED campus; with the gate open it measures "
+        "nothing"
     )
     actor = s2_actor(signup_campus)
     from apps.accounts.models import NoticeVersion
@@ -582,36 +580,130 @@ def test_precondition_7_the_gate_on_a_stack_m_write(
     terms = NoticeVersion.objects.filter(kind="SELLER_TERMS").order_by("-id").first()
     if terms:
         accept_seller_terms(actor, terms, None)
-
     client = sign_in(actor)
-    response = client.post(
-        "/api/v1/listings",
-        data=json.dumps({
-            "accept_seller_terms": True, "book_id": book.id,
-            "asking_price_paise": 30000, "condition": "GOOD",
-            "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
-            "language": "en", "category": "PRESCRIBED_TEXTBOOK",
-        }),
-        content_type="application/json",
+
+    def post(path, body):
+        return client.post(
+            path, data=json.dumps(body), content_type="application/json",
+            headers={"Idempotency-Key": str(uuid.uuid4())},
+        )
+
+    # --- A-22's permitted half ------------------------------------------
+    created = post("/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": 30000, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    })
+    assert created.status_code == 201, (
+        "A-22: *create a listing* is permitted pre-gate, because the "
+        "alternative is a campus that opens with zero supply and a first "
+        f"search that fails. Got {created.status_code} {_code(created)}: "
+        f"{created.content[:200]}"
+    )
+    listing = created.json()
+
+    wanted = post("/api/v1/requests", {"free_text_title": "A book nobody has listed"})
+    assert wanted.status_code == 201, (
+        "A-22: *record a want* is permitted pre-gate, and it is the demand "
+        f"signal R-01 is measured with. Got {wanted.status_code} {_code(wanted)}"
+    )
+
+    jpeg = (
+        bytes((0xFF, 0xD8))
+        + bytes((0xFF, 0xC0)) + struct.pack(">H", 11) + bytes((8,))
+        + struct.pack(">HH", 3, 4) + bytes((1,)) + bytes((1, 0x11, 0))
+        + bytes((0xFF, 0xDA)) + struct.pack(">H", 8) + bytes((1, 1, 0, 0, 0x3F, 0))
+        + bytes((0, 0)) + bytes((0xFF, 0xD9))
+    )
+    photo_file = io.BytesIO(jpeg)
+    photo_file.name = "p.jpg"
+    photo = client.post(
+        f"/api/v1/listings/{listing['id']}/photos",
+        data={"photo": photo_file},
         headers={"Idempotency-Key": str(uuid.uuid4())},
     )
-
-    pytest.fail(
-        "ESCALATION TO CTO — API-CONTRACT §2.5 and ADR-002 §4 disagree, and "
-        "this is a compliance-derived control so QA does not pick a side.\n\n"
-        f"Measured: a real (is_seed=false) ACTIVE, adult- and campus-verified, "
-        f"consented student on campus {signup_campus.slug!r} with "
-        f"`discovery_enabled_at IS NULL` posted to /api/v1/listings and got "
-        f"**{response.status_code} {_code(response)}**.\n\n"
-        "§2.5 reading: precondition 7 is standing on every Stack M action and "
-        "the table puts listings in M, so this must be 403 GATE_CLOSED.\n"
-        "ADR-002 §4 reading: the gate is a guard on **reads** and §4.1(c) "
-        "restricts the **discovery query**; a DRAFT nobody can browse is not "
-        "the moment INCORPORATION-AND-BLOCKERS names, so 201 is right.\n\n"
-        "Whichever way it is ruled, one document needs amending in the same "
-        "commit as the test. `book_requests` behaves identically (measured: "
-        "201), so a ruling covers both."
+    assert photo.status_code == 201, (
+        "A-22: *upload its photos* is permitted pre-gate. Got "
+        f"{photo.status_code} {_code(photo)}: {photo.content[:200]}"
     )
+
+    own = client.get(f"/api/v1/listings/{listing['id']}")
+    assert own.status_code == 200, (
+        f"A-22: *read your own rows* is permitted pre-gate. Got {own.status_code}"
+    )
+    mine = client.get("/api/v1/listings/mine")
+    assert mine.status_code == 200
+    assert [row["id"] for row in mine.json()["items"]] == [listing["id"]]
+
+    # --- A-22's still-gated half ----------------------------------------
+    # The read side is S3 (`apps.discovery`), so the only gated read that
+    # exists today is the photo route on somebody ELSE's listing. That is the
+    # right subject anyway: it is the exact route whose gate QA broke in F34.
+    stranger = s2_actor(
+        signup_campus, email=f"stranger-{uuid.uuid4().hex[:6]}@example.test"
+    )
+    from apps.listings.models import ListingPhoto
+
+    row = ListingPhoto.all_objects.get(listing_id=listing["id"])
+    refused = sign_in(stranger).get(
+        f"/api/v1/listings/{listing['id']}/photos/{row.sha256}"
+    )
+    assert refused.status_code == 404, (
+        "A-22 keeps *all discovery* gated, and a photo is as gated as the "
+        "listing it belongs to (§5.2). A second real student on the same "
+        "closed campus must not reach another student's row — 404 rather "
+        f"than 403, per §2.2. Got {refused.status_code} {_code(refused)}"
+    )
+
+
+def test_the_create_flow_surfaces_no_other_students_row_not_even_a_count(
+    client_as, s2_actor, signup_campus, book, seller, s2_listing
+):
+    """**A-22's narrowest clause, and the one most likely to be lost.**
+
+    > *"the create flow may surface no other user's row **including a
+    > count**"*
+
+    The ruling permits a pre-gate write precisely because nothing browsable
+    is produced. A count is not a row and it **is** a disclosure: *"3 other
+    students are selling this book"* on the sell page tells a student the
+    campus has supply, which is the browsable surface r.3(1)(b) is about, in
+    aggregate form. It is also exactly the kind of thing a helpful
+    social-proof change adds two slices later without anyone reading A-22.
+
+    Asserted over the **served HTML** of the three pre-gate pages, with
+    `s2_listing` — another student's LIVE listing — in the database, so there
+    is something for a count to count.
+    """
+    import re
+
+    assert signup_campus.discovery_enabled_at is None
+    other = s2_actor(
+        signup_campus, email=f"counter-{uuid.uuid4().hex[:6]}@example.test"
+    )
+    client = client_as(other)
+
+    assert s2_listing.seller_pseudonym != other.person_pseudonym, (
+        "the fixture listing must belong to somebody else, or this measures "
+        "the actor's own row"
+    )
+
+    for path in ("/sell", f"/sell/find-book?isbn={book.isbn13}", "/wanted"):
+        response = client.get(path)
+        assert response.status_code == 200, (path, response.status_code)
+        html = response.content.decode()
+
+        assert str(s2_listing.id) not in re.findall(r"/listing/(\d+)", html), (
+            f"{path} links to another student's listing before the gate opens"
+        )
+        for phrase in ("other student", "others are", "already selling",
+                       "copies available", "on your campus are"):
+            assert phrase not in html.lower(), (
+                "A-22: *'the create flow may surface no other user's row "
+                f"including a count'*. {path} contains {phrase!r}, which "
+                "discloses supply on a campus whose gate is closed."
+            )
 
 
 def test_the_unexercised_list_is_now_empty_or_still_named():
@@ -628,7 +720,7 @@ def test_the_unexercised_list_is_now_empty_or_still_named():
     )
     for number, test in (
         (6, test_precondition_6_a_cross_campus_object_is_404_and_never_403),
-        (7, test_precondition_7_the_gate_on_a_stack_m_write),
+        (7, test_precondition_7_the_gate_is_a_read_control),
     ):
         assert callable(test), number
         def flatten(text):

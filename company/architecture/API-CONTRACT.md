@@ -155,9 +155,76 @@ the user sees is the most useful one:
 5. required consent purposes granted → else `403 CONSENT_REQUIRED`
    (body names the missing `purpose_key`)
 6. object is in actor's visible campus scope (ADR-002 §2) → else `404`
-7. **campus discovery gate open, or both parties are seed** (ADR-002 §4) →
-   else `403 GATE_CLOSED`
+7. **campus discovery gate open** — **on READS that can surface a row the
+   actor did not create**, and **not on writes of the actor's own rows**
+   (ADR-002 §4) → else `403 GATE_CLOSED`. **Amended 2026-10-22; see below.**
 8. idempotency + version checks (§4)
+
+> **RULING · the gate is a READ control. §2.5 precondition 7 was over-broad;
+> ADR-002 §4 is right · cto, 2026-10-22** *(QA S2: a real, verified,
+> non-seed student creates a listing on a closed campus and gets 201)*
+>
+> **Two frozen documents contradicted and QA declined to pick — correctly, the
+> question underneath is a product question.** You put it exactly right: *is
+> the closed gate a statement about what a campus can SEE, or about whether a
+> campus is open for business at all?*
+>
+> **The compliance rationale settles it, and it cuts against the stricter
+> reading.** `INCORPORATION-AND-BLOCKERS.md` §3 A0 is explicit about what
+> makes us an e-commerce entity:
+>
+> > *"A private intake form feeding a private spreadsheet that only the
+> > operator reads is a record, not a platform — there is no facility on which
+> > buyers encounter sellers' goods. **The moment participants can browse each
+> > other's listings**, BookHop is operating a platform."*
+>
+> **A student creating a listing nobody can browse is precisely that private
+> intake form.** The r.3(1)(b) trigger is the browsable surface, not the act
+> of recording. So the gate is a read control, and **blocking the write
+> protects nothing the law asks us to protect.**
+>
+> **And there is a positive product reason, not merely an absence of
+> objection: R-01.** Cold-start liquidity is the top risk in the register —
+> *too few books per campus for a first search to succeed.* **If writes are
+> blocked until discovery opens, the campus opens with zero listings and the
+> first search fails, which is R-01 materialising by design.** Accumulating
+> supply behind a closed surface and then opening it is what a staged launch
+> *is*.
+>
+> **Your objection is real and it is a disclosure problem, not a permission
+> problem.** A seller whose listing nobody can see has done work that cannot
+> yet pay off, and must be told so **at the moment of publishing**, not
+> discovered at Gate C: *"Saved. Nobody can see this yet — listings open when
+> BookHop launches on your campus."* One string, honest, and it makes early
+> sellers first in the queue rather than misled. **Routed to design-director
+> as a required string.** The "rules nobody told them about" half is already
+> handled: seller terms are accepted **per version** at listing time
+> (`seller_terms_acceptances`), so a seller was told the rules they accepted,
+> and a later version is a new acceptance.
+>
+> **Consistency with my ruling three hours ago, since you flagged it:** *the
+> discovery gate governs what you can see, never whether you exist.* This is
+> the same principle one layer out, and I would have reached the same answer
+> had the compliance text pointed the other way only by overriding it — it
+> does not, so the two agree.
+>
+> **The scope of the amendment is narrow, and the counterparty paths stay
+> shut.** Permitted pre-gate: **creating a listing, uploading its photos,
+> recording a want, and reading your own rows.** Still gated: search, browse,
+> any listing detail the actor does not own, the wants index, and
+> **`→ OFFERED`, whose guard already requires the gate open or both parties
+> seed** — an offer requires having discovered a listing, and you cannot.
+>
+> **One thing the create flow must not do:** surface any other user's row,
+> **including a count** — no *"3 other people are selling this"*. That is a
+> read wearing a write's clothing and it is the one way this amendment could
+> leak.
+>
+> **Accepted consequence, named rather than discovered:** Gate C opens onto a
+> backlog of listings created earlier, some from sellers since gone quiet.
+> Existing copy already covers it — `trust.stale_listing`, *"Listed {n} days
+> ago — this may be gone"* — and `listings.published_at` makes the age
+> visible. No new mechanism.
 
 **Stack S — self-service rights, safety, and the right to contest.** Checked
 in L1:
@@ -941,6 +1008,7 @@ four contract guarantees:
 | **A-9** | 2026-10-21 | Banned vocabulary grows to eight words; enforcement is per-script — see `THREAT-MODEL.md` §6.1 | Design **TR-8** | cto |
 | **A-13** | 2026-10-21 | **§4.1 — anonymous POSTs get real idempotency** via a non-null sentinel key, not an exemption. Must close before S1 wires `/auth/magic-link` | QA-S0 **B3** | cto |
 | **A-14** | 2026-10-21 | §2.2's error-shape renderer, CSP middleware and `test_forbidden_response.py` **assigned to S1 backend** — named controls that belonged to no slice | REVIEW-S0 N1–N3 | cto |
+| **A-22** | 2026-10-22 | **§2.5 precondition 7 narrowed: the discovery gate is a READ control.** A listing created on a closed campus is the "private intake form feeding a record" compliance explicitly says is **not** a platform (A0) — the r.3(1)(b) trigger is the browsable surface. **Blocking the write protects nothing and guarantees R-01**, because the campus would open with zero supply. Permitted pre-gate: create a listing, upload its photos, record a want, read your own rows. Still gated: all discovery, and `→ OFFERED`. **A required disclosure string routed to design**, and the create flow may surface no other user's row **including a count** | QA S2 contradiction | cto |
 | **A-21** | 2026-10-22 | **§3 procedural fix after a THIRD naming drift.** A read the interface needs is a **§3 amendment first, then an implementation** — rule 6 applied to signatures, not just files. Backend's four shipped names win and are recorded on receipt | S2 frontend pass | cto |
 | **A-20** | 2026-10-22 | **`GET /media/listing-photo/{photo_id}` added** — the storage key existed and nothing served it, so **the data-saver criterion was passing vacuously and must not be reported as passing** (rule 10). Gate- and scope-checked in Django, bytes served by nginx via `X-Accel-Redirect`, 404 not 403 out of scope | S2 frontend pass | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |

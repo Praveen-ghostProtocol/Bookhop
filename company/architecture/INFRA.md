@@ -147,6 +147,24 @@ is the founder's call (`COST-MODEL.md` §5).
 5. `manage.py verify_audit_chain` — **asserts the restored audit chain is
    intact**, which is the only way to know a backup preserved the evidence and
    not just the rows.
+5a. **`SET session_replication_role = 'replica'`, then re-run every
+   append-only refusal and confirm each still fires.** Added 2026-10-22, and
+   it closes two controls that were leaning on each other.
+   **The `ENABLE ALWAYS` property on all seven triggers is `ASSUMED THERE`
+   and has never been verified**, because `session_replication_role` needs
+   superuser — **and the one place it could be verified is this restore test,
+   which did not look.** The property *only* matters under `replica` role,
+   which is what `pg_restore --disable-triggers` and logical replication use:
+   **so the append-only guarantee is unverified in exactly the operation
+   during which someone might be rewriting history.**
+   **This test is the right home precisely because it is the one context
+   where we hold superuser legitimately** — a throwaway local database we
+   created. Verifying it anywhere else would mean granting a privilege to
+   verify a privilege-dependent property.
+   **And the table list is derived from the expected-trigger inventory, never
+   hard-coded.** QA's catalogue sweep hard-coded three tables, so the newest
+   trigger's property went unasserted until a human noticed — a list where an
+   invariant belonged (rule 11), in the instrument.
 6. Run a fixed read-only assertion set: row counts per table within expected
    bounds; the three decisive metric queries (`DATA-MODEL.md` §9.2–9.4) return
    non-error results; `listings_price_immutable` trigger present;

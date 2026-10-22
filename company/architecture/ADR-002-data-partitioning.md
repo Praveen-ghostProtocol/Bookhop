@@ -122,6 +122,30 @@ row cannot disagree with its campus either. **Where a database can make a
 class of wrong state unrepresentable, that beats detecting it — and I reached
 for a job when a constraint was available.**
 
+> **STATUS · NOT IMPLEMENTED, and I removed the old remedy before the new one
+> existed. That was my error · 2026-10-22**
+>
+> **The composite FK is not built.** QA measured the consequence: **a photo
+> served past a closed gate.** Blocking, routed to backend.
+>
+> **Worse, and this part is mine alone: the nightly `city_id` check this
+> amendment "replaced" is now gone, so that column currently has NEITHER
+> remedy.** I wrote the replacement as though it existed — **rule 9's shape,
+> in my own document, for the second time** (after `POST /account/correction`).
+> A document that describes a control in the present tense is asserting it,
+> and this one was asserting a constraint nothing had created.
+>
+> **Interim, until the FK is green: the nightly consistency check is
+> REINSTATED** — `city_id = campus.city_id`, plus the child-vs-parent
+> comparison for `campus_id`, `city_id` and `is_seed`. It detects late, which
+> is why it is being replaced, but late detection beats none.
+>
+> **Standing rule this earns: never remove a remedy before its replacement is
+> green.** The replacement goes in beside the old one; the old one comes out
+> in the commit that turns the new one green. **An upgrade that leaves a gap
+> between the two is a downgrade for the length of the gap**, and here the gap
+> was a document away from being invisible.
+
 **The test that matters is the one whose fixture CAN produce the failure**
 (§6.3's behavioural limb): a test that **writes an inconsistent child
 directly, bypassing the service, and asserts the database refuses it.** A test

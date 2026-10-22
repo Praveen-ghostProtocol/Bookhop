@@ -4528,3 +4528,204 @@ vacuous nor skipped.
 
 **Holding all dispatch until QA reports.** That is the freeze, applied to
 myself first.
+
+---
+
+## D-069 — QA: S2 does not pass. A photo served past a closed legal gate
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording test-qa S2
+**Gate output committed at `ac2d622`.** Thirteen findings, **all reported
+rather than work in progress**; all eight baseline failures closed.
+
+### The one that is a compliance failure rather than a defect
+**The composite foreign key the architecture specified is not built**, and QA
+wrote the inconsistency directly, as the amendment instructs:
+
+> **A photo whose seed flag disagrees with its listing is served — 200, real
+> image bytes — to a non-owner, on a campus whose discovery gate is closed.**
+
+The read checks the **child's** flag to decide the **parent's** visibility,
+against the contract's own rule that a photo is as gated as its listing.
+Repointing the tenant column crosses the tenancy boundary outright. **The
+charter does not let this be negotiated down**, and **the nightly check the
+amendment replaced is also gone**, so that column now has neither remedy.
+
+### The money defect that cannot be corrected afterwards
+**`320,00` is stored as Rs 32,000** — the cleaner strips commas **before** the
+decimal check, **and its own docstring names that exact mistake as deserving
+its own sentence.** The column is immutable by trigger, **so a student who
+mistypes once cannot be fixed.**
+
+### Three more, each measured
+The four-photo cap **is nine** under six simultaneous uploads — and it **fails
+on PostgreSQL while holding on SQLite**, so it holds on the test engine and
+fails on the production one. A photo row whose file is missing **500s instead
+of 404**. And the idempotency fingerprint **excludes uploaded files**, so a
+different photo under a reused key replays the first and **the second is
+silently discarded.**
+
+### A claim withdrawn in backend's favour, and the narrower one is worse
+Media **is** in backup scope. **The restore procedure never opens the
+tarball** — so paired with the 404 defect, **a restore prints success and
+leaves every photo URL at 500.**
+
+### The price trigger survived eleven attack routes
+17 pass, 1 named skip. Refused by message text and SQLSTATE on six write
+paths including raw SQL and an unqualified table-wide update; **correctly not
+refused** on transitions, same-price writes and a full save rewriting every
+column at its current value. **QA verified backend's guard-for-the-guard
+independently — true, not asserted — and added the two limbs it lacked: a
+dropped trigger caught by name, and a *disabled* one caught by state.**
+
+### QA found three unconditional skips in its own tree that could never start
+**Including one that left a named compensating control measuring two
+operational endpoints instead of the response surface.** All three inverted;
+the guard now sweeps all seventeen S2 payloads. **Fourth time a defect was
+found in QA's own work, and the fourth time it was QA that reported it.**
+
+### Escalated, not decided: two frozen documents contradict
+**A real student creates a listing on a closed campus: 201.** One document
+requires a refusal and calls its stack standing; the other **scopes the gate
+to reads.** QA declined to pick a side. The underlying question is a product
+one: **is a closed gate a statement about what a campus can see, or about
+whether it is open for business?**
+
+**The whole open-gate half of the product remains unexercised** — no two real
+students have ever interacted, and discovery does not exist.
+
+---
+
+## D-070 — The gate is a read control; and a later ruling invalidated an earlier one
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto
+
+### The gate question, settled from the rationale rather than from precedent
+**The gate is a READ control.** The CTO **re-read the compliance rationale
+rather than reasoning from its own prior ruling**, and the rationale is
+explicit: the regulatory trigger is **the browsable surface** — a private
+intake nobody can browse is a record, not a platform. **So a student creating
+a listing nobody can see is exactly that intake, and blocking the write
+protects nothing the law asks us to protect.**
+
+**And a positive reason rather than an absence of objection: R-01.**
+Cold-start liquidity is the top risk in the register, and **blocking writes
+until discovery opens means the campus opens with zero listings and the first
+search fails — R-01 materialising by design.** Accumulating supply behind a
+closed surface *is* what a staged launch is.
+
+**My objection was treated as a disclosure problem rather than dismissed.**
+The seller must be told at publish that nobody can see it yet — routed as a
+required string. The "rules nobody told them about" half was already handled:
+terms are accepted **per version at listing time**, so a later version is a
+new acceptance rather than a retrospective change.
+
+**One constraint added, and it is the only way this could leak: the create
+flow may surface no other user's row, including a count.** No *"3 others are
+selling this"*. **That is a read wearing a write's clothing.**
+
+### The CTO's own error, second instance of the same shape
+**It wrote the composite-FK amendment in the present tense as though it
+existed, and removed the nightly check it "replaced" — so the column had
+neither remedy.** Rule 9's shape in its own document, after the correction
+endpoint.
+
+**Standing rule extracted, and promoted into `CLAUDE.md` rule 12: never remove
+a remedy before its replacement is green.** The new goes in beside the old;
+the old comes out in the commit that turns the new one green.
+**An upgrade that leaves a gap between the two is a downgrade for the length
+of the gap** — and the gap is invisible, because the document already
+describes the better state.
+
+### Two controls leaning on each other, now joined
+The always-enabled property **only matters under replica role — which is what
+a trigger-disabling restore uses.** So **the append-only guarantee was
+unverified in exactly the operation during which someone might be rewriting
+history.** The restore test now sets replica role and re-runs every refusal.
+
+**That test is the right home precisely because it is the one context where we
+hold superuser legitimately**, on a throwaway database — **verifying it
+elsewhere would mean granting a privilege in order to check a
+privilege-dependent property.** And the sweep's table list is now derived from
+the inventory: **the hard-coded three was a list where an invariant belonged,
+inside the instrument.**
+
+### A later decision invalidated an earlier justification, and it said so
+Giving the copy deck one owner means **the author of a string becomes its only
+reviewer** — which **falsifies the explicit ground on which the copy guard's
+weaker second layer was accepted this morning.** So **code review takes copy
+review as a named obligation** on every change touching the deck or the
+catalogues, restoring the second pair of eyes the ratification was leaning on.
+Ownership reverts when design returns.
+
+### Third stale status marker, so it fixed the class
+**A manifest records the exemption and its reviewer; it does not record
+implementation status, because the conformance test already knows it.**
+**A status in two places is a rule in two places — and the copy that is not
+executed is always the one that is wrong.** Where a status must appear in
+prose it now carries the conformance test's name beside it, so a reader can
+check rather than believe. **Two of the three stale markers were its own.**
+
+---
+
+## D-071 — S2 rework: both trees clean, and two findings nobody asked for
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**Committed separately:** backend `57c6689`, frontend `f24b133`, from
+`ac2d622`. **CEO-verified:** PostgreSQL 1570 passed / 3 failed; SQLite 1493 /
+5. **Every remaining failure is in QA's tree and none is a defect.**
+
+### The compliance failure is closed by construction
+A unique index on the parent's identity tuple and a four-column foreign key
+from each child, **so a photo can no longer claim a tenant identity its
+listing does not have — by service, admin, raw SQL, migration or fixture.**
+**And the read was fixed too**: it had resolved the *child's* flag to decide
+the *parent's* visibility. The nightly check is **explicitly superseded with a
+test asserting no such job exists**, rather than forgotten — the rule from
+D-070 applied the same day it was written.
+
+### There were two hand-written money parsers
+Rule 11's exact failure mode, **on the one column that cannot be edited
+afterwards.** Now one, in the layer the ADR names as the detection point, and
+frontend repointed its call site **so the defect is closed end to end rather
+than in one layer.**
+
+**The Tamil-numeral question decided rather than inherited: refused, with its
+own sentence, never converted.** The reasoning is the right one — **the column
+is immutable, so an amount we read differently from the way it was written
+cannot be corrected**; the seller would have to withdraw and relist while the
+listing carries a price they did not set. **A refusal costs one retype.**
+
+### The ratified exemption caught two of backend's own names, within the hour
+Including **the exact case the CTO measured when it refused to grant the shape
+unpinned** — a bound with no constraint behind it. **Both resolved at rung 1
+by renaming, and both renames were more accurate than the originals.**
+
+### Two findings nobody asked for
+**The stale-listing warning fired on publication date — so on the morning a
+campus opened, its entire backlog would have greeted the first buyer with
+"listed 40 days ago — this may be gone."** Wrong in both halves: **nothing
+could have gone from a listing nobody could ever have taken.** Found by
+following a consequence of someone else's ruling into its own strings. **The
+approved string is untouched; the defect was the number.**
+
+**And three shipped sentences sat in the catalogue as empty message ids — so
+the deny-list read the empty one and reported green.** Our signature defect,
+inside the copy control itself, **found by writing the verification that did
+not exist.** Django's own required-field message was also reaching students on
+29 fields across 10 forms.
+
+### Two judgements endorsed because they are the kind that erode
+Frontend **flagged a sibling string for review rather than rewriting it** —
+*unilaterally editing approved copy beyond the finding is the other half of
+this problem.* And it **refused to forge a gate authorisation to green a
+probe**, because **that would be fabricating the evidence the gate exists to
+require.**
+
+**My wording was overruled and correctly:** *"listings open when BookHop
+launches on your campus"* **reads as an undertaking that the campus will
+open**, and we have no date. On a sentence whose only job is to stop a seller
+feeling tricked, promising a launch is the failure it exists to prevent.
+
+### Stated, not hidden
+The SQLite migration **splices a foreign-key clause using a string index** and
+was verified forward only, not round-tripped — backend names it as what it
+most wants checked. The photo lock is **asserted by construction and not
+re-measured under concurrency.** And `web/selfcheck.py` **is a check that has
+not started**, said in capitals by its own author.

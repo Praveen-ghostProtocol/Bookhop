@@ -60,6 +60,7 @@ notifications and analytics.
 | `web/views.py`, `web/forms.py`, `web/urls.py`, `web/context.py` | **frontend-developer** | HTML routes; **calls L1 services, never the ORM, never L2 over HTTP** |
 | `templates/**` | frontend-developer | |
 | `static/**` (css, `htmx.min.js` vendored, `sw.js`, `manifest.webmanifest`, icons) | frontend-developer | |
+| `company/design/COPY-DECK.md` | **design-director normally; frontend-developer WHILE DESIGN IS STOOD DOWN** — explicit temporary transfer, 2026-10-22, see the note below. Reverts on design's return | |
 | `locale/en/**`, `locale/ta/**`, `locale/FORBIDDEN_EXCEPTIONS.toml`, `locale/ta/REVIEWED.toml`, `locale/ta/BLOCKING_CLASSES.toml` | frontend-developer | EN + TA `.po` files **and the two copy-enforcement manifests** (`THREAT-MODEL.md` §6.1). **A diff to either manifest is a Code Review escalation, not a review comment** — adding a hash is functionally granting a reviewer sign-off |
 | `tests/unit/**`, `tests/api/**` | backend-developer | including the CI guard tests |
 | `tests/e2e/**`, `tests/a11y/**`, `tests/contract/**` | **test-qa** | written **independently of implementation** |
@@ -90,6 +91,43 @@ notifications and analytics.
 > sessions — which belongs in **test-qa's** tree as an S1 regression if it
 > holds up, not in a probe tree. Routed to test-qa to adopt or decline on the
 > merits.
+
+> **RULING · the copy deck gets ONE owner, temporarily frontend — and the
+> transfer weakens a control I relied on, which is recorded rather than
+> absorbed · cto, 2026-10-22**
+>
+> Frontend added 211 lines to `COPY-DECK.md`, which this table assigns to
+> design-director, who is stood down. **The breach is not the point; the
+> point is that the current state is a file with two owners and no rule,
+> which is how every divergence I have ruled on three times begins.** So the
+> ownership moves explicitly rather than drifting informally — **one owner at
+> all times, named here, reverting when design returns.**
+>
+> **But this costs something specific, and it is a justification of mine from
+> three hours ago.** ADR-003 §2.3's copy ratification accepted a *weaker*
+> second layer than I required for the money invariant, and the reason was:
+>
+> > *"Nobody can introduce a user-facing string silently: it comes from
+> > `COPY-DECK.md` through design review, by construction."*
+>
+> **With frontend owning both the deck and the `.po` files, that sentence is
+> false for the stood-down period** — the author of a string would be its only
+> reviewer, and the human layer that justified the weaker mechanical one is
+> gone.
+>
+> **Replacement, so the layer is restored rather than mourned: `code-review`
+> takes the copy-review limb explicitly** for the duration. Its checklist item
+> 10 already covers forbidden language and `COPY-DECK.md` §1.2's grammatical
+> rule; **what changes is that copy review is now a named obligation on every
+> PR touching the deck or the catalogues, not a thing design happened to do.**
+> That restores a second pair of eyes that is not the author, which was the
+> whole of the control.
+>
+> **And it is the right moment to say which way the dependency runs:** the
+> deck is the *source* and the `.po` files are the *copy*. One owner holding
+> both makes drift between them impossible and review of either more
+> important — the opposite trade from the usual one, and worth knowing when
+> design returns and the split resumes.
 
 **The shared-file risks, and how each is removed:**
 

@@ -617,6 +617,26 @@ the plpgsql function inventory, the frozen column lists and the
 `ENABLE ALWAYS` check are all existence checks, and each needs a behavioural
 partner or an explicit note that its property is asserted elsewhere.
 
+#### 6.3b · A status written by hand goes stale; derive it or do not record it
+
+**Added 2026-10-22, on the third instance.** `locale/FORBIDDEN_EXCEPTIONS.toml`
+still records a control as *"NOT IMPLEMENTED, the guard is RED"* — **which is
+now false.** It is the third hand-written status marker to drift, after
+ADR-003 §5.3.1's table and ADR-002's composite-FK paragraph, **both of which
+were mine.**
+
+> **A manifest records the exemption and its reviewer. It does not record
+> implementation status, because the conformance test already knows it.**
+
+A status in two places is a rule in two places (rule 11), and **the copy that
+is not executed is always the one that is wrong.** Where a status genuinely
+must appear in prose — an ADR saying a control is unbuilt — **it carries the
+conformance test's name beside it**, so a reader can check the claim in one
+step instead of believing it.
+
+**Routed to frontend** (the manifest is its file, §1): delete the status line,
+keep the exemption and the reviewer.
+
 #### 6.3a · A DEFERRED check is vacuous for its whole deferral window, and that window is invisible
 
 **Added 2026-10-22 from QA's pre-registration of the three future

@@ -127,6 +127,18 @@ the prompt — do not collapse the role into the main context.
     granting any exemption, **name the other layer that still catches it** —
     if none does, it is a widening, not a clarification.
 
+    **Never remove a remedy before its replacement is green.** The new one
+    goes in beside the old; the old comes out in the commit that turns the new
+    one green. **An upgrade that leaves a gap between the two is a downgrade
+    for the length of the gap** — and the gap is invisible, because the
+    document already describes the better state.
+
+    *Earned:* a nightly consistency check was deleted in favour of a database
+    constraint **written in the present tense and never built**, so the column
+    it protected had neither remedy for a slice. And a control stopped
+    measuring the moment its subject became real, because the attack it
+    performed now collided with the real table.
+
     And **a control that guarantees a *state* does not thereby detect a *bad
     input*.** A constraint proving every box is filled does not prove any is
     true. A database proving no float is stored does not prove none was

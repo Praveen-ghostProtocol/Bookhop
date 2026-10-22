@@ -681,3 +681,366 @@ named, and not reported around.
 | Date | Change | By |
 |---|---|---|
 | 2026-10-22 | v1.0 — S2 pass. Coverage regression recovered; three unconditional skips inverted; the ADR-002 denormalisation amendment measured and found unbuilt with three live consequences; the price trigger attacked on eleven routes with no defects; the four seam regressions re-pinned at the seam; the photo-cap ceiling measured at nine; one backup finding raised and withdrawn, replaced by a narrower one; §2.5 precondition 7 escalated to cto | test-qa |
+
+---
+---
+
+# QA-S2 v2.0 — the rework pass
+
+**Owner:** test-qa · **Version:** v2.0 (appended to v1.0 above, which stands
+unchanged) · **Date:** 2026-10-22
+**Under test:** backend `57c6689`, frontend `f24b133`, on `ac2d622`.
+**v1.0's verdict was "does not pass" on five blocking findings and one
+escalation. All six are closed.**
+
+---
+
+## VERDICT · **S2 PASSES** — with one document gap carried to S8 and one engine-specific migration defect routed to backend.
+
+```
+$ set -a && . ./.env && set +a && export BOOKHOP_TEST_DB_NAME=bookhop_qa_s2
+$ .venv/Scripts/python.exe -m pytest -q
+1 failed, 1588 passed, 60 skipped, 2 xfailed in 48.35s
+FAILED tests/e2e/test_s2_sell_journey.py::test_the_backup_scope_and_the_restore_test_cover_the_same_things
+
+$ BOOKHOP_DB_ENGINE=sqlite .venv/Scripts/python.exe -m pytest -q
+2 failed, 1516 passed, 132 skipped, 1 xfailed in 37.13s
+FAILED tests/e2e/test_s2_sell_journey.py::test_the_backup_scope_and_the_restore_test_cover_the_same_things
+FAILED tests/contract/test_tenant_fk_migration.py::test_the_migration_round_trips_forward_reverse_forward
+```
+
+Baseline before this pass reproduced exactly as reported: PostgreSQL 3 failed
+/ 1570 passed, SQLite 5 failed / 1493 passed.
+
+**Neither remaining failure blocks the slice**, for the reasons in §15 and
+§14.1. Neither is a listing, photo, price or gate defect; both are about
+operations.
+
+---
+
+## 13. The five rulings and re-points
+
+### 13.1 The gate ruling — re-pointed, and both halves are rows
+
+A-22 settled the escalation **against what QA's test asserted**, from the
+compliance rationale rather than from either document's precedent, and added
+a reason QA did not have and should have had: blocking the write means a
+campus opens with zero listings and the first search fails, which is R-01
+materialising by design. That is the stronger argument and it is recorded in
+the test.
+
+`test_precondition_7_the_gate_is_a_read_control` is now the regression, and
+it is written as **both halves of the ruling** rather than the permitted one:
+
+| A-22 | Asserted |
+|---|---|
+| *create a listing* permitted pre-gate | `201` |
+| *record a want* permitted pre-gate | `201` |
+| *upload its photos* permitted pre-gate | `201` |
+| *read your own rows* permitted pre-gate | `200`, and `/listings/mine` returns exactly the actor's own |
+| *all discovery still gated* | a second real student on the same closed campus gets `404` on the photo route — not `403`, per §2.2 |
+
+**And A-22's narrowest clause has its own test**, because it is the one a
+later change erases without noticing: *"the create flow may surface no other
+user's row **including a count**."* A count is not a row and it is a
+disclosure — *"3 other students are selling this book"* tells a student the
+campus has supply, which is the browsable surface in aggregate.
+`test_the_create_flow_surfaces_no_other_students_row_not_even_a_count` drives
+`/sell`, `/sell/find-book` and `/wanted` as a real student with another
+student's LIVE listing in the database. Green.
+
+### 13.2 The guard-for-the-guard — converted, and it kept its teeth
+
+`test_the_attack_can_actually_produce_the_state` asserted that the
+inconsistent write **succeeds**, which was the only honest way to prove the
+fixture could produce the failure mode. The composite FK makes that
+unwritable, so the test could not pass — correctly.
+
+Deleting it would have taken the no-op guard with it. It is now
+`test_the_inconsistent_write_is_refused_and_the_writer_still_works`, two
+limbs, in this order:
+
+1. **`_force` still writes** — demonstrated on `width`, a column no
+   constraint guards. Asserted first, so a failure says *"the writer is
+   broken"* rather than *"the constraint held"* when both are true.
+2. **The same statement shape on a guarded column is refused**, and the
+   refusal names a constraint.
+
+Without limb 1, a `_force` that silently stopped issuing SQL would make limb
+2 and **every refusal branch in the other six tests** pass for the wrong
+reason. The guard survives the fix instead of being replaced by it.
+
+### 13.3 The SQLite introspection limit — fixed, and QA's finding was wrong
+
+Django's SQLite introspection flattens a composite FK into **one
+`get_constraints` entry per column**, so QA's `len(columns) > 1` test saw four
+single-column FKs and reported the control missing. It is not missing:
+`PRAGMA foreign_key_list` shows one constraint spanning four columns, and the
+write is refused.
+
+`_composite_fks()` now reads the right catalog per engine. **The property was
+never in doubt** — the behavioural limbs asserted it on both engines
+throughout — which is itself the argument for shipping both limbs rather than
+the structural one alone.
+
+The `city_id` test needed the same treatment for a different reason: on
+SQLite that control is a **trigger pair**, not an FK, because rebuilding
+`listings` would drop `listings_price_immutable`. Trading P14's guard for
+ADR-002's would be a widening dressed as a fix, and the migration is right to
+decline it. The test asserts **both** triggers, insert and update, because a
+guard that checks only inserts is a guard an update walks past.
+
+### 13.4 The photo-cap race — re-measured, and the cap holds
+
+v1.0 measured **nine photos from six concurrent uploads** on a four-photo cap.
+Backend fixed the cause without reproducing the race, so QA re-ran it.
+
+```
+$ pytest tests/e2e/test_s2_sell_journey.py::test_the_four_photo_cap_survives_simultaneous_uploads
+1 passed   (three consecutive runs)
+```
+
+The `SELECT … FOR UPDATE` on the listing row serialises the count; the losers
+get `422 TOO_MANY_PHOTOS`. **The test stays as the regression and is
+deliberately not softened to "the lock is present":** the lock is one line,
+and a refactor that moves the count outside the locked block would restore
+the defect with every unit test still green, which is how it got here. The
+subject is the number of rows, measured.
+
+### 13.5 F40, F41, F42 — closed and re-verified
+
+The missing-file photo is a `404`; the `403 CONSENT_REQUIRED` body names the
+missing `purpose_key`; `320,00` is refused rather than stored as Rs 32,000.
+All three regressions are the ones v1.0 wrote, and none was edited to fit the
+fix.
+
+---
+
+## 14. What was attacked hardest this pass
+
+### 14.1 The SQLite migration splice — the splice is sound; **the reverse is not**
+
+The composite FK arrives on SQLite by **rebuilding the table**: the existing
+`CREATE TABLE` is read out of `sqlite_master`, a `FOREIGN KEY` clause is
+spliced in before the closing parenthesis, rows are copied, the table is
+renamed. Deriving the statement rather than retyping it is the right call and
+is why no column or CHECK can drift from the models. **What makes the splice
+land in the right place is `original.rfind(")")`.**
+
+**The splice itself is correct, and that is now pinned rather than assumed.**
+`test_the_last_paren_really_is_the_tables_closing_paren` takes the live
+statement, cuts it at `rfind(")")`, and asserts the prefix has exactly one
+unclosed `(` — with single-quoted literals stripped first, so a parenthesis
+inside a future enum value cannot fool the count. The trailing-CHECK case is
+measured on `book_requests`, which really is that case: it ends
+`… IS NOT NULL)))`, three parentheses of which only the third is the table's.
+Both CHECKs and every column survived the rebuild.
+
+**The round trip did not.**
+
+```
+FAILED tests/contract/test_tenant_fk_migration.py::test_the_migration_round_trips_forward_reverse_forward
+  OperationalError: foreign key mismatch - "listing_photos" referencing "listings"
+```
+
+**`listings/0003` cannot be reversed on SQLite, and the failure is worse than
+an error.** The reverse drops `listings_tenant_identity` and the eight
+`*_campus_city_*` triggers, and **deliberately leaves the composite FK on the
+rebuilt children** — *"dropping it would need a second rebuild, and a reverse
+that recreates a table is a reverse that can lose data; the constraint is
+harmless to leave."* It is not harmless: the child FK then references a parent
+tuple with no unique index behind it, which is SQLite's `foreign key
+mismatch`.
+
+Measured state after the failed reverse:
+
+| | |
+|---|---|
+| `listings_tenant_identity` | **gone** |
+| `*_campus_city_*` triggers | **0 of 8** |
+| `django_migrations` | **still records 0003 as applied** |
+| `UPDATE listings SET city_id = …` to a foreign city | **accepted** |
+| a photo whose `is_seed` disagrees with its listing | **accepted — F34 reopened** |
+| `migrate listings` to recover | **a no-op** |
+| what actually recovers it | `migrate listings 0002 --fake`, then a real forward |
+
+The migration is `atomic = False`, so the reverse stops halfway; and because
+the `RunPython` raised before Django could delete the ledger row, **`migrate
+--check` is clean while both controls are off.** That is a guard that is off
+and reports as on — the defect class F32–F37 were about, reintroduced by
+their own fix's rollback path.
+
+**PostgreSQL round-trips cleanly** (VERIFIED HERE), because its reverse drops
+the constraints before the indexes. The two paths are not equivalent and only
+one of them had been run.
+
+**Severity and routing.** SQLite is the development engine (ADR-001 §2.2) and
+production is PostgreSQL, so `INFRA.md` §4's rollback is unaffected. What is
+affected is every developer: a rollback attempt leaves them testing against a
+database whose tenant-identity controls are silently off, with nothing saying
+so. **It does not block S2** — the forward path is correct on both engines and
+that is what ships — but it should not reach S4, when `transfers` adds the
+next composite key. Routed to backend as **F46**.
+
+### 14.2 The copy catalogue — verified independently, and it holds
+
+Frontend found three shipped sentences sitting in the catalogue as empty or
+truncated message ids (`sell.isbn.checksum`, `sell.photos.unsupported`, and
+`sell.photos.too_big`, which stopped at the em-dash). The deny-list reads the
+catalogue, so for those three it was scanning nothing — **a banned word in
+any of them would have shipped past a clean suite.** That is this project's
+defect class landing in the copy control, found by someone writing the
+verification that did not exist.
+
+`tests/contract/test_copy_catalogue_is_the_shipped_copy.py` verifies the fix
+**without reading the `.po` to decide what should be in the `.po`**, which is
+the circularity that let the gap exist. Strings are extracted from the
+source — `pgettext` calls in `apps/**` and `web/**`, `{% translate %}` and
+`{% blocktranslate %}` in `templates/**` — and compared both ways. Six tests,
+all green:
+
+- the extractor reached a real corpus (**≥150 strings**, from both Python and
+  templates), asserted before anything else;
+- no context carries two different sentences;
+- every shipped sentence is in `locale/en` **byte-identical** — not merely
+  present, because `too_big` was present and truncated, and a presence check
+  would have called it covered;
+- every `{% plural %}` half has an `msgid_plural`;
+- `locale/en` and `locale/ta` carry **exactly** the same contexts;
+- **every Python-authored sentence actually reaches the deny-list's corpus**,
+  which is the standing property the three empty ids broke: the scan reads
+  templates and the English catalogue and *not* `.py` files, by design, so a
+  view's sentence is in scope only through its catalogue entry.
+
+Two of QA's own extractor limits were found and fixed rather than reported as
+defects: implicitly-concatenated Python literals, which made a correct
+four-line string in `web/views.py` look truncated, and `{{ x }}` → `%(x)s`,
+which is Django's own rewrite. **An extractor that cries wolf about correct
+copy is the shape rule 13 names.**
+
+### 14.3 `web/selfcheck.py` — wired, and its reach measured
+
+Frontend wrote the guard and said plainly that until a line ran it, it was
+*"a check that has not started … one of the six disguises."* It owns no test
+directory; the guard is about accessible names; `tests/a11y/**` is QA's. It is
+wired at `tests/a11y/test_template_invariants.py`.
+
+**Wiring is not trusting.** The suggested line — `assert run() == []` — passes
+on an empty corpus, on a regex that stopped matching, and on a neutered
+detector. Four assertions instead of one:
+
+1. frontend's own `selfcheck_detector()` runs, and the case set is asserted to
+   contain both positives and negatives, so the rule cannot be widened until
+   it fires on correct markup;
+2. the corpus is real — **27 templates, 4 hand-written labels**;
+3. the rules are clean over `templates/**`;
+4. the docstring's "has not started" disclosure is now stale, reported as a
+   skip naming frontend as owner rather than edited in their tree.
+
+**And the declared ceiling is quantified and then closed.** Frontend's note
+said the Django-rendered labels *"are not covered … 'safe by construction' is
+an argument, not a measurement."* Measured: **4 hand-written labels in the
+templates, 31 in the pages a signed-in student is served** — so the source
+guard sees roughly one label in eight, and the seven it misses include every
+radio group in the sell flow, which is the form the whole defect was on.
+`test_no_rendered_page_puts_interactive_content_inside_a_label` applies
+**frontend's own `check_source`** to the served HTML, covering all 31 with no
+second copy of the rule (rule 11). Clean.
+
+What neither can decide is the accessible **name**, which only a browser
+computes. That remains `test_pages.py`'s standing skip.
+
+### 14.4 The two frontend fixes, verified from the outside
+
+- **The publish disclosure.** A-22 required it, so rule 9 requires a test that
+  it exists *and* behaves. Asserted on the served page: the seller is told
+  *"Nobody can see this yet"*, the mechanism clause survives, and the sentence
+  carries **no** undertaking that the campus will open — `soon`, `shortly`,
+  `will open`, `launching` and `next week` are all asserted absent, because
+  COPY-DECK v1.5 names no date and a disclosure whose purpose is to stop a
+  seller feeling tricked must not create a second expectation.
+- **The stale clock.** Frontend's find, and QA could not have made it: the
+  warning counted from `published_at`, so on the morning a campus opened its
+  whole backlog would have greeted the first buyer with *"listed 40 days ago
+  — this may be gone"*. Verified with a time-shifted fixture, **both sides**:
+  a listing published 40 days ago onto a campus that never opened is **not**
+  stale, and a listing visible for 40 days on an open campus **is**. The
+  second half matters as much — a clock that never fires would pass the first
+  and silently delete the control.
+
+---
+
+## 15. The one finding carried forward · F44's media half
+
+`INFRA.md` §3.3 gained **step 5a** on 2026-10-22: `SET
+session_replication_role = 'replica'`, then re-run every append-only refusal.
+That is the right home for F39 and the amendment says why — *"this test is the
+one context where we hold superuser legitimately."* **Asserted and green**:
+the step cannot now disappear without a red test.
+
+**The media half is still open.** Every step in §3.3 acts on the database
+dump, 5a included. The tarball §3.1 produces nightly is opened by nothing. A
+restore verified by that script restores every row, passes
+`verify_audit_chain`, re-proves every refusal under replica role, prints
+RESTORE OK — and has not established that one photo came back.
+
+§3.3's own closing sentence is the standard it misses: *"a restore that has
+not been tested this month is reported as untested, not as working."*
+
+The fix is a step 5b in the same place 5a went: extract the tarball, assert a
+sample of `listing_photos.storage_key` resolves to a file. **Document change,
+cto and platform-sre, S8.** It does not block S2, and the test stays red
+deliberately — an open gap with no red test is how this one survived v1.0.
+
+---
+
+## 16. What is still NOT verified
+
+Unchanged from v1.0 except where noted:
+
+1. **The keyboard-only walkthrough.** No browser automation. Automated checks
+   alone are not a pass.
+2. **Tamil, anything.** The locale is closed and asserted closed; the
+   banned-vocabulary check is still English-only. **Improved this pass:** the
+   two catalogues are now known to carry exactly the same contexts, so the
+   gate counts the real number of unreviewed strings rather than a subset.
+3. **`ENABLE ALWAYS` under replica role.** Still ASSUMED THERE here — the
+   application role is not superuser — but it now has a home that will verify
+   it (§3.3 step 5a) rather than no home at all.
+4. **p75 LCP, p95 search latency** — S3, and they need a browser.
+5. **The §9 metric queries** — S7 per `TASKS.md`.
+6. **The slice with the gate open.** A-22 makes this narrower: the pre-gate
+   write path is now *ruled* rather than merely untested, and both halves of
+   the ruling are exercised. What remains is the read side, which is
+   `apps.discovery` and does not exist (S3), and any behaviour needing two
+   real students interacting on one open campus.
+7. **The accessible name**, which only a browser computes — the one thing the
+   newly-wired template guard explicitly cannot decide.
+
+---
+
+## 17. Findings index · v2.0
+
+| # | Status | Finding |
+|---|---|---|
+| F30–F31 | closed in v1.0 | QA's own coverage regression and three unconditional skips |
+| F32–F37 | **CLOSED** | composite FK installed on both engines; all seven tests green, the guard-for-the-guard converted to a regression that keeps its first limb |
+| F38 | open, low | `MEDIA_ROOT` is process-global between tests; QA's fixture no longer pollutes it |
+| F39 | **routed** | `ENABLE ALWAYS` now has a verification home in `INFRA.md` §3.3 step 5a |
+| F40 | **CLOSED** | a photo row whose file is missing is a 404 |
+| F41 | **CLOSED** | `403 CONSENT_REQUIRED` names the missing `purpose_key` |
+| F42 | **CLOSED** | `320,00` refused rather than stored as Rs 32,000 |
+| F43 | **CLOSED** | the four-photo cap holds at four under six concurrent uploads, re-measured |
+| F44 | **open** | §3.3's restore test still never opens the media tarball (5a landed, 5b did not) |
+| F45 | **CLOSED** | ruled by A-22; re-pointed, both halves plus the no-count clause |
+| **F46** | **NEW, backend** | `listings/0003` cannot be reversed on SQLite; the failed reverse silently disables both tenant controls while `migrate --check` stays clean |
+| — | verified | the copy catalogue is byte-identical to the shipped copy, both locales, derived from source |
+| — | verified | `web/selfcheck.py` is wired, its detector runs, its reach is 4 of 31 labels, and the other 27 are covered by the same rule over rendered HTML |
+
+---
+
+## Amendment log
+
+| Date | Change | By |
+|---|---|---|
+| 2026-10-22 | v2.0 — rework pass. **S2 passes.** Five blocking findings and the escalation closed; A-22 re-pointed with both halves and the no-count clause; the guard-for-the-guard converted rather than deleted; the SQLite introspection limit corrected (QA's finding was wrong); the photo race re-measured green; the copy catalogue verified independently of the fix; `web/selfcheck.py` wired with its reach measured at 4 of 31 and the gap closed over rendered HTML; both frontend fixes verified from the outside with a time-shifted fixture. One new finding (F46, the SQLite reverse) and one carried (F44's media half) | test-qa |
