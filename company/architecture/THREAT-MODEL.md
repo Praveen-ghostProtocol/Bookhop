@@ -385,6 +385,7 @@ that a reasonable developer would otherwise break by accident.
 | `tests/unit/test_forbidden_copy.py` | **English** (`en`): no template or `.po` entry contains a banned stem as a whole word outside the exception manifest. §6.1 |
 | `tests/unit/test_reviewed_locale.py` | **Tamil** (`ta`): every shipped `msgstr` hash-matches a reviewer-signed entry in `locale/ta/REVIEWED.toml`. §6.1 |
 | `tests/unit/test_locale_gate.py` | `feature_flags['i18n.ta_enabled']` **cannot be true** while any blocking-class `msgid` is unreviewed. §6.1 |
+| `tests/api/test_locale_gate_middleware.py` | With the flag false, **`Accept-Language: ta` yields English on an L3 page AND on an L2 endpoint** — the L2 half is what a `web/` view helper structurally could not cover. §6.1 ruling, 2026-10-22 |
 | `tests/unit/test_price_immutable.py` | The `listings_price_immutable` trigger exists and raises |
 | `tests/unit/test_gate.py` | A non-seed listing is never returned for a campus with `discovery_enabled_at IS NULL`; **and for an `active=false` campus whose gate is open** (QA-S0 B1) |
 | `tests/unit/test_gate_write_guard.py` | **`Campus.objects.update(discovery_enabled_at=…)` cannot open the gate** without a live unrevoked `gate_authorisations` row — the trigger, not a grep. QA-S0 F3 / REVIEW-S0 M0 |
@@ -472,6 +473,44 @@ raises a warning that must be acknowledged in the entry's `notes`, and a hit on
 an already-reviewed, hash-matching string is **permitted**, because the
 reviewer has already ruled on it. That is how `BookHop சரிபார்க்கவில்லை` ships
 and `சரிபார்க்கப்பட்ட` does not.
+
+> **RULING · the locale gate belongs in MIDDLEWARE, not in a view helper ·
+> cto, 2026-10-22** *(frontend S1 escalation)*
+>
+> **Frontend found a real leak and closed it correctly.** `LocaleMiddleware`
+> negotiates against `settings.LANGUAGES`, **which lists `ta`** — so without
+> intervention the gate leaks through `Accept-Language`, which §6.1(c) below
+> forbids by name. Frontend re-activates the locale in its own page helper.
+> **That works, and it is enforced in the layer that happened to notice.**
+>
+> **It belongs one layer down, for a reason that is not tidiness: a view helper
+> in `web/` covers only the pages that call it.** §2.1 of
+> `API-CONTRACT.md` makes `Accept-Language` select the locale for **L2** as
+> well, and L2 handlers live in `apps/*/api/` and never call a `web/` helper.
+> **So the leak is closed on the pages frontend wrote and open on every JSON
+> endpoint, now and in every later slice** — and it would reopen on the first
+> L3 page that forgets the helper.
+>
+> **Specification: `LocaleGateMiddleware` in `apps/core/middleware.py`
+> (backend), placed immediately after
+> `django.middleware.locale.LocaleMiddleware`.** If
+> `feature_flags['i18n.ta_enabled']` is false and the active language is not in
+> the allowed set, re-activate `en` and set `request.LANGUAGE_CODE`. Roughly
+> ten lines, one place, every request.
+>
+> **`ta` stays in `settings.LANGUAGES`** — removing it would also stop
+> `makemessages`/negotiation working for staff and QA when the flag is on, and
+> a static setting cannot read a database flag at import time anyway. **The
+> flag is the gate; the middleware is where it is applied.**
+>
+> **The test is the half that matters, because it is what the view helper could
+> never have covered:** `Accept-Language: ta` must yield English **on an L3
+> page AND on an L2 endpoint**, with the flag false. Added to §6's table.
+>
+> **The general pattern, which is the third instance this project has hit:
+> a control enforced where it was noticed covers only the paths that layer
+> sees.** Frontend's instinct was right and its placement was local; the
+> escalation is exactly what should have happened.
 
 **(c) The locale gate, made mechanical — which is what was asked for.**
 Design's position is adopted as a gate: **Tamil is not offered to students

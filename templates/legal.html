@@ -1,0 +1,52 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET /legal/{kind}` — API-CONTRACT §5.1. Public, unauthenticated.
+
+  The body is the archived `notice_versions` text for the kind and locale.
+  **This template writes no legal copy of its own**, and in particular it never
+  hard-codes the grievance-officer contact: E-Com r.4(2) requires real
+  published name, designation, email, phone and address, and
+  INCORPORATION-AND-BLOCKERS §4.1 is explicit that "BookHop Private Limited"
+  and any CIN are misrepresentations today. A placeholder officer would be a
+  fabricated regulatory disclosure.
+
+  `notice` is whatever `get_current_notice(kind)` returns. There is no such L1
+  function in API-CONTRACT §3 yet (web/context.py gap 4), so until it lands
+  this page states plainly that the notice is not published rather than
+  rendering an empty page that looks like a published notice with nothing in
+  it. That distinction matters: an empty privacy notice would be a worse
+  compliance artefact than a missing one.
+
+  `consent.notice_changed` is the `stale` state and belongs here when a notice
+  version is superseded while a student holds a link to the old one.
+{% endcomment %}
+{% block title %}{% include "_notice_title.html" with kind=kind %}{% endblock %}
+
+{% block main %}
+<h1>{% include "_notice_title.html" with kind=kind %}</h1>
+
+{% if notice %}
+  {% if notice.version %}
+    <p class="meta">
+      {% blocktranslate context "legal.version" with version=notice.version %}Version {{ version }}{% endblocktranslate %}{% if notice.published_at %} · <time datetime="{{ notice.published_at|date:'Y-m-d' }}">{{ notice.published_at|date:"j F Y" }}</time>{% endif %}
+    </p>
+  {% endif %}
+  {% comment %} The body is authored text from `notice_versions.body_md`, escaped
+     and split into paragraphs. It is counsel's text, never student-generated,
+     and nothing here accepts HTML from a student — `linebreaks` escapes first.
+
+     ponytail: Markdown is NOT rendered. Ceiling: a notice written with `##`
+     headings or `**bold**` shows those characters literally. Upgrade path: a
+     small template filter for the heading/paragraph/list subset, or counsel
+     supplies plain prose. Deliberately not built now — no notice row exists in
+     any environment yet, so the content's shape is still backend's and
+     counsel's to decide, and a Markdown renderer written against zero real
+     documents is a guess plus a dependency. {% endcomment %}
+  <div class="notice-body">{{ notice.body_md|default:""|linebreaks }}</div>
+{% else %}
+  <div class="notice notice--wait">
+    <span class="notice__label">{% translate "Not published yet" context "legal.missing.label" %}</span>
+    <p>{% translate "This notice has not been published yet." context "legal.missing" %}</p>
+  </div>
+{% endif %}
+{% endblock %}

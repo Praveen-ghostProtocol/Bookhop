@@ -1,0 +1,20 @@
+{% load i18n %}{% comment %}
+  The seven public notice kinds from API-CONTRACT §5.1 as page titles.
+
+  `handover-guidance` is the renamed slug from amendment A-7 — it was
+  `handover-safety`, and `notice_versions.kind` was `HANDOVER_SAFETY`. The
+  rename matters for exactly this file: a slug is a route, but **an identifier
+  is where a label comes from**, and a developer reading `HANDOVER_SAFETY`
+  writes "Handover safety" into a title. No grep catches the identifier that
+  suggested the wrong label, so the identifier was changed instead. The label
+  here is "Handover guidance" and the word "safety" appears nowhere in it.
+{% endcomment %}{% spaceless %}
+{% if kind == "privacy" %}{% translate "What BookHop knows about you" context "privacy.h1" %}
+{% elif kind == "terms" %}{% translate "Terms" context "legal.terms" %}
+{% elif kind == "seller-terms" %}{% translate "Terms for selling a book" context "legal.seller_terms" %}
+{% elif kind == "community-rules" %}{% translate "Community rules" context "legal.community_rules" %}
+{% elif kind == "handover-guidance" %}{% translate "Handover guidance" context "legal.handover_guidance" %}
+{% elif kind == "ranking" %}{% translate "How results are ordered" context "legal.ranking" %}
+{% elif kind == "grievance-officer" %}{% translate "Contact the grievance officer" context "grievance.cta" %}
+{% endif %}
+{% endspaceless %}

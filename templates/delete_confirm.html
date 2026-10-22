@@ -1,0 +1,69 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J8 steps 3–4. PRD US-X1, AC-X1.1/AC-X1.2. COPY-DECK §10.4 `erase.*` (B3,
+  blocking in Tamil). SYSTEM §4.25 "Erase".
+
+  THIS IS THE WHOLE TRUTH, BEFORE THE POINT OF NO RETURN, AND THAT PLACEMENT
+  IS THE REQUIREMENT. COMPLIANCE §7 row 11 and AC-X1.2 both say the student
+  learns this here and not from a support ticket. Three facts, none of them
+  softened:
+
+    1. what goes now;
+    2. that the record of transfers already completed is kept **without their
+       name** for one year, because the law requires it (DPDP r.8(3));
+    3. that **chat content is not deleted** and is purged one year after the
+       last message.
+
+  Fact 3 is the one a product would omit. It is the disclosure COMPLIANCE §7
+  row 11 requires and it is the reason this page exists rather than a modal.
+
+  "Deleted" does not mean "erased", and the page says so in the student's own
+  terms. Tombstone-plus-purge (DATA-MODEL §10.1) means their transfers survive
+  under a pseudonym — which is also what makes the counterparty's dispute and
+  the repeat-transfer metric possible (AC-X1.3). Saying that plainly is more
+  honest than a "deleted" button that quietly keeps everything.
+
+  `erase.confirm.retained` in the deck is one sentence with a `{list}`
+  placeholder. It is rendered here as the sentence plus a real <ul>, because at
+  320px an inline comma-separated list of five record types is a wall, and
+  COPY-DECK §1.3 rule 5 is "one sentence per line, one idea per sentence". The
+  words are the deck's; only the list is lifted out of the sentence. Flagged to
+  design-director.
+
+  Two steps: arriving here is step 1 and carries the disclosure; the
+  destructive button is step 2. There is no confirmation checkbox — a checkbox
+  here would read as a consent box, and E-Com r.4(9) territory is not where a
+  deletion confirmation belongs.
+{% endcomment %}
+{% block title %}{% translate "This cannot be undone" context "erase.confirm.h" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "This cannot be undone" context "erase.confirm.h" %}</h1>
+
+<div class="notice notice--error">
+  <span class="notice__label">{% translate "What happens now" context "erase.now.label" %}</span>
+  <p>{% translate "Your email address, your display name, your sign-in and your campus confirmation are deleted straight away. You are signed out and the account cannot be used again." context "erase.now.body" %}</p>
+</div>
+
+<div class="card">
+  <h2>{% translate "What BookHop has to keep" context "erase.retained.h" %}</h2>
+  <p>{% translate "We have to keep these records for one year, because the law requires it:" context "erase.confirm.retained" %}</p>
+  <ul>
+    <li>{% translate "Books that changed hands — kept without your name, under a code that cannot be turned back into you." context "erase.retained.transfers" %}</li>
+    <li>{% translate "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation." context "erase.retained.chat" %}</li>
+    <li>{% translate "Reports and problems, and what was decided about them." context "erase.retained.reports" %}</li>
+    <li>{% translate "The record that you asked us to delete the account, and that we did." context "erase.retained.consents" %}</li>
+  </ul>
+  <p>{% translate "Everything else goes now." context "erase.confirm.rest" %}</p>
+</div>
+
+<div class="actions--separated">
+  <form method="post" action="/account/delete">
+    {% csrf_token %}
+    {% comment %} 56px commit height: the one irreversible action on the page, and its
+       label names the effect rather than saying "Confirm" (SYSTEM §4.2). {% endcomment %}
+    <button class="btn btn--destructive" type="submit">{% translate "Delete my account now" context "erase.confirm.cta" %}</button>
+  </form>
+  <a class="btn btn--quiet" href="/account">{% translate "Keep my account" context "erase.cancel" %}</a>
+</div>
+{% endblock %}

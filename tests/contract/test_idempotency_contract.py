@@ -332,41 +332,46 @@ def test_an_authenticated_key_is_not_required_to_be_a_uuid():
     assert row.key == "tap-1"
 
 
-def test_finding_the_key_is_checked_for_uuid_shape_not_for_uuid_version():
-    """**FINDING F11, non-blocking, belongs to S1.** `uuid.UUID(str(key))`
-    accepts any version and variant, and 32 bare hex digits as well as the
-    dashed form. So `00000000-0000-0000-0000-000000000001` is a legal anonymous
-    key and API-CONTRACT §4.1's words — "client-generated **UUIDv4**" — are
-    enforced only as "UUID-shaped".
+def test_regression_an_anonymous_key_must_be_a_uuid_version_4():
+    """**REGRESSION for QA-S0 F11** — was a characterisation test, now the fix.
 
-    **This no longer costs a disclosure**, because the body is never returned,
-    so the consequence of a deliberate collision is now exactly the `409` the
-    contract claims. What remains is a bounded availability edge: an attacker
-    who claims low-entropy UUIDs and leaves them without a stored response makes
-    those keys answer `409 IDEMPOTENCY_IN_PROGRESS` for the 24-hour retention.
-    It reaches only a client that generates low-entropy UUIDs, and §4.1 has L3
-    forms carry a server-generated key.
+    F11 measured that `uuid.UUID(key)` accepts any version and variant, so
+    API-CONTRACT §4.1's words — "client-generated **UUIDv4**" — were enforced
+    only as "UUID-shaped". `00000000-0000-0000-0000-000000000001` was a legal
+    anonymous key, and anonymous keys share one global namespace, so the
+    contract's own argument ("a collision requires guessing one") rested on an
+    unenforced format.
 
-    Recorded with its one-line fix — `uuid.UUID(key).version == 4` — as an S1
-    item to settle when the first anonymous endpoint (`/auth/magic-link`) ships.
-    Not an S0 blocker.
+    The version is now checked. Both halves asserted, because a version check
+    that also refused real UUIDv4s would have replaced a weak guard with an
+    outage on `/grievances` — a path THREAT-MODEL §5.7 says may never be closed.
     """
-    v1_shaped = "00000000-0000-0000-0000-000000000001"
-    row = idempotent(user_id=None, key=v1_shaped, endpoint=ENDPOINT, body=BODY)
-    assert row.pk is not None                      # the finding
-    assert uuid.UUID(v1_shaped).version != 4
+    import uuid as uuid_module
 
-    # The bare 32-hex spelling is accepted too, so two spellings of one key
-    # occupy two rows in a namespace whose safety argument is uniqueness.
-    bare = idempotent(user_id=None, key="0" * 31 + "2", endpoint=ENDPOINT, body=BODY)
-    assert bare.pk is not None
+    from apps.core.errors import ValidationFailed
 
+    for low_entropy, why in [
+        ("00000000-0000-0000-0000-000000000001", "a v1-shaped all-zero key"),
+        ("00000000-0000-1000-8000-000000000000", "a valid UUID of version 1"),
+        ("00000000-0000-3000-8000-000000000000", "version 3"),
+        ("00000000-0000-5000-8000-000000000000", "version 5"),
+    ]:
+        parsed = uuid_module.UUID(low_entropy)
+        assert parsed.version != 4, f"fixture error: {why} is a v4"
+        with pytest.raises(ValidationFailed) as exc:
+            idempotent(user_id=None, key=low_entropy, endpoint=ENDPOINT, body=BODY)
+        assert exc.value.http_status == 400, why
 
-# --------------------------------------------------------------------------
-# what cannot be verified here
-# --------------------------------------------------------------------------
+    # And a real v4 still works, in every spelling a client may send it in.
+    real = uuid_module.uuid4()
+    assert real.version == 4
+    row = idempotent(user_id=None, key=str(real), endpoint=ENDPOINT, body=BODY)
+    assert row.pk is not None
 
-
+    # An authenticated key is still unconstrained: it lives in (user_id, key)
+    # and collides with nobody, so requiring a UUID there would break L2
+    # clients for no property gained.
+    assert idempotent(user_id=7, key="tap-2", endpoint=ENDPOINT, body=BODY).key == "tap-2"
 def test_expected_version_rejects_a_stale_write(engine):
     pytest.skip(
         f"NOT VERIFIABLE IN S0 (engine={engine}): API-CONTRACT §4.2's "

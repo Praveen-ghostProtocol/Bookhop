@@ -53,6 +53,38 @@ def _backoff(attempts):
     return timedelta(minutes=attempts**2)
 
 
+def redacted(payload):
+    """What a finished job's payload is replaced by: its **key names only**.
+
+    **RED TEAM ENGINEERING-MEMO §2, CRITICAL.** `jobs.payload` is jsonb in the
+    production database, S1's `accounts.send_magic_link` put the **raw
+    single-use sign-in token** in it, and `apps/accounts/jobs.py` licensed that
+    by claiming the row was deleted once the job finished — which was false. Nothing deleted
+    a `Job` row anywhere in `apps/**` and `purge_expired` did not walk `jobs`,
+    so every magic link ever issued stayed in the database in plaintext and a
+    nightly `pg_dump` was a file of working sign-in links for named students.
+    That is rule 9 broken inside the file implementing the credential path: a
+    docstring asserted a property, nothing checked it, and it was wrong by a
+    factor of forever.
+
+    **Key names, not a redaction of known-secret keys.** `CLAUDE.md` rule 15:
+    a list of secret-looking key names would need an entry for every future
+    handler and would be wrong the first time someone wrote `link` instead of
+    `token`. Asking "which of these values is a credential?" has no reliable
+    answer; asking "does this job still need its input?" does — a finished job
+    does not. So the values go and the shape stays, which is all a diagnostic
+    needs: *"it had token_id, token and locale"* identifies the payload without
+    being it.
+
+    Applied on success **and** on terminal failure. It is deliberately **not**
+    applied on a retryable failure, because the retry needs its input — and that
+    residual is bounded and stated in `run_pending_jobs`.
+    """
+    if isinstance(payload, dict):
+        return {"_redacted_keys": sorted(str(key) for key in payload)}
+    return {"_redacted_keys": []}
+
+
 def _claimable(now):
     """A job is claimable if nobody holds its lock, or the holder is gone.
 
@@ -120,27 +152,68 @@ def run_pending_jobs(limit=50, worker_id=None):
         if job is None:
             break
         fn = REGISTRY.get(job.kind)
+        payload = job.payload
         try:
             if fn is None:
                 raise RuntimeError(f"no handler registered for job kind {job.kind!r}")
-            fn(job.payload)
+            fn(payload)
         except Exception:
-            job.last_error = traceback.format_exc()[-4000:]
+            # RED TEAM §2: `last_error` is a text column in the same database as
+            # `payload`, so a traceback carrying a payload value would reinstate
+            # the credential it was just scrubbed from. Scrubbed by value, not
+            # by key name, so a handler that interpolated a token into its own
+            # exception message is covered too.
+            job.last_error = _scrub(traceback.format_exc(), payload)[-4000:]
             job.locked_at = None
             job.locked_by = None
             if job.attempts >= job.max_attempts:
                 job.failed_at = timezone.now()
+                # Terminal: nothing will read this payload again, so it goes.
+                job.payload = redacted(payload)
                 log.error("job.failed", extra={"job_id": job.id, "kind": job.kind})
             else:
+                # Retryable: the retry needs its input, so the payload stays.
+                # **The stated residual** (RED TEAM §2): a credential-bearing
+                # job that keeps failing retains its credential across the
+                # retry window -- 1+4+9+16 minutes at the default budget. For
+                # the magic link that is bounded by the token's own 10-minute
+                # expiry, after which the row holds a dead string, and the
+                # handler refuses to deliver a stale token. Bounded, named, and
+                # no longer "forever".
                 job.run_after = timezone.now() + _backoff(job.attempts)
-            job.save(update_fields=["last_error", "locked_at", "locked_by", "failed_at", "run_after"])
+            job.save(
+                update_fields=[
+                    "last_error", "locked_at", "locked_by", "failed_at", "run_after", "payload",
+                ]
+            )
             failed += 1
         else:
             job.completed_at = timezone.now()
             job.locked_at = None
-            job.save(update_fields=["completed_at", "locked_at"])
+            # The fix for RED TEAM §2's CRITICAL. A finished job does not need
+            # its input, and `jobs.payload` is jsonb in the production database
+            # that `pg_dump` copies nightly.
+            job.payload = redacted(payload)
+            job.save(update_fields=["completed_at", "locked_at", "payload"])
             succeeded += 1
     return succeeded, failed
+
+
+def _scrub(text, payload):
+    """Remove every payload *value* from `text`.
+
+    By value rather than by key name, for the reason `redacted` gives: naming
+    the secret keys is a list that is wrong the first time a handler calls one
+    `link` instead of `token`. Short values are left alone — a 2-character
+    locale is not a credential and removing it would make a traceback
+    unreadable.
+    """
+    if not isinstance(payload, dict):
+        return text
+    for value in payload.values():
+        if isinstance(value, str) and len(value) >= 12:
+            text = text.replace(value, "[redacted]")
+    return text
 
 
 @handler("core.noop")

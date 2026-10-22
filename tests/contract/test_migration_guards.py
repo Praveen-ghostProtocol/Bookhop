@@ -229,44 +229,31 @@ def test_regression_the_harness_now_declares_the_flush_escape():
 
 
 def test_the_flush_escape_is_declared_by_the_harness_and_nothing_else():
-    """An inventory, because an escape hatch with two declarers is two hatches.
+    """Exactly one harness file declares the escape — and the grep that used to
+    try to say more than that has been **deleted rather than tuned**.
 
-    The string `bookhop.allow_flush` must appear in exactly two places: the
-    migration that defines the escape, and the harness fixture that declares it
-    for a PostgreSQL test session. Any third occurrence — a settings module, an
-    app, a management command — is a second way to turn the TRUNCATE guard off,
-    and would need reading before it is accepted.
+    The old version asserted that no application file *named* the escape. It
+    broke the moment migration `core/0008` quoted the RED TEAM memo about it in
+    a docstring, and it would have broken again on 0003's own error message,
+    which tells a developer to `SET bookhop.allow_flush = 'yes'`. A text grep
+    cannot tell code from prose about the code, and a check that fires on an
+    explanation of the guard is a check people stop reading (`CLAUDE.md`
+    rule 13).
 
-    **F9(2) is unchanged and remains the honest framing:** no mechanism could
-    make production *refuse* the `SET`. A custom GUC is settable by any role in
-    any session and `current_setting` reads whatever that session set, so
-    Django settings have no say in it. Backend's v1.1 claim that a test asserted
-    otherwise is withdrawn in ENGINE-DIVERGENCE v1.2, and §7.1 now rests the
-    control on THREAT-MODEL §4 B5/B6's accepted scope — direct SQL is out of
-    scope. The guard stops Django's own `sql_flush` and an accidental TRUNCATE;
-    it does not stop a determined session, and the document now says so.
+    So the question is asked where it can be answered. **What the grep was
+    reaching for — that the escape cannot be used to get at `audit_log` — is now
+    a behavioural assertion against the production privilege state**, in
+    `tests/contract/test_least_privilege_independently.py::
+    test_truncate_is_refused_by_privilege_even_with_the_trigger_escape_granted`:
+    with the escape granted and migration 0008's revocation applied, the
+    TRUNCATE is refused by privilege. That is strictly stronger than counting
+    files, and it is the `CLAUDE.md` rule 14 independence proof.
+
+    What remains here is the one thing a file inventory is good for: exactly one
+    **conftest** declares it, so a second harness cannot quietly widen the
+    escape when the first is narrowed.
     """
     repo = Path(__file__).resolve().parents[2]
-
-    # QA's own trees name the setting in order to *assert on* it — withdrawing
-    # it is how tests/e2e/test_audit_tamper.py sees the guard at all. The
-    # property that matters is narrower and is the one asserted: no
-    # **application** file may touch the escape except the migration that
-    # defines it. A declarer in `apps/**` would be a second hatch, reachable in
-    # production rather than only in a test session.
-    app_hits = sorted(
-        path.relative_to(repo).as_posix()
-        for tree in ("apps", "bookhop")
-        for path in (repo / tree).rglob("*.py")
-        if "allow_flush" in path.read_text(encoding="utf-8", errors="ignore")
-    )
-    assert app_hits == ["apps/core/migrations/0003_gate_column_write_guard.py"], (
-        "an application file other than the defining migration names the flush "
-        f"escape; that is a second way to turn the TRUNCATE guard off: {app_hits}"
-    )
-
-    # And exactly one harness file declares it, so a stray `SET` in a second
-    # conftest cannot quietly widen when the first one is fixed.
     declarers = sorted(
         path.relative_to(repo).as_posix()
         for path in repo.rglob("conftest.py")
@@ -274,8 +261,6 @@ def test_the_flush_escape_is_declared_by_the_harness_and_nothing_else():
         and "allow_flush" in path.read_text(encoding="utf-8", errors="ignore")
     )
     assert declarers == ["tests/conftest.py"], declarers
-
-
 # --------------------------------------------------------------------------
 # 2. ENABLE ALWAYS names the triggers that actually exist
 # --------------------------------------------------------------------------

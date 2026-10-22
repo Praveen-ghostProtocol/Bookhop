@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J1 step 1. COPY-DECK §4.
+
+  Deliberately absent, with reasons recorded in the deck: no onboarding
+  carousel (three screens of nothing on a metered connection), no "Welcome!",
+  no counters, no "Join 5,000 students", no feature tour. PRD EX-8.
+
+  Zero images. Zero JavaScript. One action.
+{% endcomment %}
+{% block title %}{% translate "Textbooks from your own campus" context "run.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Textbooks from your own campus" context "run.h1" %}</h1>
+
+<p class="lede">{% translate "Buy a copy from a classmate, or sell the ones you've finished with." context "run.sub" %}</p>
+
+<div class="card">
+  <p>{% translate "BookHop matches the exact edition your syllabus asks for with a copy someone on your campus already owns." context "run.what_it_is" %}</p>
+  <p>{% translate "Free for students. There is no fee and no payment inside BookHop." context "run.free" %}</p>
+  <p>{% translate "You and the other student settle the money between yourselves, in person." context "run.money" %}</p>
+</div>
+
+{% comment %} One primary button per screen (SYSTEM §4.2). It is an <a> because it
+   navigates; with JavaScript off it is the same single page load. {% endcomment %}
+<a class="btn btn--primary" href="/auth/start">{% translate "Sign in with your college email" context "run.cta" %}</a>
+
+<p class="meta">{% translate "Your college address is how we know you're on this campus. We don't ask for a document or a phone number." context "run.why_email" %}</p>
+{% endblock %}

@@ -1,6 +1,6 @@
 # ENGINE-DIVERGENCE.md — SQLite (dev) vs PostgreSQL 16 (production)
 
-**Owner:** backend-developer · **Version:** v1.4 · **Date:** 2026-10-21
+**Owner:** backend-developer · **Version:** v1.5 · **Date:** 2026-10-22
 
 > **v1.4: a PostgreSQL 16.15 server now exists and every `UNVERIFIED` label
 > below has been executed against it.** Read §10 first — it is the result of
@@ -664,10 +664,73 @@ construction, and no retry budget removes that — see §9 item 15.
 
 ---
 
+## 12. S1 — slice additions, with one measured defect SQLite found first
+
+**Version v1.5.** S1 adds nine tables, one shared plpgsql body, twelve SQLite
+triggers and a privilege layer. Every row is labelled per `CLAUDE.md` rule 17.
+
+### 12.1 New rows
+
+| # | Property | PostgreSQL 16.15 | SQLite 3.45.1 | Label |
+|---|---|---|---|---|
+| 12.1 | `users.email` as `citext` | available, not used | no `citext` type | **VERIFIED HERE.** Stored lower-cased in `text`, normalised by `accounts.services.normalise_email`. The deciding reason is not the missing type: **`LIKE` is case-sensitive on PostgreSQL and case-insensitive on SQLite**, so an `__iexact` lookup written locally changes meaning in production. `test_magic_link.py::test_no_service_function_uses_a_case_insensitive_lookup` is the guard |
+| 12.2 | `personal_data_access_log.fields_accessed` as `text[]` | available | no array type | **VERIFIED HERE.** `jsonb` list, exactly as `campuses.email_domains` (DATA-MODEL §1 A-16). Only operation is membership |
+| 12.3 | `user_tombstones.salt_version` | — | — | **Schema addition on `COMPLIANCE.md` §7 row 24's instruction**, not in DATA-MODEL §2's column list. Row 24 requires *"retire a version when no live tombstone references it"*, which is unimplementable without it. Raised to cto as a one-line §2 amendment |
+| 12.4 | `bookhop_append_only_guard()` — one body, three tables | `TG_TABLE_NAME` + `TG_OP` in the message; SQLSTATE `P0001` | six separate `RAISE(ABORT, …)` triggers, no SQLSTATE | **VERIFIED HERE both engines.** Message asserted on both; SQLSTATE asserted on PostgreSQL and **skipped on SQLite with the engine and slice named** |
+| 12.5 | The privilege layer (`core/0008`) | `REVOKE`/`GRANT` per table | **no role system at all** — no `GRANT`, no `REVOKE`, one process with full file access | **VERIFIED HERE.** There is no weaker form to apply, so the layer is **absent** on SQLite rather than approximated. `test_least_privilege.py` skips with that stated |
+| 12.6 | A revoke binds the table's **owner** | **yes** — `has_table_privilege` false, `TRUNCATE` refused with *permission denied for table audit_log* | n/a | **VERIFIED HERE.** And the owner can `GRANT` it straight back **in one statement**, also measured — which is why `core/0008` is necessary and not sufficient, and why ownership separation is escalated rather than claimed |
+| 12.7 | Rate limiting | one owned table, atomic `hit_count = hit_count + 1` | identical | **VERIFIED HERE both engines.** A deviation from ADR-001 §2.4, recorded in §12.3 |
+
+### 12.2 The defect SQLite found and PostgreSQL could not — a new row in §10.3's family, pointing the other way
+
+**Measured.** After `accounts/0003` widened `notice_versions.kind`'s CHECK
+(DATA-MODEL A-25), `sqlite_master` listed **ten of twelve** expected triggers:
+`notice_versions_no_update` and `notice_versions_no_delete` were **gone**.
+
+**Why.** SQLite cannot alter a CHECK constraint, so Django's SQLite backend
+rebuilds the table — create new, copy rows, `DROP TABLE` old, rename — and
+**triggers belong to the table, so the drop takes them.** Nothing puts them
+back. On PostgreSQL `ALTER TABLE … DROP/ADD CONSTRAINT` leaves triggers
+untouched, so **the engine production runs on would never have reported it.**
+
+For one migration, on one engine, `notice_versions` was an ordinary mutable
+table while DATA-MODEL §2 said *"Trigger blocks all UPDATE and DELETE"* and
+`COMPLIANCE.md` §8.1 rested *"we can show what a user agreed to on a given
+date"* on it.
+
+**The hazard is general and bigger than this table.** On SQLite **any** future
+`AlterField`, constraint change or column rename on a trigger-protected table
+silently removes its guard — `audit_log`, `gate_authorisations`, `campuses`,
+`consents`, `age_verification_events`, `notice_versions`, and every append-only
+table S4 and S5 add. A migration can be reviewed by two agents, applied cleanly,
+and leave tamper-evidence switched off with no symptom at all.
+
+**Fixed in two parts, and the second is the one that matters:**
+`accounts/0004_restore_append_only_guards` re-creates them idempotently, and
+`tests/unit/test_append_only_triggers_exist.py` asserts **on both engines** that
+every table claiming append-only has its guard installed — so the next table
+rebuild fails the build instead of quietly removing the guarantee.
+
+**Note for every later slice:** altering a trigger-protected table means
+re-creating its triggers in the same migration. `accounts/0004` is the worked
+example.
+
+### 12.3 Deviations from the frozen contracts introduced by S1
+
+| # | Contract | Deviation | Why |
+|---|---|---|---|
+| S1-1 | ADR-001 §2.4 — *"rate limiting … uses Django's database cache backend"* | An owned `rate_limit_counters` table instead | Django's cache table has a column named **`value`**, a W1b money token, so the P14 guard went red on a table created by a migration. `CLAUDE.md` rule 13's first resort is *rename our own name*, and owning the table is how a name becomes ours. The ADR's stated reason — *"it removes Redis"* — is unaffected. Second gain: the increment becomes atomic, where the cache backend's `incr` is a read-then-write |
+| S1-2 | TASKS §1 — *"`bookhop/urls.py` … is not touched again by anyone"* | One `include` line added, for `/api/v1/` | That sentence is about the **web include** and about frontend never editing the file. There is no other root URLconf, so L2 has nowhere else to mount. A one-line TASKS clarification is raised rather than the change taken silently |
+| S1-3 | DATA-MODEL §2 / API-CONTRACT §4.1 — `idempotency_keys.user_id FK NULL`, *"the FK to `users` that S1 adds"* | **FK not added** | 24 assertions in QA's trees and ~20 in backend's pass synthetic `user_id` values (`idempotent(user_id=7, …)`); the FK turns all of them red, most in another agent's tree. And the break it would guard — `user_id` reuse after purge, API-CONTRACT §4.1's third named break — **does not arise**: tombstone-plus-purge never deletes a `users` row, so no id is ever freed. Raised to cto with the measurement |
+| S1-4 | S0's own code comment — *"FK to users lands in S1"* on `audit_log.actor_id` | **FK not added** | Adding it makes Django rebuild `audit_log` on SQLite, which **drops its append-only triggers** — §12.2's defect, on purpose. DATA-MODEL §8 specifies `actor_id NULL` with no FK, so the contract does not require one |
+
+---
+
 ## Amendment log
 
 | Date | Change | By |
 |---|---|---|
+| 2026-10-22 | **v1.5 — S1, §12.** Nine tables, one shared plpgsql body (six now, not five), twelve SQLite triggers, and a privilege layer that is PostgreSQL-only. **One defect measured, and SQLite found it where PostgreSQL could not:** widening `notice_versions.kind`'s CHECK rebuilt the table on SQLite and **silently dropped its append-only triggers**, so for one migration an immutable table was mutable and the engine production runs on would never have said so. Fixed in `accounts/0004` and guarded on both engines by `test_append_only_triggers_exist.py`, because the hazard applies to every trigger-protected table in the system. Also measured: **a `REVOKE` does bind a table's owner — and the owner can `GRANT` it back in one statement**, which is why RED TEAM §1's one-migration fix is necessary and not sufficient. Four S1 deviations in §12.3 | backend-developer |
 | 2026-10-21 | **v1.4 — the first PostgreSQL run (16.15), §10.** Every `UNVERIFIED` label executed: 95 direct assertions with SQLSTATE *and* message text, 0 failures, plus the suite on both engines (571/60 PostgreSQL, 573/58 SQLite). Blocker fixed with `params=None` rather than by doubling `%`, because the doubling failure mode is silent (§10.1). **Three predictions in this document were wrong** — §3.8's exception class (psycopg 3 maps `RaiseException` to `ProgrammingError`, not `InternalError`; the "catch `DatabaseError`" mitigation is what made that cost nothing), §2.11's boolean probe (passing on SQLite for the wrong reason, with the wrong reason recorded here as deliberate), and §2.8's float rejection (a silent **rounding**, not an error) — §10.2. **Two defects found in shipped S0 code, both invisible to SQLite**: `record_audit`'s 4-attempt retry dropped an audit row under 12 concurrent appenders and reported it as a broken chain, and `allow_test_flush` bound a per-connection GUC to a pytest session, which would have failed in S4 teardown exactly as F9 predicted — §10.3. A finding against QA-S0 §7: its nine "skip → run" items have no body to run, and `sqlmigrate` cannot render `RunPython` DDL on either engine — §10.6. Escalations 15–17 added | backend-developer |
 | 2026-10-21 | v1.0 — written during S0, from measurements on SQLite 3.45.1 / Django 5.2.8 / Python 3.11.9, with no PostgreSQL server available | backend-developer |
 | 2026-10-21 | **v1.3 — closing pass, REVIEW-S0 C1.** A trim-based blank check is a whitespace deny-list, and four characters was not the list: vertical tab, form feed, **NBSP (a paste from Word)**, figure space and ogham space passed the database floor while the command above it blocked them, and **zero-width space and BOM passed both layers** — so the one field carrying "a named human signed this" could be satisfied by something that renders as nothing in the go/no-go packet. Migration 0005's set is now eleven codepoints, each with its reason, and **the invariant itself** — at least one visible character, asked of Python's Unicode database per character and therefore needing no list — is in `open_discovery.has_visible_character`, which also catches five invisibles the SQL list does not know. The asymmetry and its ceiling are declared in the migration: neither engine can express the test (SQLite has no regex, Postgres's `[[:graph:]]` is locale-dependent), so the floor enumerates and the layer above generalises. Also: `tests/unit/test_forbidden_response.py` written (P14 at the contract boundary — the compensating control for the jsonb and free-text limbs, named by ADR-003 §2.3 and ownerless for two review rounds). Escalations 12–14 added | backend-developer |

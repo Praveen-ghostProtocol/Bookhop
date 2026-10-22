@@ -231,6 +231,22 @@ survives, is pseudonymous, and cannot be relinked.
 
 ### S2 — Catalogue and listings
 
+> **Three S1 carry-overs to land before or with S2** (frontend S1 escalations,
+> ruled 2026-10-22). None blocks S2 starting; the first blocks the seller
+> block:
+> 1. **`INSTITUTIONAL_EMAIL` spelling** fixed in `SYSTEM.md` §4.11a,
+>    `COPY-DECK.md` §3.2 and **criterion 7h** — **design-director**; then
+>    frontend drops its both-spellings tolerance. **S2 builds the seller block
+>    on this string, so this one is first.**
+> 2. **Criterion 7f narrowed** to *another person's* domain, second limb
+>    unchanged — **design-director**. Contract position is already normative
+>    (`API-CONTRACT.md` A-17).
+> 3. **`LocaleGateMiddleware`** in `apps/core/middleware.py` — **backend** —
+>    replacing frontend's view-helper enforcement, plus the L2 half of the
+>    test (`THREAT-MODEL.md` §6.1).
+> Plus: **`RANKING` and `GRIEVANCE_PROCEDURE`** notice kinds (backend,
+> migration) so two required publications become publishable.
+
 > **GATE ON S2 (ADR-001 §2.2 amendment, 2026-10-21): S2 may not start until
 > the test suite can reach a PostgreSQL 16.** P14's price-immutability trigger
 > is created in this slice and is **unverifiable on SQLite**

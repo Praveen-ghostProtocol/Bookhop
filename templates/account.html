@@ -1,0 +1,69 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J8 step 1 — the account screen: profile, privacy, delete.
+
+  `trust.campus_mail` renders here about the student themselves, and it renders
+  **only when it is true**. The gate is `campus_verifications.method`, never
+  `users.campus_verified` — COMPLIANCE §2.5a condition 3, COPY-DECK §3.2,
+  SYSTEM §4.11a, acceptance criterion 7h. A student who came through the
+  staff-assisted re-verification path (ADR-001 §2.5) is `campus_verified = true`
+  and did **not** sign in with a college email address, so rendering it for
+  them would be a false statement about a person.
+
+  When the gate is closed the line and any qualifier are **both absent**, with
+  **no substitute string and no comment on the absence**: no "not available",
+  no greyed placeholder, no tooltip. "Verified by BookHop staff" is the single
+  worst string that could exist in this product. The decision is in
+  `web/context.py signed_in_with_college_email`, which fails closed on NULL
+  and on any unknown method.
+
+  `trust.account_only` is not here. It exists to qualify the sign-in fact for a
+  **counterparty** looking at a seller (SYSTEM §4.11a), and "that's all BookHop
+  knows about them" addressed to the student about themselves would be
+  nonsense. It lands with the seller block in S2.
+
+  No domain is rendered anywhere on this page (criterion 7f).
+{% endcomment %}
+{% block title %}{% translate "Your account" context "account.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Your account" context "account.h1" %}</h1>
+
+{% if college_email_signin %}
+  <p class="notice notice--live">
+    <span class="notice__label">{% translate "Your campus" context "campus.confirmed.label" %}</span>
+    {% translate "Signed in with a college email address." context "trust.campus_mail" %}
+  </p>
+{% endif %}
+
+{% include "_errorslot.html" %}
+
+<form method="post" action="/account">
+  {% csrf_token %}
+  {% translate "First name and an initial is enough. Other students see this on your listings." context "profile.display_name.hint" as dn_hint %}
+  {% include "_field.html" with field=form.display_name hint=dn_hint %}
+  {% include "_field.html" with field=form.locale required=True %}
+  <button class="btn btn--primary" type="submit">{% translate "Save" context "profile.submit" %}</button>
+</form>
+
+<div class="section">
+  <h2>{% translate "What BookHop knows about you" context "privacy.h1" %}</h2>
+  <ul class="rows">
+    <li><a href="/account/privacy">{% translate "Your privacy choices" context "account.privacy.link" %}</a></li>
+    <li><a href="/account/export">{% translate "Download a copy of my data" context "export.cta" %}</a></li>
+  </ul>
+</div>
+
+{% comment %} A destructive action never sits next to the primary one: SYSTEM §5.1 sets a
+   24px minimum and prefers a separate screen. It gets both — 24px here, and
+   the destructive button itself is on /account/delete. {% endcomment %}
+<div class="section actions--separated">
+  <h2>{% translate "Delete my account" context "erase.cta" %}</h2>
+  <a class="btn btn--secondary" href="/account/delete">{% translate "Delete my account" context "erase.cta" %}</a>
+</div>
+
+<form method="post" action="/auth/logout">
+  {% csrf_token %}
+  <button class="btn btn--quiet" type="submit">{% translate "Sign out" context "auth.logout" %}</button>
+</form>
+{% endblock %}

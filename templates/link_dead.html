@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  One page for a used link and an expired link, because `auth.expired` covers
+  both in one sentence and telling a holder of a leaked link which it was helps
+  nobody who merely typed it.
+
+  A plain page with a working button — never a stack trace and never a bare
+  error code (PRD AC-A1.3). This is also the page a mail-scanner prefetch lands
+  on: the token is burned, soft user-agent binding is logged and not enforced
+  (THREAT-MODEL §5.5), so the answer is simply to ask for another.
+{% endcomment %}
+{% block title %}{% translate "That link has stopped working" context "auth.expired.h" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "That link has stopped working" context "auth.expired.h" %}</h1>
+
+<p>{% translate "That link has already been used, or it's more than 10 minutes old." context "auth.expired" %}</p>
+
+<a class="btn btn--primary" href="/auth/start">{% translate "Send a new one" context "auth.expired.cta" %}</a>
+{% endblock %}

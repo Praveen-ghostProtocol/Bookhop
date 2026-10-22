@@ -44,8 +44,19 @@ MIDDLEWARE = [
     # carries it. THREAT-MODEL §7.2: request_id is the investigation primitive
     # for the 6-hour CERT-In clock.
     "apps.core.middleware.RequestIdMiddleware",
+    # CSP — THREAT-MODEL §4 B3, ASVS V1/V3 L2, assigned to S1 backend by
+    # TASKS §2 with the instruction that it exist *before the first HTML page
+    # ships*. Above SessionMiddleware so the nonce is on the request for every
+    # view, including one that errors before a session is loaded.
+    "apps.core.middleware.ContentSecurityPolicyMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
+    # Immediately after LocaleMiddleware, because it corrects a decision that
+    # middleware has already made. THREAT-MODEL §6.1(c): Tamil is absent from
+    # `Accept-Language` negotiation while `i18n.ta_enabled` is false, and
+    # API-CONTRACT §2.1 makes that header select the locale for the JSON API as
+    # well as for pages — so the gate belongs here and not in a page helper.
+    "apps.core.middleware.LocaleGateMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -90,6 +101,13 @@ if _DB_ENGINE == "postgres":
             "HOST": env("BOOKHOP_DB_HOST", "127.0.0.1"),
             "PORT": env("BOOKHOP_DB_PORT", "5432"),
             "ATOMIC_REQUESTS": False,
+            # Two agents running the suite at once against one PostgreSQL
+            # server share `test_<NAME>` by default, and the first teardown
+            # drops the database out from under the second -- observed as
+            # `FATAL: database "test_bookhop" does not exist` mid-run, in
+            # errors that look like defects and are not. One env var makes a
+            # parallel run isolated.
+            "TEST": {"NAME": env("BOOKHOP_TEST_DB_NAME") or None},
         }
     }
 elif _DB_ENGINE == "sqlite":
@@ -178,6 +196,53 @@ LOGGING = {
 # plus an evidence-checked management command, and a settings flag would be a
 # bypass. See apps/core/services.assert_discovery_open.
 LISTING_REVIEW_ALL = True  # TASKS §6.4; one-line change once the data says so
+
+# --- S1: the tombstone email salt ------------------------------------------
+# COMPLIANCE.md §7 rows 3 and 24. The salt is a server-side secret that is
+# **deliberately not in the database**, so a database-only compromise cannot
+# re-identify a deleted student by rainbow table — a sha256 of a predictable
+# institutional address is enumerable from a roll list.
+#
+# There is **no default and no fallback**: `erase_account` raises when it is
+# unset, because a shared default salt makes every deployment's hashes
+# identical and the control worthless. The name is the one already reserved in
+# `.env.example` (CLAUDE.md rule 10: one name, not a second invention).
+#
+# The *version* is what makes §7 row 24's rotation procedure possible —
+# "retire a version when no live tombstone references it" needs the tombstone
+# to record which version hashed it.
+TOMBSTONE_EMAIL_SALT = env("BOOKHOP_TOMBSTONE_EMAIL_SALT", "")
+TOMBSTONE_EMAIL_SALT_VERSION = env("BOOKHOP_TOMBSTONE_EMAIL_SALT_VERSION", "v1")
+
+# --- Rate limiting (API-CONTRACT §2.4, ADR-001 §2.4) ------------------------
+# There is deliberately **no CACHES setting and no cache backend.** ADR-001 §2.4
+# names "Django's database cache backend" for rate limiting, and the reason it
+# gives is "it removes Redis" -- which a table in the database we already have
+# satisfies equally. The limiter is `apps.core.models.RateLimitCounter`, with
+# the deviation and its two reasons recorded on that model and raised to cto:
+# Django's cache table has a column named `value`, which the P14 guard correctly
+# refuses, and `CLAUDE.md` rule 13 says rename ours before exempting theirs.
+#
+# Nothing else in the codebase caches anything, so there is no second consumer
+# to strand. A slice that needs one adds CACHES then, with a backend chosen for
+# that need.
+
+# --- Email (S1 sends the magic link; SES is S7) ----------------------------
+# Console in development so a magic link is readable in the runserver output
+# without a mail host. The bodies are templates under `templates/email/` and
+# are frontend-developer's (TASKS §1); backend passes a context dict.
+EMAIL_BACKEND = env(
+    "BOOKHOP_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = env("BOOKHOP_EMAIL_FROM", "no-reply@bookhop.invalid")
+
+# The origin an emailed link has to be absolute against. A job has no request,
+# so when `accounts.send_magic_link` is enqueued outside one there is nothing to
+# derive a scheme and host from. **There is deliberately no default**: a
+# `localhost` default would email a student a link to their own machine, which
+# is a plausible-looking value that fails only for the recipient and passes
+# every test. `apps.core.request_context.public_origin` raises without it.
+PUBLIC_ORIGIN = env("BOOKHOP_PUBLIC_ORIGIN", "")
 JOB_MAX_ATTEMPTS = 5
 # How long a claimed job may stay locked before another worker may take it.
 # A conditional UPDATE claims a row but, unlike SELECT ... FOR UPDATE SKIP

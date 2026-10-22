@@ -1,0 +1,47 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate context "email.magic_link.open" %}Open this link on the phone you want to use BookHop on:{% endblocktranslate %}
+
+{{ scheme }}://{{ host }}/auth/c/{{ token }}
+
+{% blocktranslate context "email.magic_link.expiry" with minutes=expires_in_minutes %}It works once, and stops working {{ minutes }} minutes after it was sent.{% endblocktranslate %}
+
+{% translate "If you did not ask for this, nothing has happened and you can ignore this email." context "email.magic_link.unasked" %}
+{% endautoescape %}{% comment %}
+  The magic-link email body. `templates/email/magic_link.body.txt`, paired with
+  `.subject.txt` — the two filenames `apps/core/mail.py` renders. Two files so
+  the subject is translatable and reviewable as copy rather than being a Python
+  literal with a %s in it.
+
+  PLAIN TEXT ONLY. An HTML email buys nothing for one link and costs bytes on a
+  metered connection — and a Gmail/Outlook HTML pipeline is one more place a
+  link can be rewritten or prefetched.
+
+  THE CONTEXT DICT IS BACKEND'S CONTRACT AND THIS TEMPLATE USES THREE OF ITS
+  FIVE KEYS. `apps/accounts/jobs.py send_magic_link` passes:
+      token, expires_at, expires_in_minutes, display_name, campus_name
+  and its own comment says "the template builds the URL, because the route is
+  web/urls.py's and frontend owns it" — so the path `/auth/c/{token}` is
+  assembled here and matches `web/urls.py`.
+
+  `display_name` and `campus_name` are deliberately NOT used. A sign-in email
+  is the one message that may arrive at an address whose owner did not ask for
+  it (someone typing a classmate's address by mistake, or on purpose). Greeting
+  them by name, or naming their campus, would confirm to a stranger that an
+  account exists and which campus it is on — the same account-enumeration leak
+  the 202 on `POST /auth/start` exists to prevent, moved into the mailbox.
+  Nothing here names the campus, the domain or any other account attribute.
+
+  `scheme` and `host` are NOT in that context dict, which is a real gap: a job
+  has no request to read an absolute URL from. Flagged to backend — a relative
+  link is not clickable in a mail client, so one of `scheme`/`host` or a
+  pre-built absolute URL has to be added to the payload. Until then these render
+  empty and the link is broken, which is loud rather than silent.
+
+  COPY-DECK §10.5 rule (b): **no notification or email ever contains a rupee
+  amount.** There is none here and there is nothing to add one to.
+
+  `expires_in_minutes` is interpolated rather than the literal "10": the TTL is
+  `TOKEN_TTL` in the service layer, and a hard-coded 10 here would be a second
+  copy of it free to diverge (CLAUDE.md rule 10). COPY-DECK's `auth.sent.body`
+  says "10 minutes" as a literal on the link-sent page, which is the same
+  divergence one step removed — flagged to design-director.
+{% endcomment %}

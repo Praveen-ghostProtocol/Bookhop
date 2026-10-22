@@ -237,10 +237,41 @@ POCSO reporting duty (IT Rules r.3(1)(c)(iii)) is visible to ops.
 |---|---|---|---|
 | `id` | bigint PK | | 6 |
 | `user_id` | bigint NOT NULL FK | | |
-| `method` | text NOT NULL CHECK IN ('INSTITUTIONAL_EMAIL','STAFF_MANUAL') | | |
+| `method` | text NOT NULL CHECK IN ('INSTITUTIONAL_EMAIL','STAFF_MANUAL') | **RATIFIED spelling, 2026-10-22: `INSTITUTIONAL_EMAIL`.** `EMAIL_DOMAIN` is not a value and never was — see below | |
 | `email_domain` | text NULL | the domain matched, not the address | |
 | `verified_at` | timestamptz NOT NULL | | |
 | `verifier_id` | bigint NULL FK | for STAFF_MANUAL | |
+
+> **RULING · the spelling is `INSTITUTIONAL_EMAIL` · cto, 2026-10-22**
+> *(frontend S1 escalation; rule 12 + rule 10)*
+>
+> `SYSTEM.md` §4.11a, `COPY-DECK.md` §3.2 condition 3 and **design criterion
+> 7h** all gate the campus-email trust string on
+> `campus_verifications.method = 'EMAIL_DOMAIN'`. **That value does not exist.**
+> This CHECK has allowed only `INSTITUTIONAL_EMAIL` and `STAFF_MANUAL` since
+> v1.0, and `apps/accounts/services.py:325` writes `INSTITUTIONAL_EMAIL` on
+> every sign-in.
+>
+> **So criterion 7h could only ever pass vacuously — it is a failable-looking
+> criterion that can never match** (rule 12), **with the same rule spelled two
+> ways across three documents and the code** (rule 10). Frontend found it,
+> accepted both spellings and failed closed on everything else, so the control
+> holds whichever way I rule. **It still has to be one way.**
+>
+> **`INSTITUTIONAL_EMAIL` wins, and not merely because it is incumbent:** the
+> schema is the contract of record, the running code already writes it, and it
+> names the *thing verified* (an institutional affiliation) rather than the
+> *mechanism used* (a domain match). `STAFF_MANUAL`, its sibling, is named the
+> same way. `EMAIL_DOMAIN` would also be wrong in a year when a second method
+> arrives that still matches a domain.
+>
+> **Routed to design-director — three edits I may not make** (my scope is
+> `company/architecture/` and `.claude/agents/`): `SYSTEM.md` §4.11a,
+> `COPY-DECK.md` §3.2 condition 3, and **criterion 7h**. Frontend's
+> both-spellings tolerance should then be dropped, because a tolerance that
+> outlives its divergence is how the divergence comes back.
+>
+> **Before S2.** S2 builds the seller block on top of this string.
 
 **No enrolment artefact is ever stored.** §7 row 6 requires the evidence be
 purged immediately on successful verification; the magic-link design means
@@ -251,7 +282,7 @@ record. This is the cheapest compliance win in the schema.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | bigint PK | |
-| `kind` | text NOT NULL CHECK IN ('PRIVACY','TERMS','SELLER_TERMS','**HANDOVER_GUIDANCE**','COMMUNITY_RULES') | **Amendment A-7**: renamed from `HANDOVER_SAFETY`. See `API-CONTRACT.md` §5.1 |
+| `kind` | text NOT NULL CHECK IN ('PRIVACY','TERMS','SELLER_TERMS','**HANDOVER_GUIDANCE**','COMMUNITY_RULES','**RANKING**','**GRIEVANCE_PROCEDURE**') | **A-7**: renamed from `HANDOVER_SAFETY`. **A-25 (2026-10-22): `RANKING` and `GRIEVANCE_PROCEDURE` added** — `API-CONTRACT.md` §5.1 routes both and the CHECK allowed neither, so neither was publishable |
 | `version` | text NOT NULL | e.g. `2026-11-01.1` |
 | `locale` | text NOT NULL CHECK IN ('en','ta') | EN + TA, `COMPLIANCE.md` §8.2 |
 | `body_md` | text NOT NULL | |
@@ -260,6 +291,42 @@ record. This is the cheapest compliance win in the schema.
 
 UNIQUE `(kind, version, locale)`. Trigger blocks all UPDATE and DELETE — "we
 can show what a user agreed to on a given date" (§8.1) requires it.
+
+> **A-25 · the two regulatory publications that had nowhere to live, and why
+> they are not one kind each · cto, 2026-10-22** *(frontend S1 escalation)*
+>
+> `API-CONTRACT.md` §5.1 routes `/legal/ranking` and
+> `/legal/grievance-officer`; this CHECK allowed five kinds and neither was
+> among them, so **both were required and unpublishable.** Frontend rendered
+> "not published yet" — true and loud — and **correctly did not invent a
+> grievance officer.**
+>
+> **`RANKING` is a straightforward notice.** Ranking parameters in descending
+> order of significance (r.5(3)(f), r.4(11)(c)): versioned prose, EN + TA,
+> immutable once published. It goes in this table unchanged.
+>
+> **`/legal/grievance-officer` is NOT one kind — it composes two sources, and
+> that is the interesting half.** The officer's name, designation, email, phone
+> and the registered address are **already columns on `legal_entities`**
+> (§1, Gate B4). Baking them into a versioned notice would create a **second
+> copy of a fact that changes without the notice changing** — and a stale
+> grievance-officer contact is a direct r.3(2)(a) failure, not a cosmetic one.
+> So:
+>
+> | Part of the page | Source | Why |
+> |---|---|---|
+> | How to complain, the 24h / 7d clocks, the Board escalation | **`GRIEVANCE_PROCEDURE` notice** | Versioned prose, EN + TA; it is what a user relied on at a point in time |
+> | Officer name, designation, email, phone, registered address | **`legal_entities`, interpolated at render time** | One copy of a changeable fact. Never a literal in a notice or a string file |
+>
+> **This is the same rule as criterion 7f's second limb** — the value arrives
+> from the service at render time and never lives in a string file — and
+> noticing that they are the same rule is why this composition is right rather
+> than fussy.
+>
+> Until Gate B4 appoints an officer those columns are NULL and the page must
+> say so plainly. **Frontend's "not published yet" is correct and should stay:**
+> a known gap correctly reported, which is the distinction ADR-003 §5.3.1
+> exists to keep.
 
 ### `consents` — S1 · append-only
 | Column | Type | Notes | §7 row |
@@ -1616,6 +1683,8 @@ Nothing before that.
 | **A-16** | 2026-10-21 | `campuses.email_domains`: `text[]` → **`jsonb`** — one migration serves both engines, and membership is the only operation | ENGINE-DIVERGENCE §9.1, accepted | cto |
 | **A-17** | 2026-10-21 | `idempotency_keys`: **second partial unique index on `key` WHERE `user_id IS NULL`.** My `user_id = 0` sentinel correction was itself wrong — it breaks the S1 FK. **Consequence recorded: anonymous keys share one global namespace, so a stored response is returned to anyone presenting that key — S6 must confirm no anonymous endpoint stores more than its `ticket_ref` already reveals** | ENGINE-DIVERGENCE §9.6a — backend's rejection upheld · REVIEW-S0 **R3** | cto |
 | **A-18** | 2026-10-21 | **W1b's money-token exemption rescoped from the `listings` TABLE to the two permitted COLUMNS** — a table-wide exemption let a *second* money column onto `listings` (`paise_count`, `rupees_count`, `cash_total_count`, …) pass every layer, contradicting ADR-003 §2.1. Lands with S2 | REVIEW-S0 **R1** | cto |
+| **A-25** | 2026-10-22 | **`notice_versions.kind` gains `RANKING` and `GRIEVANCE_PROCEDURE`** — two routes in `API-CONTRACT.md` §5.1 were required and unpublishable. **`/legal/grievance-officer` composes** the procedure notice with the officer fields read from `legal_entities` at render time, because a versioned notice would hold a second copy of a fact that changes without it, and a stale officer contact is an r.3(2)(a) failure | frontend S1 escalation | cto |
+| **A-26** | 2026-10-22 | **`campus_verifications.method` spelling RATIFIED as `INSTITUTIONAL_EMAIL`.** `EMAIL_DOMAIN` appears in three design documents and in criterion 7h and **is not a value**, so 7h could only pass vacuously (rule 12) with the rule spelled two ways (rule 10). Doc edits routed to design-director | frontend S1 escalation | cto |
 | **A-24** | 2026-10-21 | **§8 DECISION: the audit chain stays GLOBAL.** Per-scope chains rejected — they would let an insider delete one campus's entire history while other chains verify clean (a §5.8/A1 regression), so this is a threat-model trade and not only a cost question. Checkpoint anchoring recorded as the upgrade with a measurable trigger (p99 attempts > 6, any `AuditAppendContention`, or the first month of real traffic). **Operational signal specified: attempts-to-win p50/p99 in the digest and contention paging on-call — splitting the error class off the tamper class is only safe with a watcher** | ENGINE-DIVERGENCE **§9.15**, first PostgreSQL run | cto |
 | **A-23** | 2026-10-21 | `idempotency_keys.key`: **UUID required when `user_id IS NULL`**, unconstrained otherwise; anonymous replay returns a **NULL body**. The partial index from migration 0004 and this format rule now both have their line here | REVIEW-S0 **§21** | cto |
 | **A-22** | 2026-10-21 | **`MONEY_TOKEN_SHAPE_EXEMPTIONS` ratified**: `due_at`, `overdue`, `consume` — a deadline, a state and a verb, none of which can denote a consideration, and **all three rejected as numeric columns by W1a regardless**. Renaming our own colliding names is the preferred first resort | ENGINE-DIVERGENCE §9.9 — allowance, escalated and **ratified** | cto |

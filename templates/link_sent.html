@@ -1,0 +1,78 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  COPY-DECK §5, SYSTEM §4.25 "Link-sent". PRD AC-A1.1, AC-A1.2, EC-11.
+
+  A terminal page, not a spinner, and **no auto-polling** — polling on 3G for
+  an email spends a student's money to learn nothing.
+
+  THE COPY IS IDENTICAL WHATEVER HAPPENED — unknown address, unrecognised
+  domain, suspended account, brand-new student — because `POST /auth/start`
+  always answers 202 (API-CONTRACT §5.1). AC-A1.1 asserts byte-identical
+  responses for a known address, an unknown address at a recognised domain, and
+  a gmail address. Nothing on this page may hint which it was.
+
+  TWO THINGS HERE ARE REQUIRED BY NAME AND THEY PULL AGAINST EACH OTHER.
+
+  (1) THE ADDRESS IS ECHOED. Acceptance criterion 7k is a *positive* assertion
+  for exactly this line: criteria 7f/7g forbid rendering a counterparty's email
+  domain, and the obvious way to over-comply is to strip the echo from the one
+  page where the student needs it, breaking sign-in while believing a control
+  was tightened. This is the student's own submitted address, shown to
+  themselves, and it is not a disclosure.
+
+  (2) THE ACCEPTED DOMAINS ARE NAMED, GENERICALLY. AC-A1.2 calls this "a
+  product requirement, not polish": without it, the enumeration-proof 202 and
+  L1's `EmailDomainNotRecognised` combine into a silent dead end that the PRD
+  names as the most likely first-run failure in the product. A student who
+  typed their personal address gets an identical "check your email" page and
+  would otherwise wait forever. EC-11 covers the empty case — no MoU yet, so no
+  domains — where the page says the campus is not open for sign-ups.
+
+  The list comes from `accepted_email_domains()` and is **not derived from the
+  submitted address**, which is the part AC-A1.2 forbids: saying "we can't
+  email @gmail.com" would echo the student's own input back as a rejection and
+  defeat the 202. It is campus configuration, identical for every visitor,
+  disclosing nothing about any person — whereas criterion 7f's rationale
+  (COMPLIANCE §2.5a condition 1) is about a *seller's* domain on a *listing*
+  being attribute disclosure smuggled in as a trust badge. Criterion 7f's
+  wording is broader than its own rationale, and reading it literally breaks
+  the primary journey. Escalated to cto rather than silently resolved; what is
+  held either way is 7f's second limb — **no domain literal is in any .po
+  string**, because this value arrives from the service at render time and is
+  never translatable copy.
+{% endcomment %}
+{% block title %}{% translate "Check your email" context "auth.sent.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Check your email" context "auth.sent.h1" %}</h1>
+
+<div class="card">
+  <p>{% blocktranslate context "auth.sent.body" with email=email %}We sent a link to {{ email }}. Open it on this phone. It works once and stops working after 10 minutes.{% endblocktranslate %}</p>
+</div>
+
+<div class="notice notice--wait">
+  {% if accepted_domains %}
+    <span class="notice__label">{% translate "If nothing arrives" context "auth.sent.domains.label" %}</span>
+    <p>{% blocktranslate context "auth.sent.domains" with domains=accepted_domains|join:", " %}We can only email addresses ending {{ domains }}. Check you used your college address.{% endblocktranslate %}</p>
+  {% else %}
+    {% comment %} EC-11: `campuses.email_domains` is empty because there is no
+       MoU yet. AC-A1.2 is what stops this being a silent void, so the page
+       says the true thing instead of nothing. {% endcomment %}
+    <span class="notice__label">{% translate "If nothing arrives" context "auth.sent.domains.label" %}</span>
+    <p>{% translate "This campus is not open for sign-ups yet." context "auth.sent.no_campus" %}</p>
+  {% endif %}
+</div>
+
+{% comment %} The wait is stated rather than counted down. A JS countdown would
+   be the only script on the page and would stop the button working with
+   JavaScript off; the rate limit is server-side either way (API-CONTRACT §2.4,
+   5/hour per email), so an early tap costs one wasted request and never breaks
+   the student out of the flow. {% endcomment %}
+<p class="meta">{% blocktranslate context "auth.sent.resend_wait" with n=60 %}You can ask for another in {{ n }} seconds.{% endblocktranslate %}</p>
+
+<form method="post" action="/auth/start">
+  {% csrf_token %}
+  <input type="hidden" name="email" value="{{ email }}">
+  <button class="btn btn--secondary" type="submit">{% translate "Send another link" context "auth.sent.resend" %}</button>
+</form>
+{% endblock %}

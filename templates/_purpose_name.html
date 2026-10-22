@@ -1,0 +1,21 @@
+{% load i18n %}{% comment %}
+  The six `consents.purpose_key` values as plain-language names.
+
+  PROVISIONAL COPY. COPY-DECK §10.4 supplies `consent.row` ("{purpose} —
+  {granted_or_not}") and the full text for `listing_publication` only; the
+  other five purposes have **no deck strings**. These are written to the §1.2
+  rule — each one names a mechanism or a fact, none predicts or judges — and
+  they are listed in the hand-back for design-director to replace. They are
+  B3 (legal and rights flow) in Tamil and blocked accordingly.
+
+  A raw enum key on a consent screen would fail AC-A3.1's "each one sentence",
+  so the gap is filled and flagged rather than left to render `account`.
+{% endcomment %}{% spaceless %}
+{% if key == "account" %}{% translate "Your account" context "consent.name.account" %}
+{% elif key == "listing_publication" %}{% translate "Putting a book on the list" context "consent.name.listing_publication" %}
+{% elif key == "location_proximity" %}{% translate "Which campus you are at" context "consent.name.location_proximity" %}
+{% elif key == "chat" %}{% translate "Messages with another student" context "consent.name.chat" %}
+{% elif key == "safety_moderation" %}{% translate "Reports and problems" context "consent.name.safety_moderation" %}
+{% elif key == "notifications" %}{% translate "Being told when something happens" context "consent.name.notifications" %}
+{% endif %}
+{% endspaceless %}

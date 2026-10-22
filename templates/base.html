@@ -1,0 +1,113 @@
+{% load i18n static %}<!doctype html>
+{% comment %}
+  The page shell — SYSTEM §2.6 and §4.1.
+
+  Structure is fixed and load-bearing, not decoration:
+    skip link -> header -> flash region -> h1 -> content -> footer
+  Exactly one <h1> per page and it names the page, not the brand. Heading
+  levels never skip. Landmarks are real elements, never ARIA roles on divs.
+
+  `lang` is set server-side to a locale the student may actually be served
+  (web/views.py `_page`), because Tamil is gated off. Any inline string in the
+  other language carries its own `lang` so TalkBack switches voice instead of
+  reading Tamil with an English engine — one attribute, and the single biggest
+  screen-reader quality item in a bilingual product.
+
+  No inline <style> and no inline event handler anywhere in this tree: backend's
+  CSP is `style-src 'self'` with no 'unsafe-inline', so a style attribute is
+  blocked outright (apps/core/middleware.py).
+{% endcomment %}
+<html lang="{{ page_lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{# No `maximum-scale` and no `user-scalable=no`: pinch zoom is SC 1.4.4. #}
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}{% endblock %} · BookHop</title>
+<link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+<link rel="stylesheet" href="{% static 'css/app.css' %}">
+<link rel="manifest" href="/manifest.webmanifest">
+{% comment %} No webfont is requested on any page. The device's own Noto Sans Tamil via
+   the system stack costs 0 bytes and buys everything a 40-90 KB Tamil webfont
+   would at 17px (tokens.css §2). Acceptance criterion 12 asserts it. {% endcomment %}
+</head>
+<body>
+
+<a class="skip" href="#main">{% translate "Skip to content" context "sys.skip" %}</a>
+
+<div class="shell">
+
+<header class="masthead">
+  <a class="masthead__name" href="/">BookHop</a>
+  <nav class="masthead__nav" aria-label="{% translate "Site" context "sys.nav.label" %}">
+    {% comment %} The language switch renders only when more than one locale is offered.
+       While `i18n.ta_enabled` is false Tamil is absent from the switcher
+       (THREAT-MODEL §6.1(c)) and a one-item switcher is noise, so it is
+       omitted rather than rendered with a single current item. {% endcomment %}
+    {% if locales|length > 1 %}
+      {% for code in locales %}
+        <a class="lang" href="?lang={{ code }}" hreflang="{{ code }}" rel="alternate"
+           {% if code == page_lang %}aria-current="true"{% endif %}
+           lang="{{ code }}">{% if code == "ta" %}தமிழ்{% else %}English{% endif %}</a>
+      {% endfor %}
+    {% endif %}
+    <a class="lang" href="/help">{% translate "Help" context "sys.help" %}</a>
+  </nav>
+</header>
+
+<main id="main" tabindex="-1">
+  {% comment %} The flash region is the first thing inside <main> so a screen reader
+     reaches it immediately. role="status"/aria-live="polite"; `role="alert"` is
+     reserved for the form error slot, because two assertive regions means one
+     of them is lost (SYSTEM §4.8). It is in the document and persists until the
+     next navigation — not a toast. {% endcomment %}
+  <div class="flash" id="flash" role="status" aria-live="polite" aria-atomic="true">
+    {% if flash %}<p class="notice notice--live"><span class="notice__label">{% translate "Done" context "sys.done.label" %}</span>{{ flash }}</p>{% endif %}
+  </div>
+
+  {% block main %}{% endblock %}
+</main>
+
+<footer class="pagefoot">
+  {% comment %} Identical and identically ordered on every single page — SC 3.2.6
+     Consistent Help, new in WCAG 2.2. The Help link is the only mechanism a
+     student who gets stuck mid-handover has, and the grievance-officer contact
+     is a regulatory requirement (E-Com r.4(2)) which is why this footer is
+     rendered even on a 404 and a 500.
+
+     "Report a problem" (COPY-DECK §9 `report.cta`) is NOT here in S1: the
+     `POST /report` route is slice S6 and a footer link to a 404 is worse than
+     a footer that grows. It is added in S6, in this position. {% endcomment %}
+  <h2 class="vh">{% translate "About BookHop" context "sys.footer.h" %}</h2>
+  <ul>
+    {% if offline_mode %}
+      {% comment %} A link that needs the network is plain text with its reason beside it,
+         never a disabled link — there is no disabled <a> (SYSTEM §4.1, §4.3). {% endcomment %}
+      <li><span class="pagefoot__dead">{% translate "Help" context "sys.help" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+      <li><span class="pagefoot__dead">{% translate "What BookHop knows about you" context "privacy.h1" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+      <li><span class="pagefoot__dead">{% translate "Terms" context "legal.terms" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+      <li><span class="pagefoot__dead">{% translate "Community rules" context "legal.community_rules" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+      <li><span class="pagefoot__dead">{% translate "Handover guidance" context "legal.handover_guidance" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+      <li><span class="pagefoot__dead">{% translate "How results are ordered" context "legal.ranking" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+      <li><span class="pagefoot__dead">{% translate "Contact the grievance officer" context "grievance.cta" %} — {% translate "needs a connection" context "sys.needs_connection" %}</span></li>
+    {% else %}
+      <li><a href="/help">{% translate "Help" context "sys.help" %}</a></li>
+      <li><a href="/legal/privacy">{% translate "What BookHop knows about you" context "privacy.h1" %}</a></li>
+      <li><a href="/legal/terms">{% translate "Terms" context "legal.terms" %}</a></li>
+      <li><a href="/legal/community-rules">{% translate "Community rules" context "legal.community_rules" %}</a></li>
+      <li><a href="/legal/handover-guidance">{% translate "Handover guidance" context "legal.handover_guidance" %}</a></li>
+      <li><a href="/legal/ranking">{% translate "How results are ordered" context "legal.ranking" %}</a></li>
+      <li><a href="/legal/grievance-officer">{% translate "Contact the grievance officer" context "grievance.cta" %}</a></li>
+    {% endif %}
+  </ul>
+</footer>
+
+</div>
+
+{% comment %} The only script in the product. It registers the service worker and does
+   nothing else: zero bytes of framework, zero bytes of htmx, and every route
+   in this slice works with JavaScript off. External rather than inline,
+   because CSP forbids inline script and this needs no nonce. {% endcomment %}
+<script src="{% static 'js/sw-register.js' %}" defer></script>
+</body>
+</html>

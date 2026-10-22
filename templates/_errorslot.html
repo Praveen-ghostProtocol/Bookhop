@@ -1,0 +1,28 @@
+{% load i18n %}{% comment %}
+  The form error slot — SYSTEM §4.6. One reserved region immediately below the
+  <h1> or legend, on every form.
+
+  Height is reserved (`.errorslot` has a min-height) so an appearing error does
+  not shift the form under a thumb already on its way down.
+
+  `role="alert"` announces it on a full page post, which is why `autofocus` is
+  NOT used here — moving focus and announcing would fight each other. It is the
+  only assertive region in the product; the flash (§4.8) is polite.
+
+  The summary links to each failing field by id, and the field-level message
+  renders beside the field as well (`_field.html`). The typed value is never
+  cleared.
+{% endcomment %}<div class="errorslot" id="form-errors" role="alert" aria-atomic="true">
+{% if form.errors %}
+  <div class="notice notice--error">
+    <span class="notice__label">{% blocktranslate context "sys.fix_count" count n=form.errors|length %}{{ n }} thing to fix{% plural %}{{ n }} things to fix{% endblocktranslate %}</span>
+    <ul>
+      {% for name, errors in form.errors.items %}
+        {% for error in errors %}
+          <li><a href="#id_{{ name }}">{{ error }}</a></li>
+        {% endfor %}
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+</div>

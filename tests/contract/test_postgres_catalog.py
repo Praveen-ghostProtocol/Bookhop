@@ -49,13 +49,25 @@ EXPECTED_TRIGGERS = {
     "campuses_gate_authorised",
 }
 
-EXPECTED_FUNCTIONS = {
+#: Every plpgsql trigger function the migrations install, by slice.
+#:
+#: `POSTGRES-FIRST-RUN.md` §0(a) corrected "six" to **five** for S0, after the
+#: number had been repeated in three documents. S1 adds one — a generic
+#: `bookhop_append_only_guard` shared by the append-only tables it creates — so
+#: the count is six now **for a different reason than the one that was wrong**,
+#: and it is asserted as an exact set per slice rather than as a total, so the
+#: next addition is a deliberate edit and not a surprise.
+S0_FUNCTIONS = {
     "audit_log_is_append_only",
     "gate_authorisations_is_append_only",
     "campuses_gate_is_authorised",
     "bookhop_truncate_guard",
     "gate_authorisations_evidence_complete",
 }
+S1_FUNCTIONS = {
+    "bookhop_append_only_guard",
+}
+EXPECTED_FUNCTIONS = S0_FUNCTIONS | S1_FUNCTIONS
 
 
 def _sqlstate(exc):
@@ -99,14 +111,15 @@ def test_every_guard_trigger_is_installed_and_enable_always():
     )
 
 
-def test_every_plpgsql_function_is_installed_and_there_are_exactly_five():
-    """`POSTGRES-FIRST-RUN.md` §0(a): **five** bodies, not six. The sixth was
-    the price-immutability trigger, which does not exist because `listings` is
-    an S2 table — a number repeated in three documents before the run corrected
-    it.
+def test_every_plpgsql_function_is_installed_and_the_set_is_exact():
+    """Asserted as an exact set per slice, so a new body is a deliberate edit.
 
-    Asserted as an exact set, so S2 adding `listings_price_is_immutable` turns
-    this red and the count is updated deliberately rather than discovered.
+    The history is worth keeping in the test: `POSTGRES-FIRST-RUN.md` §0(a)
+    corrected "six bodies" to five, because the sixth — the price-immutability
+    trigger — does not exist and `listings` is an S2 table. S1 has now added a
+    sixth for an unrelated reason, so the number is six again and **the earlier
+    "six" is still wrong**. A total would have hidden that; a set per slice does
+    not, and S2's `listings_price_is_immutable` will land in a third one.
     """
     rows = _rows(
         "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
@@ -356,46 +369,33 @@ def test_the_gate_authorisation_append_only_guard_raises_p0001(campus_and_entity
     assert auth.revoked_at is not None
 
 
-def test_finding_the_sqlstate_half_of_rule_16_is_not_in_the_suite():
-    """**FINDING F17, non-blocking — and it is `CLAUDE.md` rule 9's own shape.**
+def test_regression_the_sqlstate_half_of_rule_16_is_now_in_the_suite():
+    """**REGRESSION for QA-S0 F17** — was a characterisation test, now the fix.
 
-    ENGINE-DIVERGENCE §10 reports *"95 direct assertions, 0 failures, each
-    asserting the SQLSTATE **and** the exception message text"*. The standard is
-    the right one and QA adopts it. But those 95 ran **directly against the
-    server**, and measured here: the string `P0001` appears in
-    `tests/unit/**` and `tests/api/**` exactly once, in a **comment**. No test
-    in backend's trees asserts a SQLSTATE.
+    F17 measured that ENGINE-DIVERGENCE §10's claim — *"95 direct assertions,
+    each asserting the SQLSTATE **and** the exception message text"* — was true
+    of a run and not of the repository: `P0001` appeared in `tests/unit/**` and
+    `tests/api/**` exactly once, in a comment. The standard was right and
+    `pytest` enforced only half of it.
 
-    So the message half of rule 16 is in the repository
-    (`test_the_append_only_message_names_the_operation_it_refused`, which is a
-    good test and engine-neutral) and the SQLSTATE half is not. A guard that
-    began refusing with a different mechanism — a CHECK constraint (23514), or
-    `RAISE … USING ERRCODE` — while keeping its text would pass `pytest`
-    tomorrow.
-
-    **Severity: low, and QA says so rather than inflating it.** The hazard rule
-    16 actually names — an unresolved identifier in an unexercised plpgsql
-    branch — produces *different text* as well as a different SQLSTATE, so the
-    message assertions catch it. The SQLSTATE adds the narrower case where the
-    text is right and the mechanism changed.
-
-    QA has encoded the SQLSTATE half for all five bodies in this file and in
-    `tests/e2e/test_audit_tamper.py`, which is where it belongs — QA's trees run
-    on both engines in CI. **This test is the record that the claim in §10 was
-    about a run, not about the suite**, so the next reader does not take "each
-    asserting the SQLSTATE" as something `pytest` enforces.
+    `tests/unit/test_plpgsql_refusal_sqlstate.py` now exists. QA asserts the
+    property rather than the file name, so a rename does not reopen the finding:
+    at least one test in backend's trees must assert a SQLSTATE in executable
+    code, and it must be `P0001` — the code a plpgsql `RAISE EXCEPTION` produces,
+    which is the thing rule 16 is about.
     """
     import pathlib
 
     repo = pathlib.Path(__file__).resolve().parents[2]
-    hits = []
+    asserting = {}
     for tree in ("tests/unit", "tests/api"):
         for path in sorted((repo / tree).glob("*.py")):
-            text = path.read_text(encoding="utf-8")
-            for number, line in enumerate(text.splitlines(), 1):
-                if "P0001" in line and not line.strip().startswith(("#", '"', "'")):
-                    hits.append(f"{tree}/{path.name}:{number}")
-    assert hits == [], (
-        "backend's trees now assert a SQLSTATE; F17 is closed and this test "
-        f"should become a regression: {hits}"
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if "P0001" in line and not stripped.startswith(("#", '"', "'")):
+                    asserting.setdefault(f"{tree}/{path.name}", []).append(number)
+    assert asserting, (
+        "no test in backend's trees asserts a SQLSTATE in executable code; "
+        "QA-S0 F17 has reopened and rule 16's standard is enforced on one side "
+        "only"
     )

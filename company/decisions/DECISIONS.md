@@ -2547,3 +2547,256 @@ by side at every gate rather than treating either as settled.**
 
 **Seven open items, all owned, none blocking.** Double-booking remains out of
 scope and implemented nowhere.
+
+---
+
+## D-039 — Founder defers the audit; S1 proceeds
+**Date:** 2026-10-22 · **Decider:** HUMAN FOUNDER
+
+**Decision.** Skip the weekly audit and the Red Team pass for now. Build S1:
+accounts, age eligibility, campus verification, profiles, consent, deletion
+and the purge job.
+
+**The CEO agent's concern, raised once and not re-argued.** Thirty-eight
+decisions are now logged with **no adversarial review since G1**, and the
+weekly audit → delegate → measure → improve loop has never run. Red Team's
+last word was that the monetisation thesis was falsified and the product
+thesis survived only as a hypothesis — **and that hypothesis is now carrying a
+schema.** Risk R-15, logged on day one, is exactly this: *agents produce
+volume, not validated progress.* Rigour about how we build is not evidence
+that we should be building this.
+
+**Founder has decided; proceeding at full effort.** Recorded so the question
+is not lost rather than to reopen it. **R-15 and the deferred audit stay open
+in the register**, and the next natural forcing point is Gate B — the first
+real user — where Red Team review is already required and cannot be deferred,
+because that is when real personal data enters the system.
+
+**What S1 does not need and must not acquire:** no infrastructure spend, no
+campus access, no counsel engagement. All of those arrive at Gate B. S1 is
+buildable and testable entirely locally at zero cost.
+
+**Sequencing.** Backend and frontend run in parallel against the ten frozen
+account signatures — that is what the honest stubs were for — on disjoint file
+trees, so "contracts before parallel work" holds. The five pre-assigned
+control fixes land in S1's first commit, because `CLAUDE.md` rule 9 means a
+control named in a compliance document with no code behind it is a false
+statement, and two of ours currently are.
+
+**The standing engine rule now applies to every slice: run on PostgreSQL
+before asking for review.** `LIKE` is case-sensitive there and insensitive on
+SQLite, so a search test written locally can pass and fail for real.
+
+---
+
+## D-040 — Scope narrowed: engineering only. Build and deliver the app
+**Date:** 2026-10-22 · **Decider:** HUMAN FOUNDER
+
+**Decision.** The founder is solo and wants **CTO work only**: develop the
+application and deliver it. Everything else is out of scope until they say
+otherwise.
+
+**Stood down — do not raise these again unprompted:** incorporation and the
+second-shareholder question, campus contacts and access, interviews, the
+survey, the user test, the institutional probe, the Tamil reviewer, acquisition
+budget, counsel engagement, and the weekly business audit. The Market &
+Finance, Marketplace Operations, Product and Red Team agents are **dormant**
+for this phase. Privacy & Compliance is dormant **as an advisory function**.
+
+**What does NOT change, because it is architecture rather than admin.** These
+are already frozen in the contracts, already implemented or scheduled, and are
+simply how the code works. They are not decisions to be re-litigated and they
+cost nothing to keep:
+- **P14** — no settled transaction price, ever. The whitelist, frozen tables,
+  source grep and response-boundary control stay.
+- **No date of birth persisted in any state.** Adults-only, server-side.
+- **Tombstone-plus-purge deletion** with a one-year retention floor and the
+  pseudonym surviving.
+- **No escrow, no custody of funds, no credits.**
+- **The discovery gate**, which is also what makes the app safe to build and
+  demo before anything is public.
+- CSP, the audit chain, idempotency, the takedown clocks as schema.
+- **WCAG 2.2 AA and the mid-range-Android-on-3G target**, which are product
+  quality, not compliance.
+- **The Tamil locale stays gated off.** No reviewer exists, so the flag stays
+  false and English ships. This needs nothing from the founder.
+
+**Retained engineering practice**, because all eighteen rules in `CLAUDE.md`
+were earned by defects found in this project and dropping them would cost more
+than it saves: code review and QA before integration, both engines green,
+conformance tests for named controls, and no claim quoted that the repository
+does not support.
+
+**Delivery target.** A working, tested application the founder can run, with
+the remaining slices in the frozen order: S1 accounts and deletion (in
+flight), S2 listings, S3 discovery and notifications, S4 offers and the
+transaction state machine, S5 handover coordination, S6 reports, moderation
+and support, S7 analytics. Each slice goes through code review and QA and is
+committed. The founder gets a run command and a browser preview once there is
+a UI worth looking at.
+
+**Recorded once and then dropped:** the thesis remains unvalidated and zero
+students have been interviewed. That is now the founder's risk to carry
+knowingly, not an open question for any agent to re-raise.
+
+---
+
+## D-041 — Red Team on engineering: the apparatus produces quality inside files and consumes it at the seams
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**Evidence:** `company/evidence/RED-TEAM/ENGINEERING-MEMO.md`
+
+**The verdict, and it is the most useful sentence produced in this project:**
+
+> Every defect the apparatus caught was **within-artefact** — a list enforcing
+> 15 of 22, a trigger not reading `active`, a column stored and never
+> compared. Every defect Red Team found is a **boundary defect**. All 18 rules
+> are about claims and controls; **none is about end-to-end behaviour — which
+> is why 835 tests pass and nobody has been served a page.**
+> It earns its keep; the ceremony does not, and they separate cleanly.
+
+### CRITICAL 1 — verified by the CEO agent directly
+The app role holds `INSERT, UPDATE, DELETE, TRUNCATE` on **both**
+`audit_log` and `gate_authorisations` (checked in
+`information_schema.table_privileges`), and **can set the flush GUC** — I ran
+it. So the TRUNCATE guard is defeated in two statements while the suite proves
+the *other* bypass shut. And the gate's enforced floor sits three statements
+below ADR-002 §4.1(b): placeholder evidence values that are **on §4.1(b)'s own
+deny-list**, a mismatched legal entity, and a plain `update()` open discovery
+with **zero audit rows**.
+**The conformance test rule 9 demanded exists and passes — it tests the floor
+the floor has, not the control the ADR specifies.** Root cause: the app role
+holds the privileges the control withholds.
+
+### CRITICAL 2 — verified by the CEO agent directly
+`apps/accounts/services.py:259` enqueues `{"token_id": …, "token": raw, …}`.
+`jobs.py` licenses that with "the row is deleted on completion". **Nothing in
+the codebase deletes a Job row and `purge_expired` does not touch `jobs`** —
+I checked both. So **every magic link ever issued persists in plaintext for
+ever, failed jobs retain live tokens, and a nightly `pg_dump` is a file of
+working sign-in links for named students.** Rule 9 broken in the credential
+path, by a docstring nobody checked.
+
+### The finding that invalidates part of this session's evidence
+The autouse cache fixture gives ~99 tests undeclared database access — **and
+pytest-django's blocker cannot block an already-connected PostgreSQL alias**,
+because the flush fixture leaves one open. **So the isolation mechanism was
+vacuous for the whole session and 99 tests were counted as coverage.**
+Introduced by the fix for an earlier finding, and it would have presented as
+"SQLite is broken."
+
+### Scale, measured
+3,778 lines of code, 71% of it comment prose, under **11,776 lines of
+architecture markdown and 2,640 of decision log — 3.8 document lines per line
+of code.**
+
+### Accepted: the three ranked changes
+1. **Move the gate and the audit log from a trigger to a privilege.** One
+   migration revoking the privileges from the app role plus a second role for
+   `open_discovery`. Closes both criticals at the root and **gives rule 14 its
+   first genuinely independent second layer**, which trigger-plus-trigger
+   never was.
+2. **Stop persisting the raw token**, delete the job row on success, add
+   `jobs` to the purge, scrub the payload before `last_error`, make the
+   docstring true.
+3. **One deploy, one backup, one restore with chain verification, one student
+   journey end to end, and a ~15-line CI running both engines** — the only
+   thing that would have caught the 99-test hole, and the one thing 835 tests
+   structurally cannot tell you.
+
+### Accepted: what to delete
+The ten `test_finding_*` tests, which assert a gap **still exists** — one is
+red right now *because it was fixed*, which trains the next reader to reopen
+it. Review passes 2 and 3 as a standing gate, replaced by **one mandatory
+adversarial execution pass**, which is what found everything. Rules 11 and 13
+folded into 15 — **eighteen rules that are really twelve will be obeyed.**
+The two review transcripts reduced to their findings tables. The 31 pinned
+columns for tables that do not exist.
+**Not touched:** rules 9, 10, 15, 17; `p14.py` as one importable definition;
+the ceiling notes; the both-engines run.
+
+### Survived scrutiny — do not touch
+The audit chain (it tried hard to make id order diverge from chain order under
+concurrency; `prev_hash UNIQUE` makes them equal by construction), the
+contention/tamper split with its measured budget, the job runner's
+compare-and-swap with lock timeout, single-use token enforcement by
+conditional UPDATE, `has_visible_character`, the close-always asymmetry, **the
+stack — no objection**, and multi-campus from day one.
+
+### The method finding, adopted into rule 9 today
+> "QA writes from specification without reading implementation" is sound and
+> has a named blind spot: **it cannot test a seam, because a seam is not
+> specified anywhere.**
+
+Rule 9 now requires a conformance test to **assert the control at the boundary
+the document claims, not the boundary the implementation chose.**
+
+---
+
+## D-042 — Four contract defects ruled; three were requirements that could not be satisfied
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto rulings
+
+**1 · `campus_verifications.method` ratified as `INSTITUTIONAL_EMAIL`.** The
+schema CHECK and the running code always said so; **`EMAIL_DOMAIN` was never a
+value**, so criterion 7h could only ever pass vacuously with the gate spelled
+two ways across three documents and the code — rule 12 and rule 10 in one
+defect. **Ratified reasoning, not incumbency: `INSTITUTIONAL_EMAIL` names the
+thing verified rather than the mechanism used**, which is how its sibling
+`STAFF_MANUAL` is named and which stays correct when a second method arrives
+that still matches a domain. **CEO agent corrected the three design documents
+directly** — spawning an agent for a find-and-replace is the ceremony Red Team
+just flagged. Frontend's both-spellings tolerance is to be dropped: **a
+tolerance that outlives its divergence is how the divergence returns.**
+
+**2 · Criterion 7f narrowed to *another person's* domain, second limb kept.**
+The rationale was entirely about a seller's domain on a listing, where it is
+attribute disclosure dressed as a trust badge. **The accepted-domain list is
+campus configuration — identical for every visitor, about nobody, already on
+the institution's own website. There is no data subject.** As written, **the
+primary journey could only work by violating a failable criterion.**
+
+**The pattern, on its third appearance, and the fix is structural: a criterion
+written from a rationale, without the rationale travelling with it, drifts
+wider than the risk it was written for — and the widening is invisible because
+the criterion still reads protective.** So 7f's narrowed form now carries its
+rationale in the same place, and the CEO agent wrote that requirement into
+`SYSTEM.md` rather than leaving it as advice.
+
+**3 · The grievance page composes rather than stores, and the reasoning
+generalises.** `RANKING` and `GRIEVANCE_PROCEDURE` added as notice kinds — but
+the officer's contact details are **already columns on `legal_entities`**, and
+versioning them would create **a second copy of a fact that changes without
+the notice changing, and a stale grievance-officer contact is a direct
+regulatory failure rather than a cosmetic one.** So: versioned prose from the
+notice table, officer fields interpolated at render time. **That is the same
+rule as 7f's second limb — the value arrives from the service, never baked
+into stored text — and noticing they are the same rule is why the composition
+is right rather than fussy.** Frontend's loud "not published yet" stays, and
+not inventing an officer was correct.
+
+**4 · The locale gate moves to middleware, and the finding is the placement
+rather than the leak.** Frontend found a real leak and closed it in its own
+page helper. But **a helper in `web/` covers only the pages that call it, and
+`Accept-Language` also selects the locale for the JSON API**, whose handlers
+never call it. So the gate was **closed on six pages and open on every JSON
+endpoint, now and in every later slice.** `LocaleGateMiddleware` goes in after
+`LocaleMiddleware`: ten lines, one place, every request. The required test is
+the half a helper could never cover — Tamil yields English **on a page and on
+an endpoint.**
+
+**Third instance of a pattern now worth stating: a control enforced where it
+was noticed covers only the paths that layer sees.** Frontend's placement was
+local and its escalation was exactly what should have happened.
+
+### The observation the CEO agent is acting on rather than promoting
+All three document defects were **rule-12 shaped in a way rule 12 does not
+quite catch** — rule 12 is about a *test* that passes vacuously; these were a
+criterion that can only match a value that does not exist, a criterion broader
+than its rationale, and a route whose storage kind was never allowed. **Same
+failure, different artefact: a requirement that cannot be satisfied, or cannot
+be violated, reads as a control and is not one.**
+
+**All three were found by frontend trying to build against them, which is the
+only way they surface.** The CTO declined to add a rule on three instances;
+**the CEO agent will fold this into rule 12's wording rather than add a
+nineteenth rule, because Red Team's finding stands: eighteen rules that are
+really twelve will be obeyed, and nineteen will not.**

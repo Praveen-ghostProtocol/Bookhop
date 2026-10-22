@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J8 step 4's result. COPY-DECK §10.4 `erase.done`.
+
+  Four words and no action. No "we're sorry to see you go", no win-back link,
+  no survey — the student asked to leave and the page respects that. The
+  session is already flushed, so the footer links are the only navigation and
+  that is correct.
+{% endcomment %}
+{% block title %}{% translate "Your account is gone." context "erase.done" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Your account is gone." context "erase.done" %}</h1>
+{% endblock %}

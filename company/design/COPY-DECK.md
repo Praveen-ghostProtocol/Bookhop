@@ -279,7 +279,7 @@ have been a warranty.
 |---|---|---|---|---|
 | `trust.not_checked` **(rescoped v1.2)** | BookHop hasn't checked this book. | இந்தப் புத்தகத்தை BookHop சரிபார்க்கவில்லை. | "Verified listing" | A statement about what we did *not* do. Cannot be a warranty. **Was "Nothing here is checked by BookHop" — scoped to the book in v1.2 to resolve the adjacency problem in §3.2** |
 | `trust.check_yourself` | Look at the book before you hand over any money. | பணம் கொடுப்பதற்கு முன் புத்தகத்தைப் பார்த்துக் கொள்ளுங்கள். | "Safe payment" | An instruction to the student |
-| `trust.campus_mail` **✅ RULED: SHIP (English)** | Signed in with a college email address. | கல்லூரி மின்னஞ்சல் முகவரியால் உள்நுழைந்தவர். | "Verified student" | **`COMPLIANCE.md` §2.5a, v1.2.** Approved content: the mechanism named, no domain, no judgement. **No `{domain}` placeholder — see §3.2 condition 1.** Renders only when `campus_verifications.method = 'EMAIL_DOMAIN'` (condition 3). Tamil still blocked on B2 like every trust string |
+| `trust.campus_mail` **✅ RULED: SHIP (English)** | Signed in with a college email address. | கல்லூரி மின்னஞ்சல் முகவரியால் உள்நுழைந்தவர். | "Verified student" | **`COMPLIANCE.md` §2.5a, v1.2.** Approved content: the mechanism named, no domain, no judgement. **No `{domain}` placeholder — see §3.2 condition 1.** Renders only when `campus_verifications.method = 'INSTITUTIONAL_EMAIL'` (condition 3). Tamil still blocked on B2 like every trust string |
 | `trust.account_only` **(new v1.2)** | That's all BookHop knows about them. We haven't checked who they are. | BookHop அவரைப் பற்றி அறிந்திருப்பது இதுமட்டுமே. அவர் யார் என்பதை நாங்கள் சரிபார்க்கவில்லை. | letting a sign-in fact imply we vetted a person | A statement about the limit of our own knowledge. **This is the string that resolves the adjacency problem (§3.2) and it makes the pair stronger than either sentence alone** |
 | `trust.isbn_match` | This ISBN matches the catalogue entry for this edition. | இந்த ISBN இந்தப் பதிப்பின் பட்டியல் பதிவுடன் பொருந்துகிறது. | "Verified edition" | A string comparison, described |
 | `trust.seller_words.label` | Condition, in the seller's words | நிலை — விற்பவர் எழுதியது | "Condition: Good" | The grade stays inside the seller's quotation (`SYSTEM.md` §4.14) |
@@ -398,7 +398,7 @@ staff-assisted re-verification path for a student who loses institutional email
 access. **That user did not sign in with a college email address**, so showing
 them the string would be a false statement about a person and would fail
 §1.2's own "name a fact" test. **Gate on
-`campus_verifications.method = 'EMAIL_DOMAIN'`, never on
+`campus_verifications.method = 'INSTITUTIONAL_EMAIL'`, never on
 `users.campus_verified`** — two different facts, and the UI must not conflate
 them.
 
@@ -408,7 +408,7 @@ immediately — it is BookHop asserting something about a person, which is the
 single worst string that could exist in this deck. The line is simply absent,
 and **we never comment on its absence.**
 *Honest residual risk, flagged not solved:* at one campus almost every seller
-will be `EMAIL_DOMAIN`, so a rare absence is more conspicuous than a common
+will be `INSTITUTIONAL_EMAIL`, so a rare absence is more conspicuous than a common
 one, and a buyer may read it as a negative signal we did not intend. The
 alternatives are worse (a substitute string vouches; a "not available" label
 comments on it), so this is accepted with the risk named. Revisit if
@@ -760,7 +760,7 @@ remain open.
    rather than second-guessing it. The disclosure limb carries three
    conditions, all implemented: no domain ever rendered, the disclosure
    notified (`consent.listing_publication.disclosure`, §10.4), and the string
-   gated on `campus_verifications.method = 'EMAIL_DOMAIN'` rather than on
+   gated on `campus_verifications.method = 'INSTITUTIONAL_EMAIL'` rather than on
    `users.campus_verified`. The adjacency problem compliance flagged but did
    not make a condition is solved in §3.2. **Refusing to read silence as
    approval was the right call and it cost nothing** — one round trip against

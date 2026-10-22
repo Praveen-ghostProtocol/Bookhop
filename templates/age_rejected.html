@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  COPY-DECK §10.3 `age.rejected`. Hard and complete.
+
+  PRD AC-A2.3: the refusal does not suggest a workaround, does not invite the
+  student back with a different date, and does not lead with "sorry". There is
+  therefore **no button on this page** — not "try again", not "come back when
+  you're 18". The footer is still here because every page has it.
+
+  The second half of the sentence is the one that matters and it is a statement
+  about our database: the date was not kept. DATA-MODEL §2 amendment A-5
+  removed the table that would have held it, so this is true by construction
+  rather than by policy.
+{% endcomment %}
+{% block title %}{% translate "BookHop is for students aged 18 and over" context "age.rejected.h" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "BookHop is for students aged 18 and over" context "age.rejected.h" %}</h1>
+
+<div class="notice notice--error">
+  <span class="notice__label">{% translate "Your account has been removed" context "age.rejected.label" %}</span>
+  <p>{% translate "BookHop is only for students aged 18 and over. Your account has been removed and the date you entered was not kept." context "age.rejected" %}</p>
+</div>
+{% endblock %}

@@ -1,0 +1,118 @@
+# locale/ta/BLOCKING_CLASSES.toml
+#
+# Owner: frontend-developer (TASKS §1). Read by `tests/unit/test_locale_gate.py`
+# (backend-developer, THREAT-MODEL §6.1(c) point 2), which asserts that
+# `feature_flags['i18n.ta_enabled']` CANNOT be true while any blocking-class
+# msgid is missing from `locale/ta/REVIEWED.toml` or is hash-mismatched.
+#
+# A DIFF TO THIS FILE IS A CODE REVIEW ESCALATION, NOT A REVIEW COMMENT
+# (TASKS §1, THREAT-MODEL §6.1): narrowing a pattern here is functionally the
+# same as granting a sign-off, because it removes strings from the gate.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE DECLARES PATTERNS AND NOT A LIST OF msgids
+# ---------------------------------------------------------------------------
+# CLAUDE.md rule 11: "a list that cannot express its own exceptions gets edited
+# instead of extended", and rule 15: "an invariant beats a list — ask the
+# property, don't enumerate the cases."
+#
+# An enumerated list of blocking msgids would be wrong the moment the next
+# slice adds a string. S1 ships 122 strings; S2-S7 add the listing, offer,
+# handover, confirm, report and dispute copy, and the handover guidance (B1) is
+# **entirely in a later slice** — so a list written today would name zero B1
+# strings and silently report full coverage of the most safety-critical class
+# in the deck. Somebody would then have to remember to extend it, six times.
+#
+# A prefix rule cannot fail that way. A new string called `hand.guidance.5` is
+# blocking the moment it is written, with nobody remembering anything. The cost
+# is that the rule is coarse — it can over-include — and over-including is the
+# right direction for a gate that fails closed.
+#
+# THE CEILING, DECLARED HERE RATHER THAN DISCOVERED LATER: a prefix rule cannot
+# express "this one string in a blocking family is not actually
+# legally-sensitive". If that case ever arises, the answer is a per-entry
+# `exceptions` list below with a reason and a reviewer — NOT a narrowed prefix,
+# because narrowing silently drops every future sibling too.
+# ---------------------------------------------------------------------------
+
+[meta]
+source = "company/design/COPY-DECK.md §2 and §11"
+match = "prefix"            # a msgctxt (deck key) matches if it starts with any `keys` entry
+fail_closed = true          # an unmatched key is NOT blocking; an unreviewed blocking key keeps the flag false
+slice_written = "S1"
+# The number of blocking-class strings present in locale/ta/LC_MESSAGES/django.po
+# at the time of writing, recorded so a later reader can tell whether the
+# catalogue grew without the gate being re-examined. It is NOT a coverage claim.
+blocking_strings_in_catalogue_at_S1 = 64
+blocking_strings_without_a_tamil_draft_at_S1 = 46
+
+# --- B1 ---------------------------------------------------------------------
+[classes.B1]
+scope = "COPY-DECK §7 — the handover guidance"
+why = """
+A mistranslation here is a safety and liability problem, not an awkward one. If
+the Tamil accidentally warrants anything, we have warranted it. API-CONTRACT
+§5.4 makes showing this notice a precondition of reaching SCHEDULED, so the
+Tamil is served at the moment two students are about to meet a stranger.
+"""
+keys = ["hand.guidance", "hand.agree", "hand.scheduled", "hand.reminder"]
+present_in_catalogue = false
+note = "No B1 string exists yet — the handover flow is slice S5. The prefix is declared now so the first one written is blocking on arrival."
+
+# --- B2 ---------------------------------------------------------------------
+[classes.B2]
+scope = "COPY-DECK §3 — every no-warranty string"
+why = """
+The English is engineered word by word to describe a mechanism and never to
+promise. A natural-sounding Tamil rendering is very likely to over-promise, and
+`tests/unit/test_forbidden_copy.py` reads English only (THREAT-MODEL risk A9),
+so a warranting Tamil string would pass every check we have.
+"""
+keys = ["trust."]
+present_in_catalogue = true
+reviewer_must_confirm = ["TR-1", "TR-12"]
+
+# --- B3 ---------------------------------------------------------------------
+[classes.B3]
+scope = "COPY-DECK §9, §10.3, §10.4 — reporting, grievance, age gate, consent, erase"
+why = """
+These carry statutory meaning (DPDP, IT Rules, E-Com rules) and the wording is
+a compliance artefact, not prose. `consent.listing_publication.disclosure` is a
+named condition of COMPLIANCE §2.5a; `erase.confirm.retained` is the r.8(3)
+disclosure; `age.rejected` is the AC-A2.3 refusal. A Tamil rendering that drifts
+is a defective legal notice served to the student least able to check it.
+"""
+keys = [
+  "age.",
+  "consent.",
+  "erase.",
+  "privacy.",
+  "report.",
+  "grievance.",
+  "dispute.",
+  "block.",
+  "legal.",
+]
+present_in_catalogue = true
+reviewer_must_confirm = ["TR-4", "TR-9", "TR-12"]
+
+# --- B4 ---------------------------------------------------------------------
+[classes.B4]
+scope = "COPY-DECK §3.1 — the negotiability strings"
+why = """
+Each one carries a limb of the s194-O position (COMPLIANCE §4.3.1). A Tamil
+rendering that reads as "the price is Rs 280" rather than "Rs 280 is what the
+seller is asking for" would weaken a tax position in a language the
+forbidden-string test cannot read. COPY-DECK §2: "of the four blocking classes
+this is the one where a wrong translation is least visible to us and most
+expensive."
+"""
+keys = ["price.", "hand.price", "listing.price", "sell.price", "search.filter.price"]
+present_in_catalogue = true
+reviewer_must_confirm = ["TR-11"]
+
+# --- Exceptions -------------------------------------------------------------
+# Empty, and it must stay empty unless a named human puts something in it. An
+# entry here removes a string from the gate, so it needs the same standing as a
+# REVIEWED.toml entry: a reason and a reviewer who is a person.
+[exceptions]

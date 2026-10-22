@@ -227,6 +227,99 @@ class Job(models.Model):
         ]
 
 
+class RateLimitCounter(models.Model):
+    """A fixed-window request counter — API-CONTRACT §2.4, ADR-001 §2.4.
+
+    **A deviation from ADR-001 §2.4's stated mechanism, raised to cto rather
+    than taken silently.** The ADR says *"Rate limiting and the small amount of
+    caching use **Django's database cache backend**, for the same reason: it
+    removes Redis."* This is a table instead, for two reasons:
+
+    1. **`CLAUDE.md` rule 13.** Django's `DatabaseCache` table has a column
+       literally named `value`, which is a W1b money token, so the P14 schema
+       guard went red on a table created by a migration — on a *mandated*
+       mechanism, with the tempting fix being an entry in `MONEY_WORDS_EXEMPT`
+       that would then exempt the name **database-wide, including on a model**.
+       Rule 13's first resort is *rename our own name*; owning the table is how
+       a name becomes ours to choose. Three columns, no exemption, control at
+       full strength.
+    2. **The increment becomes atomic.** The cache backend's `incr` is a
+       read-then-write, so N simultaneous requests can each read the same count
+       and all pass. `UPDATE … SET hit_count = hit_count + 1` is atomic on both
+       engines, which removes the looser of the two ceilings ADR-001 §2.4's own
+       note records.
+
+    The ADR's *reason* — no Redis — is unaffected: this is one small table in
+    the database we already have. Nothing else in the codebase uses a cache, so
+    the backend is removed rather than replaced.
+
+    # ponytail: fixed window, one row per (bucket, subject, window). Ceiling:
+    # window edges are sloppy, so a caller can get up to 2× the limit across a
+    # boundary — 10 in a bad minute for a 5/hour limit, which is ADR-001 §2.4's
+    # documented cost of a fixed window over a sliding one. Upgrade path: the
+    # ADR names it, a Redis token bucket, and the trigger is a measured abuse
+    # incident rather than a feeling.
+    """
+
+    bucket = models.TextField()
+    #: A **hash** of the subject, never the subject. An email address or an IP
+    #: in a rate-limit row is personal data in a table nobody thinks of as
+    #: holding any, and `COMPLIANCE.md` §7's standing rule makes a field with no
+    #: §7 row a defect. The hash is one-way and the row is purged with its
+    #: window, so there is nothing to inventory.
+    subject_hash = models.TextField()
+    window_started_at = models.DateTimeField()
+    hit_count = models.IntegerField(default=0)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "rate_limit_counters"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["bucket", "subject_hash", "window_started_at"],
+                name="rate_limit_window_uniq",
+            ),
+        ]
+        indexes = [models.Index(fields=["expires_at"], name="rate_limit_expires_idx")]
+
+
+class PurgeLog(models.Model):
+    """DATA-MODEL §8 `purge_log` — S1. Proof the expiry job ran.
+
+    `COMPLIANCE.md` §8.3: *"Retaining beyond the purpose without a legal basis
+    is its own breach. Build the expiry job at the same time as the
+    retention."* This table is how we prove it to G3/G4 — without it, "we purge
+    after a year" is a claim about a cron job nobody can audit.
+
+    It lives in `apps.core` beside `jobs` and `audit_log` rather than in
+    `apps.accounts`, because every later slice's retention writes to it and
+    `apps.core` is the one app nothing else may depend on in the other
+    direction.
+
+    `object_pk` is **text**, not a bigint: `user_tombstones`'s primary key is a
+    uuid, and a column that could hold either is a column that holds the
+    printed form of both.
+    """
+
+    table_name = models.TextField()
+    object_pk = models.TextField()
+    purge_due_at = models.DateTimeField(null=True, blank=True)
+    purged_at = models.DateTimeField(default=timezone.now)
+    job_run_id = models.TextField(null=True, blank=True)
+    mode = models.TextField()
+
+    class Meta:
+        db_table = "purge_log"
+        indexes = [
+            models.Index(fields=["table_name", "purged_at"], name="purge_log_table_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=_check_in("mode", ("PURGE", "PSEUDONYMISE")), name="purge_log_mode_chk"
+            ),
+        ]
+
+
 class IdempotencyKey(models.Model):
     """DATA-MODEL §5 `idempotency_keys`. Semantics in API-CONTRACT §4.1.
 

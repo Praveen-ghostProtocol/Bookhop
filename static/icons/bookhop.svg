@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="BookHop">
+<!-- The app icon. One scalable SVG rather than a set of PNGs: it is ~500 bytes
+     against ~8 KB for a 192+512 PNG pair, it is sharp at every density, and
+     every colour is a token value from design/tokens.css.
+
+     ponytail: SVG-only icon set. Ceiling — Chrome on Android accepts an SVG
+     maskable icon, but some older Android launchers and the Play "install app"
+     banner prefer a raster 192x192 and 512x512 pair. Upgrade path: add two
+     PNGs exported from this file to the `icons` array in
+     templates/manifest.webmanifest, when install-prompt behaviour is actually
+     measured on a real mid-range device. Nothing has been profiled yet. -->
+<rect width="192" height="192" fill="#2B3A8F"/>
+<!-- A catalogue card: the spine rule and three ruled lines. Direction A. -->
+<rect x="40" y="36" width="8" height="120" fill="#FAF7F0"/>
+<rect x="60" y="56" width="92" height="8" fill="#FAF7F0"/>
+<rect x="60" y="92" width="92" height="8" fill="#FAF7F0"/>
+<rect x="60" y="128" width="60" height="8" fill="#FAF7F0"/>
+</svg>

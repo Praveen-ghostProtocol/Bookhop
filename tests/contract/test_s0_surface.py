@@ -26,11 +26,6 @@ pytestmark = pytest.mark.django_db
 
 REPO = Path(__file__).resolve().parents[2]
 
-#: API-CONTRACT §5.8 and TASKS §2 S0: the whole HTTP surface of this slice.
-#: `web.urls` (frontend-developer, S1) is expected to add routes; when it does,
-#: every one of them is a discovery read path until proven otherwise and
-#: belongs in a gate test of its own.
-EXPECTED_S0_ROUTES = {"healthz", "readyz"}
 
 
 def _http_routes():
@@ -53,20 +48,118 @@ def _http_routes():
 # --------------------------------------------------------------------------
 
 
-def test_the_http_surface_is_exactly_the_two_operational_endpoints():
-    """A route that appears without a gate test is the gate's most likely
-    bypass, so a new route fails this test on purpose.
+def test_the_root_urlconf_registers_no_student_facing_route_itself():
+    """**Re-pointed for S1, and the old assertion was the wrong one.**
 
-    If this fails because `web/urls.py` has landed, that is S1's frontend and
-    each new route needs: `assert_discovery_open` on every discovery read path
-    (ADR-002 §4.1(a)), and a journey test that a real student on a closed campus
-    sees no listing data (PRD AC-M6.1).
+    This test used to assert the surface was *exactly* `/healthz` and `/readyz`.
+    Its own docstring anticipated S1 breaking it, and S1 did: eighteen routes
+    exist. A count of routes was never the thing QA wanted guaranteed — it was a
+    stand-in for "nobody can add a route without someone looking at it", and as
+    a flat list it is the shape `CLAUDE.md` rule 11 names: it needs an entry per
+    slice, and the entry gets added without the looking.
+
+    **What QA actually wants guaranteed about the surface, and can:** the root
+    URLconf is an *ownership* boundary. `TASKS.md` §1 says
+    `bookhop/urls.py` includes `web.urls` once, in S0, and that
+    frontend-developer never edits it; the API-CONTRACT §1 blocks mount per app.
+    So the invariant is that **this file declares operational endpoints and
+    includes, and no third thing** — a student-facing route registered here
+    would be a route outside any owning module's slice discipline, which is the
+    route nobody reviews.
+
+    Asserted structurally, so it does not grow with pages.
     """
-    routes = _http_routes()
-    unexpected = routes - EXPECTED_S0_ROUTES
-    assert unexpected == set(), (
-        f"routes outside S0's declared surface: {sorted(unexpected)}. Each needs "
-        "a gate check and a gate test before it ships (ADR-002 §4.1(a))."
+    from django.urls import get_resolver
+
+    own_routes, includes = [], []
+    for pattern in get_resolver().url_patterns:
+        if hasattr(pattern, "url_patterns"):
+            includes.append(str(pattern.pattern))
+        else:
+            own_routes.append(str(pattern.pattern))
+
+    assert set(own_routes) == {"healthz", "readyz"}, (
+        "bookhop/urls.py declares a route that is neither an operational "
+        f"endpoint nor an include: {sorted(set(own_routes) - {'healthz', 'readyz'})}. "
+        "TASKS §1 makes this file an ownership boundary; a route here belongs to "
+        "nobody's slice and gets nobody's gate test."
+    )
+    assert includes, "web.urls is not mounted; the student-facing surface is gone"
+
+
+def test_no_route_serves_campus_scoped_data_while_the_gate_is_closed(client):
+    """The property the route count was standing in for, in the form that is
+    checkable today.
+
+    What QA wants is *"no route reaches a listing while the gate is closed"*.
+    `listings` is an S2 table, so that assertion has no subject yet and saying
+    it now would be rule 12's vacuous guard. What exists today is **campus-scoped
+    tenancy data**, and the same question can be asked of it: with a campus
+    seeded and its gate shut, no route may put that campus's name or slug in a
+    response.
+
+    This sweeps **every** route — operational, L2 and L3 — rather than the two
+    QA checked before, and it extends to listings by adding one needle when S2
+    lands, instead of by adding eighteen routes to a list.
+    """
+    from apps.core.models import Campus, City
+
+    city = City.objects.create(name="Chennai", state="Tamil Nadu")
+    campus = Campus.objects.create(
+        city=city, name="Secret Campus Name", slug="secret-campus-slug"
+    )
+    assert campus.discovery_enabled_at is None, "the fixture must be gate-closed"
+
+    needles = ("Secret Campus Name", "secret-campus-slug")
+    leaks = {}
+    for route in sorted(_http_routes()):
+        if any(ch in route for ch in "<(^$*"):
+            continue
+        path = "/" + route.lstrip("/")
+        response = client.get(path)
+        body = response.content.decode(errors="ignore")
+        found = [n for n in needles if n in body]
+        if found:
+            leaks[path] = found
+    assert leaks == {}, (
+        f"these routes put a gate-closed campus's identity in a response: {leaks}"
+    )
+
+
+def test_the_student_facing_tree_cannot_reach_a_listing_because_it_cannot_reach_the_orm():
+    """Why frontend's eighteen routes are **structurally** not discovery read
+    paths — which is the claim that lets the gate journey wait for S2/S3.
+
+    `TASKS.md` §1: `web/**` *"calls L1 services, never the ORM, never L2 over
+    HTTP"*. That is the whole argument: a view that cannot query a model cannot
+    return a listing except through a service function, and every discovery
+    service function begins with `assert_discovery_open` (ADR-002 §4.1(a)).
+
+    Measured rather than trusted: no file in `web/**` uses a queryset, imports a
+    model, or imports `requests`/`urllib` to call L2 over HTTP. This is cheap
+    now and it is the check that keeps being true as pages are added — the
+    alternative is re-asserting the gate on every new route, which is the list
+    again.
+    """
+    import pathlib
+    import re
+
+    web = pathlib.Path(__file__).resolve().parents[2] / "web"
+    assert web.is_dir(), "web/** does not exist"
+
+    orm = re.compile(r"\.objects\.|from apps\.\w+\.models|from django\.db import")
+    http = re.compile(r"^\s*import (requests|urllib)|^\s*from (requests|urllib)", re.M)
+    offenders = {}
+    for path in sorted(web.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        hits = [m.group(0) for m in orm.finditer(text)] + [
+            m.group(0).strip() for m in http.finditer(text)
+        ]
+        if hits:
+            offenders[path.relative_to(web.parent).as_posix()] = sorted(set(hits))
+    assert offenders == {}, (
+        "web/** reaches the database or L2 directly, so the gate is no longer "
+        f"guaranteed by the service layer it was placed in: {offenders}"
     )
 
 
@@ -105,12 +198,32 @@ def test_readyz_reports_not_ready_when_a_job_is_overdue(client):
 
     from apps.core.models import Job
 
+    # This test owns its precondition rather than assuming a clean database.
+    # It previously asserted `/readyz` was 200 *first*, which made it depend on
+    # global state -- and it duly failed in suite order while passing alone,
+    # which is the signature of leaked committed rows. That leak is a finding in
+    # its own right (`test_the_test_database_is_not_polluted_by_committed_rows`)
+    # and not something this test should be silently absorbing.
+    overdue = Job.objects.filter(
+        run_after__lt=timezone.now() - timedelta(minutes=5),
+        completed_at__isnull=True, failed_at__isnull=True,
+    )
+    overdue.delete()
     assert client.get("/readyz").status_code == 200
+
     Job.objects.create(kind="qa.overdue", payload={},
                        run_after=timezone.now() - timedelta(minutes=30))
     r = client.get("/readyz")
     assert r.status_code == 503
     assert r.json()["ready"] is False
+
+    # The body is `{"ready": false}` and nothing else. API-CONTRACT §5.8
+    # reserves counters for the token-protected `/metricsz`, and the view now
+    # logs the detail instead of serving it (ASVS V13). Asserted, because an
+    # unauthenticated probe that grows a field is how a counter becomes public.
+    assert set(r.json()) == {"ready"}, (
+        f"/readyz exposes more than readiness: {sorted(r.json())}"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -219,3 +332,43 @@ def test_a_django_admin_is_not_registered_in_s0():
     from django.conf import settings
 
     assert "django.contrib.admin" not in settings.INSTALLED_APPS
+
+
+def test_the_test_database_carries_no_committed_rows_between_tests(client):
+    """**FINDING F19 — the isolation canary, and it is Red Team's finding
+    measured from QA's side.**
+
+    Red Team established that an autouse cache-clearing fixture gives roughly 99
+    tests undeclared database access, and that pytest-django's blocker cannot
+    block an already-connected PostgreSQL alias. A test with undeclared access
+    writes **outside** the per-test transaction, so its rows commit and stay for
+    the rest of the session.
+
+    QA met this before reading the memo:
+    `test_readyz_reports_not_ready_when_a_job_is_overdue` passed alone and
+    failed in suite order, because something had committed an overdue `jobs`
+    row and `/readyz` was therefore 503 before the test created anything. **A
+    test that passes alone and fails in suite order is the signature of leaked
+    committed state**, and the right response is to measure the leak rather than
+    to make the test tolerant of it — which is why this canary exists and why
+    the readyz test now clears its own precondition instead of absorbing the
+    problem.
+
+    The tables listed are ones no properly isolated test should leave behind.
+    They are checked at the *start* of a test, so a non-empty table means a
+    previous test committed. When the isolation fix lands this goes green, and
+    the number of tests whose verdict changes is the measure of what this
+    session's green actually meant.
+    """
+    from apps.core.models import AuditLog, Campus, City, GateAuthorisation, Job
+
+    leaked = {
+        model.__name__: model.objects.count()
+        for model in (Job, AuditLog, GateAuthorisation, Campus, City)
+        if model.objects.count()
+    }
+    assert leaked == {}, (
+        "rows committed by an earlier test are visible at the start of this "
+        f"one, so the per-test transaction is not containing writes: {leaked}. "
+        "Red Team's undeclared-database-access finding, measured."
+    )

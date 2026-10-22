@@ -1,0 +1,33 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  `GET /offline` — API-CONTRACT §5.8, SYSTEM §4.27. The service worker's
+  navigation fallback.
+
+  IT NEVER SHOWS A QUEUED-ACTION LIST. ADR-001 §6 excludes offline writes, and
+  a UI that implies a queued write is a lie about durability. Nothing on this
+  page says "we'll send it when you're back", because we will not.
+
+  Footer links that need the network render as plain text with "needs a
+  connection" beside them rather than as disabled links — there is no disabled
+  <a> in this design system (SYSTEM §4.1 `offline`, §4.3 `disabled`). That is
+  what `offline_mode` switches in base.html.
+
+  The cached transfer docket and the handover guidance text belong here too
+  (SYSTEM §4.12 `offline`, §4.20 `offline`) — they are the highest-value cached
+  content in the product, and they arrive with the transfer flow in S5. There
+  is no placeholder for them: an empty docket is specified as **absent**, not
+  as an empty state (SYSTEM §4.12 `empty`).
+{% endcomment %}
+{% block title %}{% translate "No connection" context "sys.offline.h" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "No connection" context "sys.offline.h" %}</h1>
+
+<div class="notice notice--offline">
+  <span class="notice__label">{% translate "No connection" context "sys.offline.h" %}</span>
+  <p>{% translate "This didn't reach BookHop. Nothing was lost — try again when you have signal." context "sys.offline" %}</p>
+</div>
+
+{# A real reload, as a link, so it works with JavaScript off. #}
+<a class="btn btn--secondary" href="/">{% translate "Try again" context "sys.retry" %}</a>
+{% endblock %}

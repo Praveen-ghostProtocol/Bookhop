@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  SYSTEM §4.22, the page-level state unique to this product. COPY-DECK §6.2
+  `gate.closed.*`. `assert_discovery_open(campus)` can refuse every discovery
+  call (API-CONTRACT §5.3) and a real student on a closed campus gets
+  403 GATE_CLOSED with **no listing data on the page at all**.
+
+  No search field, no sample listings, no "coming soon" countdown, and **no
+  date** — `gate.closed.body` names none because we do not have one and we do
+  not invent one. The one available action is leaving a note, which needs no
+  open gate; `POST /wanted` is slice S2, so in S1 the page states the position
+  and stops rather than offering a control that posts nowhere.
+{% endcomment %}
+{% block title %}{% blocktranslate context "gate.closed.title" with campus=campus_name|default:"" %}Listings aren't open at {{ campus }} yet.{% endblocktranslate %}{% endblock %}
+
+{% block main %}
+<h1>{% blocktranslate context "gate.closed.title" with campus=campus_name|default:"" %}Listings aren't open at {{ campus }} yet.{% endblocktranslate %}</h1>
+
+<div class="notice notice--gate">
+  <span class="notice__label">{% translate "Not open yet" context "gate.closed.label" %}</span>
+  <p>{% translate "You can leave a note saying which book you need, and we'll tell you when listings open." context "gate.closed.body" %}</p>
+</div>
+{% endblock %}

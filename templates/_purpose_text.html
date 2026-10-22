@@ -1,0 +1,20 @@
+{% load i18n %}{% comment %}
+  One sentence per purpose, in plain language (PRD AC-A3.1).
+
+  `listing_publication` is `consent.listing_publication.disclosure` from
+  COPY-DECK §10.4 **verbatim and unaltered** — it is condition 2 of
+  COMPLIANCE §2.5a and acceptance criterion 7g asserts its presence. Do not
+  shorten it, do not split it and do not paraphrase it: if it is not live here
+  and in the privacy notice, `trust.campus_mail` is outside the notified
+  purpose and must not render anywhere in the product.
+
+  The other five are PROVISIONAL (see `_purpose_name.html`).
+{% endcomment %}{% spaceless %}
+{% if key == "account" %}{% translate "Your college email address, your display name and your campus." context "consent.text.account" %}
+{% elif key == "listing_publication" %}{% translate "When you put a book on the list, other students on your campus see your display name, your campus, and that you signed in with a college email address." context "consent.listing_publication.disclosure" %}
+{% elif key == "location_proximity" %}{% translate "Which campus you are at, used to show you books listed on that campus and the meeting points on it." context "consent.text.location_proximity" %}
+{% elif key == "chat" %}{% translate "What you write to another student about one book. BookHop stores it, and staff can read it if a problem is reported." context "consent.text.chat" %}
+{% elif key == "safety_moderation" %}{% translate "What you write in a report, and the listing or person it is about, so staff can look at it." context "consent.text.safety_moderation" %}
+{% elif key == "notifications" %}{% translate "Sending you a message when someone offers on your book, or when a handover is arranged." context "consent.text.notifications" %}
+{% endif %}
+{% endspaceless %}

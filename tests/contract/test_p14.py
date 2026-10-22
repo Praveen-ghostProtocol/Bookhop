@@ -686,52 +686,42 @@ def test_the_source_grep_sees_every_declaration_shape_adr_w1c_names(
          "amount_paid"),
     ],
 )
-def test_finding_the_source_grep_misses_three_declaration_shapes(
+def test_regression_the_source_grep_sees_the_three_shapes_it_used_to_miss(
     shape, snippet, identifier
 ):
-    """**FINDING F13, non-blocking, one line each to close.**
+    """**REGRESSION for QA-S0 F13** — was a characterisation test, now the fix.
 
-    The grep sees `def`, `x = models.Field(...)`, `"key":` and `x: type = ...`.
-    Three money-shaped declaration shapes are outside all four:
+    The grep saw `def`, `x = models.Field(...)`, `"key":` and `x: type = ...`.
+    Three money-shaped declaration shapes were outside all four, and the first
+    of them — `settled_price_paise = property(lambda self: 30000)` — is the
+    exact shape QA used in v1.0 and v2.0 to demonstrate that a computed money
+    value is invisible to every schema assertion. W1c is the **only** control
+    for that residual (ADR-003 §2.3 W5), so a gap in it was a gap in the whole
+    of that control.
 
-    1. **`settled_price_paise = property(lambda self: 30000)`** — a property
-       *assigned* rather than decorated. This is the exact shape QA used to
-       demonstrate the `@property` residual in QA-S0 v1.0 and v2.0, and it is
-       the one W1c exists for. The decorated form is caught; this one is not.
-    2. **`cash_received = 30000`** — a bare class constant.
-    3. **`amount_paid: int`** — an annotation with no assignment, which is how a
-       dataclass or a `NamedTuple` field is written.
-
-    Severity: lower than it sounds, and QA says so rather than inflating it. The
-    schema control catches any of these that reaches a column, and (1) and (3)
-    both require a developer to pick an unusual spelling. But W1c is the **only**
-    control for a computed money value — ADR-003 §2.3 W5 says so — so a gap in
-    it is a gap in the whole of that control.
-
-    The fix is two regexes:
-    `^\\s*(\\w+)\\s*=\\s*(?:property|cached_property)\\(` and
-    `^\\s*(\\w+)\\s*:\\s*\\w+\\s*$`. A blanket `^\\s*(\\w+)\\s*=` would also
-    catch (2) but would match local variables inside functions, and a guard
-    whose first encounter with the codebase is a false positive teaches a
-    developer that the guard is wrong — this project's own reasoning, and the
-    reason QA is not recommending it.
-
-    Belongs in S1, with the first real `@property` on a model. Not an S0
-    blocker: nothing in `apps/**` uses any of the three shapes today, which
-    `test_the_source_grep_is_green_on_the_current_tree` confirms.
+    All three are now seen. Kept parametrised and named for the finding so the
+    regression is traceable to what it came from.
     """
-    assert identifier not in _sees(snippet), (
-        f"the grep now sees {shape}; F13 is closed and this test should become a "
-        "regression"
-    )
+    assert identifier in _sees(snippet), f"the grep no longer sees {shape}"
+
     import importlib
 
     p14 = importlib.import_module("apps.core.p14")
-    assert p14.money_tokens_in(identifier), (
-        f"{identifier!r} is money-shaped, so the miss matters"
-    )
+    assert p14.money_tokens_in(identifier), f"{identifier!r} is not money-shaped"
 
 
+def test_the_widened_grep_did_not_start_flagging_ordinary_code():
+    """The other half of F13's fix, and the reason QA did **not** recommend a
+    blanket `^\\s*(\\w+)\\s*=`: a grep that fires on a local variable called
+    `total` inside a function teaches a developer that the guard is wrong
+    (`CLAUDE.md` rule 13), and the first thing they do is stop reading it.
+
+    Asserted as the property: the grep is green on the live tree. If widening it
+    had caught ordinary code, this is where it would show.
+    """
+    module = _grep()
+    module.test_no_declared_identifier_in_apps_is_money_shaped()
+    module.test_no_forbidden_response_key_is_declared_in_apps()
 def test_the_source_grep_is_green_on_the_current_tree():
     """F13's severity rests on this: the three missed shapes are not in use."""
     module = _grep()

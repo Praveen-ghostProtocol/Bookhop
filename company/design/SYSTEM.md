@@ -560,7 +560,7 @@ We haven't checked who they are.              same block, same type size
    Showing the fact to a counterparty is a different processing operation from
    verifying it. Criterion 7g.
 3. **`trust.campus_mail` renders only when gated on
-   `campus_verifications.method = 'EMAIL_DOMAIN'` — never on
+   `campus_verifications.method = 'INSTITUTIONAL_EMAIL'` — never on
    `users.campus_verified`.** These are two different facts. A student who
    came through the staff-assisted re-verification path (`ADR-001` §2.5) is
    `campus_verified = true` **and did not sign in with a college email
@@ -572,7 +572,7 @@ We haven't checked who they are.              same block, same type size
 | State | Specification |
 |---|---|
 | `default` | The four lines above |
-| `empty` | **Method ≠ `EMAIL_DOMAIN`:** the sign-in line and its qualifier are **both absent**; the block shows `display_name` · department, year · campus and stops. **No substitute string** — "Verified by BookHop staff" would be BookHop asserting something about a person, which is the worst string that could exist in this product. **And no comment on the absence**: no "not available", no greyed placeholder, no tooltip |
+| `empty` | **Method ≠ `INSTITUTIONAL_EMAIL`:** the sign-in line and its qualifier are **both absent**; the block shows `display_name` · department, year · campus and stops. **No substitute string** — "Verified by BookHop staff" would be BookHop asserting something about a person, which is the worst string that could exist in this product. **And no comment on the absence**: no "not available", no greyed placeholder, no tooltip |
 | `loading` | Renders with the page; no independent loading state |
 | `partial` | N/A — the block is atomic |
 | `error` | If the verification method cannot be read, the block degrades to `empty`. **Fail closed**: an unknown method must never render the string |
@@ -581,7 +581,7 @@ We haven't checked who they are.              same block, same type size
 | `disabled` | N/A |
 
 **Residual risk, flagged not solved.** At one campus almost every seller is
-`EMAIL_DOMAIN`, so a rare absence is *more* conspicuous than a common one and
+`INSTITUTIONAL_EMAIL`, so a rare absence is *more* conspicuous than a common one and
 a buyer may read it as a negative signal we did not intend. Every alternative
 is worse — a substitute string vouches, a "not available" label comments on
 it — so this is accepted with the risk named. Revisit if staff-assisted
@@ -1161,7 +1161,7 @@ Objective, binary, and mapped to the charter's metrics.
 | **7e** | **Every flow that displays a rupee figure displays the negotiability sentence at least once** | One assertion per flow: listing detail, search results region, handover page. `COPY-DECK.md` §1.6 rule 2 |
 | **7f** | **No template interpolates `campuses.email_domains` or any element of it, and no `.po` string contains an `@`-prefixed domain literal** | grep + a template-variable check. `COMPLIANCE.md` §2.5a condition 1 / §4.3.2 item 11. **Scope note:** echoing the student their own submitted address on the link-sent page (§4.25) is explicitly in scope of the product and out of scope of this ban |
 | **7g** | **The seller block does not render the sign-in line unless `consent.listing_publication.disclosure` is present in the live `listing_publication` consent text and the privacy notice** | One test asserting the notice string exists; the block's template guards on it. `COMPLIANCE.md` §2.5a condition 2 |
-| **7h** | **`trust.campus_mail` renders if and only if `campus_verifications.method = 'EMAIL_DOMAIN'`** — never on `users.campus_verified`, and an unknown method renders nothing | Two tests: a staff-re-verified user's listing shows no sign-in line and no substitute text; a NULL/unknown method fails closed. **`COMPLIANCE.md` §2.5a condition 3 — the defect this catches passes every happy-path review** |
+| **7h** | **`trust.campus_mail` renders if and only if `campus_verifications.method = 'INSTITUTIONAL_EMAIL'`** — never on `users.campus_verified`, and an unknown method renders nothing | Two tests: a staff-re-verified user's listing shows no sign-in line and no substitute text; a NULL/unknown method fails closed. **`COMPLIANCE.md` §2.5a condition 3 — the defect this catches passes every happy-path review** |
 | **7i** | **Any view containing the figure prompt also contains `price.not_recorded`** | Assert on the listing detail route. `COMPLIANCE.md` §4.3.3 condition 3 |
 | **7j** | **`messages.contact_pattern_flag`'s pattern set contains no currency pattern** (`₹`, `Rs`, `INR`, `\d+/-`), and nothing derives an amount from `messages.body` | Assert the pattern set itself, not just the column list. `COMPLIANCE.md` §4.3.3 condition 2 / §4.3.2 item 10 |
 | **7k** | **The link-sent page DOES render the address the student just submitted** | A **positive** assertion, deliberately: criteria 7f and 7g forbid rendering a domain, and the obvious way to over-comply is to strip the echo from the one page where the student needs it, breaking sign-in while believing a control was tightened. Showing someone their own submitted address is not a disclosure to a counterparty. A prose scope note would be read once; a failing test is read every time |
@@ -1275,3 +1275,45 @@ Objective, binary, and mapped to the charter's metrics.
 | v1.0 | 2026-10-21 | First system. Ten rules, eight-state vocabulary, 27 verified colour pairs, ~27 components with every state, htmx legibility rules, 13 acceptance criteria |
 | **v1.2** | **2026-10-21** | **Both compliance rulings implemented (`COMPLIANCE.md` v1.2 §2.5a, §4.3.3).** New **§4.11a seller block** with the three §2.5a conditions, including the fail-closed gate on `campus_verifications.method` and the deliberate *absence* (no substitute string) for staff-re-verified sellers. §4.11 restructured into **two labelled blocks** — the adjacency fix compliance flagged and left to me. §4.18 message hint now **invites a figure addressed to the seller**; §4.23 gains the hard ban on currency patterns in `contact_pattern_flag` and on deriving any amount from `messages.body`. §4.15 records the no-asking-price control of last resort, with its cost, so nobody concludes that recording prices is the remaining option. **New failable criteria 7f–7j.** Escalations 3a and 5 closed |
 | **v1.1** | **2026-10-21** | **Negotiability added as a design constraint on instruction from `COMPLIANCE.md` §4.3.1.** New rule 11. §4.15 relabelled from "Asking price" to "Seller's asking price" with a three-part anatomy, a ban on any numeric amount input, a ban on amounts in notifications, and the `max_price_paise` filter label. Consequential edits to §4.11, §4.13, §4.18, §4.20. New acceptance criteria 7b–7e. Escalation 9 added (schema-side guard). `trust.campus_mail` recorded as **blocked pending a compliance ruling** (§7.3a) rather than shipped on assumption |
+
+---
+
+## Amendment, 2026-10-22 — ceo-planning, per cto rulings (DATA-MODEL A-26, API-CONTRACT A-17)
+
+**Criterion 7h's spelling corrected throughout: `campus_verifications.method
+= 'INSTITUTIONAL_EMAIL'`.** `EMAIL_DOMAIN` was never a value — the schema
+CHECK and the running code have always said `INSTITUTIONAL_EMAIL` — so **7h
+could only ever pass vacuously**, with the gate spelled two ways across three
+documents and the code. Found by frontend-developer trying to build against
+it, which is the only way a criterion like that surfaces.
+
+Ratified reasoning, so it is not re-litigated: **`INSTITUTIONAL_EMAIL` names
+the thing verified (an institutional affiliation) rather than the mechanism
+used (a domain match)**, which is how its sibling `STAFF_MANUAL` is named, and
+which stays correct when a second method arrives that still matches a domain.
+`EMAIL_DOMAIN` would be wrong again within a year.
+
+**Frontend's both-spellings tolerance should now be dropped** — a tolerance
+that outlives its divergence is how the divergence returns.
+
+### Criterion 7f — NARROWED, with its rationale travelling beside it
+
+**7f now reads: no template may interpolate *another person's* email domain.**
+The second limb is untouched and is the part doing real work: **no domain
+literal in any string file; the value arrives from the service at render
+time.**
+
+**Rationale, which must stay next to the criterion:** COMPLIANCE §2.5a is
+entirely about **a seller's** domain on **a listing**, where it is attribute
+disclosure about an identifiable person dressed as a trust badge. The
+*accepted-domain list* on the link-sent page is campus configuration —
+identical for every visitor, about nobody, and already printed on the
+institution's own website. **There is no data subject.** Meanwhile PRD AC-A1.2
+is a product requirement, so as written **the primary journey could only work
+by violating a failable criterion.**
+
+**Why the rationale is now mandatory beside the rule, and this is its third
+instance: a criterion written from a rationale, without the rationale
+travelling with it, drifts wider than the risk it was written for — and the
+widening is invisible because the criterion still reads protective.** Strip
+this paragraph and the broad version gets restored by the next careful person.

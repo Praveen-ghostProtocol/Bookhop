@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  The `error` state of the page shell — SYSTEM §4.1, §4.7.
+
+  Every 4xx and 5xx renders this: the same shell, the same footer, an error
+  notice inside <main>. **Never a bare framework error page** — a 500 still has
+  to show the grievance-officer link, because that contact is a regulatory
+  requirement (E-Com r.4(2)) and an outage is exactly when someone needs it.
+
+  COPY-DECK §10.2: no "Oops!", no "Uh oh!", no bare "Something went wrong", no
+  "Please try again later", no exclamation mark, no "Our team is working on it"
+  (there is no team at pilot scale). The heading names what failed and the body
+  says what to do.
+{% endcomment %}
+{% block title %}{{ heading }}{% endblock %}
+
+{% block main %}
+<h1>{{ heading }}</h1>
+
+<div class="notice notice--error">
+  <span class="notice__label">{% translate "What happened" context "sys.problem.label" %}</span>
+  {% if body %}<p>{{ body }}</p>{% endif %}
+  {% if request.request_id %}
+    {% comment %} API-CONTRACT §2.2: a 500 never echoes an exception message; the
+       request_id is the only thing the user gets, and it is enough to find the
+       log line. Monospaced because it gets read out loud to support. {% endcomment %}
+    <p class="meta">{% translate "Reference" context "sys.request_id.label" %}: <span class="mono">{{ request.request_id }}</span></p>
+  {% endif %}
+</div>
+
+<a class="btn btn--secondary" href="/">{% translate "Go to the start" context "sys.home" %}</a>
+{% endblock %}

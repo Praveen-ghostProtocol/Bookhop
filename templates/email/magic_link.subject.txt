@@ -1,0 +1,1 @@
+{% load i18n %}{% translate "Your BookHop sign-in link" context "email.magic_link.subject" %}

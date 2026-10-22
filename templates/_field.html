@@ -1,0 +1,32 @@
+{% load i18n %}{% comment %}
+  One form field — SYSTEM §4.4.
+
+  <label> above the control, always visible, never a placeholder-as-label.
+  Hint below the label and above the input, so a screen reader reads it before
+  reaching the control rather than after.
+
+  "Required" is a word in the label, never an asterisk: an asterisk is
+  unreadable to a screen reader without extra wiring.
+
+  BOTH `aria-describedby` TARGETS ARE ALWAYS EMITTED, EVEN WHEN EMPTY. The
+  input's `aria-describedby` is set once in `web/forms.py _Form._wire_aria` and
+  names `<id>-hint` and `<id>-error` unconditionally, because it is a static
+  widget attribute and there is no clean way to vary it per render. An
+  `aria-describedby` that points at an id which does not exist is invalid ARIA
+  and some screen readers announce nothing at all for the whole attribute — so
+  the empty spans are load-bearing, not slop. An empty described-by target
+  contributes no text, so a clean field announces exactly its label.
+
+  `.field__hint:empty` and `.field__error:empty` are hidden in CSS so the empty
+  spans take no vertical space.
+
+  Takes: field (bound), hint (string or empty), required (bool).
+{% endcomment %}
+<div class="field{% if field.errors %} field--invalid{% endif %}">
+  <label class="field__label" for="{{ field.id_for_label }}">
+    {{ field.label }}{% if required %} <span class="field__req">({% translate "required" context "sys.required" %})</span>{% endif %}
+  </label>
+  <span class="field__hint" id="{{ field.id_for_label }}-hint">{{ hint|default:"" }}</span>
+  <span class="field__error" id="{{ field.id_for_label }}-error">{% if field.errors %}{{ field.errors.0 }}{% endif %}</span>
+  {{ field }}
+</div>

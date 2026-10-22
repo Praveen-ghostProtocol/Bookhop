@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J1 step 4. COPY-DECK §10.3 (B3, blocking in Tamil). PRD US-A2.
+
+  Native `<input type="date">` — no library, no custom picker, no three
+  <select>s. The OS picker is already localised and already accessible
+  (ADR-001 §2.3). There is no client-side age check here: AC-A2.2 requires the
+  server result to be identical with the form bypassed, and a client block that
+  is not also a server block is theatre.
+
+  `age.why` states the mechanism and the retention in one line. No copy on this
+  page implies an age check stronger than a declaration — PRD US-A2's honest
+  limitation is a product statement, not just a risk-register line.
+{% endcomment %}
+{% block title %}{% translate "Your date of birth" context "age.label" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Your date of birth" context "age.label" %}</h1>
+
+{% include "_errorslot.html" %}
+
+<form method="post" action="/account/age">
+  {% csrf_token %}
+  {% translate "BookHop is only for students aged 18 and over. We don't keep this date." context "age.why" as age_hint %}
+  {% include "_field.html" with field=form.date_of_birth required=True hint=age_hint %}
+  {% comment %} PROVISIONAL COPY — no deck string exists for this button. A verb phrase
+     naming the effect, per SYSTEM §4.2. design-director to supply. {% endcomment %}
+  <button class="btn btn--primary" type="submit">{% translate "Confirm my date of birth" context "age.submit" %}</button>
+</form>
+{% endblock %}

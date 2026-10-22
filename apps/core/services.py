@@ -44,6 +44,7 @@ __all__ = [
     "verify_audit_chain",
     "enqueue",
     "idempotent",
+    "canonical_uuid4",
 ]
 
 #: The first row's predecessor. A constant rather than NULL so that `prev_hash`
@@ -261,6 +262,49 @@ def enqueue(kind, payload, run_after=None):
 # --- Idempotency (API-CONTRACT §4.1) --------------------------------------
 
 
+def canonical_uuid4(key):
+    """QA-S0 **F11**: the one canonical form of a UUIDv4 key, or None.
+
+    `uuid.UUID(str(key))` — what S0 shipped — answers a weaker question, and
+    API-CONTRACT §4.1's safety argument for the *global* anonymous namespace is
+    the stronger one: *"the key is a client-generated **UUIDv4**: a collision
+    requires guessing one."* Two gaps, both measured by QA, and they need
+    **different** fixes:
+
+      * **Any version and variant passed**, so
+        `00000000-0000-0000-0000-000000000001` was a legal anonymous key. That
+        is a *refusal*: a low-entropy key in a global namespace lets an attacker
+        claim keys and leave them without a stored response, so those keys
+        answer `409 IDEMPOTENCY_IN_PROGRESS` for the whole 24-hour retention.
+      * **Two spellings of one key took two rows.** `uuid.UUID` accepts the bare
+        32-hex form, braces, the `urn:uuid:` prefix and any case — one UUID in
+        five spellings, in a namespace whose entire safety argument is
+        uniqueness. **That is a normalisation, not a refusal**, and the
+        distinction is the part the first fix of this finding got wrong: merely
+        rejecting what did not already look canonical still accepted upper case,
+        because the comparison lower-cased its own input. Refusing a spelling
+        the client chose does not make the namespace unique — mapping every
+        spelling to one row does.
+
+    So: parse, require version 4, and return `str(parsed)`, which is the
+    canonical dashed lower-case form. The caller stores **that**, so the unique
+    index's notion of equality and the contract's are the same notion.
+
+    Deliberately **not** extended to authenticated keys: `user_id` partitions
+    that namespace, one principal per partition (API-CONTRACT §4.1's
+    invariant), so a short key there collides only with the same user's own and
+    the answer is the 409 idempotency exists to give. **If any endpoint ever
+    writes a key on another principal's behalf, that invariant breaks and this
+    check extends to them** — which is §4.1's A-16 sentence, repeated here
+    because this is the function that would have to change.
+    """
+    try:
+        parsed = uuid.UUID(str(key).strip())
+    except (ValueError, AttributeError, TypeError):
+        return None
+    return str(parsed) if parsed.version == 4 else None
+
+
 class Replay(Exception):
     """Raised with the stored response when a request is a replay."""
 
@@ -311,9 +355,11 @@ def idempotent(user_id, key, endpoint, body):
     which is the door a distressed non-user reaches us through, that is a
     disclosure, not a 409. Two changes, because one was not enough:
 
-    1. **An anonymous key must parse as a UUID**, else `400 VALIDATION_FAILED`.
-       That makes the contract's own "a collision requires guessing a UUIDv4"
-       argument true instead of assumed.
+    1. **An anonymous key must be a UUIDv4 and is stored in its canonical
+       form**, else `400 VALIDATION_FAILED` — see `canonical_uuid4`, which
+       closes QA-S0 F11's two halves (any version passed, and one UUID had five
+       spellings taking five rows). That makes the contract's own "a collision
+       requires guessing a UUIDv4" argument true instead of assumed.
     2. **An anonymous replay never returns a stored body.** It returns
        `Replay(status, None)`, so a retry still gets the right status code and
        is still not re-executed, and there is no path on which one anonymous
@@ -326,14 +372,16 @@ def idempotent(user_id, key, endpoint, body):
     if not key:
         raise IdempotencyKeyRequired()
     if user_id is None:
-        try:
-            uuid.UUID(str(key))
-        except (ValueError, AttributeError, TypeError):
+        # Normalised, not merely validated: every spelling of one UUID must
+        # claim the same row, or the global namespace is not unique. See
+        # `canonical_uuid4`.
+        key = canonical_uuid4(key)
+        if key is None:
             raise ValidationFailed(
-                "An Idempotency-Key on an unauthenticated request must be a UUID "
-                "(API-CONTRACT §4.1). Anonymous keys share one namespace, so a "
-                "short key is another caller's key."
-            ) from None
+                "An Idempotency-Key on an unauthenticated request must be a "
+                "UUIDv4 (API-CONTRACT §4.1). Anonymous keys share one namespace, "
+                "so a short or low-entropy key is another caller's key."
+            )
     request_hash = _sha256(_canonical(body))
     try:
         with transaction.atomic():

@@ -1,0 +1,785 @@
+# BookHop — Tamil (ta). DRAFTS. NOT APPROVED. NOT SERVED.
+#
+# Owner: frontend-developer (TASKS §1).
+#
+# ================= READ THIS BEFORE TRUSTING ANY LINE BELOW =================
+# Every msgstr here is a DRAFT by an agent that cannot verify its own Tamil
+# fluency, carried over from COPY-DECK §3-§10, which says the same thing in
+# bolder type. **None of it is approved and none of it may be served.**
+#
+# `feature_flags['i18n.ta_enabled']` is seeded false and stays false until a
+# NAMED NATIVE SPEAKER signs off the four blocking classes
+# (`locale/ta/BLOCKING_CLASSES.toml`). `locale/ta/REVIEWED.toml` is empty and
+# **no agent may write a reviewer's name into it** — an entry records a human's
+# sign-off and inventing one is fabricating evidence (CLAUDE.md rule 1,
+# THREAT-MODEL §6.1 residual risk A10).
+#
+# Until that review lands, "Tamil is supported" is NOT a true statement about
+# this product, and nobody should make it on the strength of this file
+# existing.
+#
+# AN EMPTY msgstr IS DELIBERATE, NOT AN OVERSIGHT. It marks a string whose
+# ENGLISH is itself provisional — design-director has not supplied it, so it is
+# flagged in the hand-back. Writing Tamil for unapproved English would be
+# inventing copy twice and would give a reviewer a moving target. The count is
+# in the hand-back.
+#
+# The Tamil deny-list candidates in COPY-DECK TR-8 and TR-11 are NOT applied
+# here. THREAT-MODEL §6.1(b) rules that Tamil gets an allow-list (a
+# reviewed-hash manifest) rather than a deny-list, because morphology defeats
+# stems and the banned concept is subject-dependent: `BookHop சரிபார்க்கவில்லை`
+# ("BookHop has not verified") is a REQUIRED string containing the banned
+# concept, negated. A matcher blind to voice and negation cannot rule on it.
+# ============================================================================
+msgid ""
+msgstr ""
+"Project-Id-Version: BookHop S1\n"
+"Language: ta\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: templates/account.html
+msgctxt "account.h1"
+msgid "Your account"
+msgstr ""
+
+#: templates/account.html
+msgctxt "account.privacy.link"
+msgid "Your privacy choices"
+msgstr ""
+
+#: templates/age.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "age.label"
+msgid "Your date of birth"
+msgstr "உங்கள் பிறந்த தேதி"
+
+#: templates/age_rejected.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "age.rejected"
+msgid "BookHop is only for students aged 18 and over. Your account has been removed and the date you entered was not kept."
+msgstr "BookHop 18 வயது மற்றும் அதற்கு மேல் உள்ள மாணவர்களுக்கு மட்டுமே. உங்கள் கணக்கு நீக்கப்பட்டுவிட்டது, நீங்கள் கொடுத்த தேதி வைத்துக்கொள்ளப்படவில்லை."
+
+#: templates/age_rejected.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "age.rejected.h"
+msgid "BookHop is for students aged 18 and over"
+msgstr ""
+
+#: templates/age_rejected.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "age.rejected.label"
+msgid "Your account has been removed"
+msgstr ""
+
+#: templates/age.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "age.submit"
+msgid "Confirm my date of birth"
+msgstr ""
+
+#: templates/age.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "age.why"
+msgid "BookHop is only for students aged 18 and over. We don't keep this date."
+msgstr "BookHop 18 வயது மற்றும் அதற்கு மேல் உள்ள மாணவர்களுக்கு மட்டுமே. இந்தத் தேதியை நாங்கள் வைத்துக்கொள்ள மாட்டோம்."
+
+#: templates/sign_in.html
+msgctxt "auth.email.hint"
+msgid "We send a link — there's no password to remember."
+msgstr "ஒரு லிங்க் அனுப்புவோம் — நினைவில் வைக்க கடவுச்சொல் இல்லை."
+
+#: web/forms.py
+msgctxt "auth.email.label"
+msgid "Your college email address"
+msgstr "உங்கள் கல்லூரி மின்னஞ்சல் முகவரி"
+
+#: templates/link_dead.html
+msgctxt "auth.expired"
+msgid "That link has already been used, or it's more than 10 minutes old."
+msgstr "அந்த லிங்க் ஏற்கெனவே பயன்படுத்தப்பட்டுவிட்டது, அல்லது 10 நிமிடத்திற்கு மேல் ஆகிவிட்டது."
+
+#: templates/link_dead.html
+msgctxt "auth.expired.cta"
+msgid "Send a new one"
+msgstr "புதிதாக அனுப்பு"
+
+#: templates/link_dead.html
+msgctxt "auth.expired.h"
+msgid "That link has stopped working"
+msgstr ""
+
+#: templates/sign_in.html
+msgctxt "auth.h1"
+msgid "Sign in"
+msgstr "உள்நுழைக"
+
+#: templates/account.html
+msgctxt "auth.logout"
+msgid "Sign out"
+msgstr ""
+
+#: templates/link_sent.html
+msgctxt "auth.sent.body"
+msgid "We sent a link to %(email)s. Open it on this phone. It works once and stops working after 10 minutes."
+msgstr "%(email)s க்கு ஒரு லிங்க் அனுப்பியுள்ளோம். அதை இதே ஃபோனில் திறக்கவும். ஒரு முறை மட்டும் வேலை செய்யும், 10 நிமிடத்தில் காலாவதியாகும்."
+
+#: templates/link_sent.html
+msgctxt "auth.sent.domains"
+msgid "We can only email addresses ending %(domains)s. Check you used your college address."
+msgstr ""
+
+#: templates/link_sent.html
+msgctxt "auth.sent.domains.label"
+msgid "If nothing arrives"
+msgstr ""
+
+#: templates/link_sent.html
+msgctxt "auth.sent.h1"
+msgid "Check your email"
+msgstr "உங்கள் மின்னஞ்சலைப் பாருங்கள்"
+
+#: templates/link_sent.html
+msgctxt "auth.sent.no_campus"
+msgid "This campus is not open for sign-ups yet."
+msgstr ""
+
+#: templates/link_sent.html
+msgctxt "auth.sent.resend"
+msgid "Send another link"
+msgstr "மற்றொரு லிங்க் அனுப்பு"
+
+#: templates/link_sent.html
+msgctxt "auth.sent.resend_wait"
+msgid "You can ask for another in %(n)s seconds."
+msgstr "%(n)s வினாடிகளில் மற்றொன்று கேட்கலாம்."
+
+#: templates/sign_in.html
+msgctxt "auth.submit"
+msgid "Send me the link"
+msgstr "எனக்கு லிங்க் அனுப்பு"
+
+#: templates/account.html
+msgctxt "campus.confirmed.label"
+msgid "Your campus"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.allow"
+msgid "Allow"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.blocks.account"
+msgid "Signing in"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.blocks.chat"
+msgid "Messaging the other student"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.blocks.listing_publication"
+msgid "Putting a book on the list"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.blocks.safety_moderation"
+msgid "Reporting a problem"
+msgstr ""
+
+#: web/views.py
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.granted"
+msgid "That is now allowed."
+msgstr ""
+
+#: templates/_purpose_text.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.listing_publication.disclosure"
+msgid "When you put a book on the list, other students on your campus see your display name, your campus, and that you signed in with a college email address."
+msgstr "நீங்கள் ஒரு புத்தகத்தைப் பட்டியலில் சேர்க்கும்போது, உங்கள் கல்லூரியில் உள்ள மற்ற மாணவர்கள் உங்கள் காட்சிப் பெயரையும், கல்லூரியையும், நீங்கள் கல்லூரி மின்னஞ்சல் முகவரியால் உள்நுழைந்ததையும் பார்ப்பார்கள்."
+
+#: templates/_purpose_name.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.name.account"
+msgid "Your account"
+msgstr ""
+
+#: templates/_purpose_name.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.name.chat"
+msgid "Messages with another student"
+msgstr ""
+
+#: templates/_purpose_name.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.name.listing_publication"
+msgid "Putting a book on the list"
+msgstr ""
+
+#: templates/_purpose_name.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.name.location_proximity"
+msgid "Which campus you are at"
+msgstr ""
+
+#: templates/_purpose_name.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.name.notifications"
+msgid "Being told when something happens"
+msgstr ""
+
+#: templates/_purpose_name.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.name.safety_moderation"
+msgid "Reports and problems"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.notice_link"
+msgid "Read the privacy notice"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.notice_version"
+msgid "Privacy notice version %(version)s."
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.refused.body"
+msgid "You can allow any of these later on this screen."
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.refused.label"
+msgid "What you can't do yet"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.required.warning"
+msgid "Without this you cannot sign in."
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.state.allowed"
+msgid "Allowed"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.state.not_allowed"
+msgid "Not allowed"
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.submit"
+msgid "Save these choices"
+msgstr ""
+
+#: templates/_purpose_text.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.text.account"
+msgid "Your college email address, your display name and your campus."
+msgstr ""
+
+#: templates/_purpose_text.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.text.chat"
+msgid "What you write to another student about one book. BookHop stores it, and staff can read it if a problem is reported."
+msgstr ""
+
+#: templates/_purpose_text.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.text.location_proximity"
+msgid "Which campus you are at, used to show you books listed on that campus and the meeting points on it."
+msgstr ""
+
+#: templates/_purpose_text.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.text.notifications"
+msgid "Sending you a message when someone offers on your book, or when a handover is arranged."
+msgstr ""
+
+#: templates/_purpose_text.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.text.safety_moderation"
+msgid "What you write in a report, and the listing or person it is about, so staff can look at it."
+msgstr ""
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.withdraw"
+msgid "Don't allow"
+msgstr ""
+
+#: web/views.py
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "consent.withdrawn"
+msgid "That is now not allowed."
+msgstr ""
+
+#: templates/email/magic_link.body.txt
+msgctxt "email.magic_link.expiry"
+msgid "It works once, and stops working %(minutes)s minutes after it was sent."
+msgstr ""
+
+#: templates/email/magic_link.body.txt
+msgctxt "email.magic_link.open"
+msgid "Open this link on the phone you want to use BookHop on:"
+msgstr ""
+
+#: templates/email/magic_link.subject.txt
+msgctxt "email.magic_link.subject"
+msgid "Your BookHop sign-in link"
+msgstr ""
+
+#: templates/email/magic_link.body.txt
+msgctxt "email.magic_link.unasked"
+msgid "If you did not ask for this, nothing has happened and you can ignore this email."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.cancel"
+msgid "Keep my account"
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.confirm.cta"
+msgid "Delete my account now"
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.confirm.h"
+msgid "This cannot be undone"
+msgstr "இதை மீட்டெடுக்க முடியாது"
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.confirm.rest"
+msgid "Everything else goes now."
+msgstr "மற்ற அனைத்தும் இப்போதே நீக்கப்படும்."
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.confirm.retained"
+msgid "We have to keep these records for one year, because the law requires it:"
+msgstr "இந்தப் பதிவுகளை ஒரு வருடம் வைத்திருக்க வேண்டும், சட்டம் அதைக் கோருகிறது:"
+
+#: templates/account.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.cta"
+msgid "Delete my account"
+msgstr "எனது கணக்கை நீக்கு"
+
+#: templates/deleted.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.done"
+msgid "Your account is gone."
+msgstr "உங்கள் கணக்கு நீக்கப்பட்டுவிட்டது."
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.now.body"
+msgid "Your email address, your display name, your sign-in and your campus confirmation are deleted straight away. You are signed out and the account cannot be used again."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.now.label"
+msgid "What happens now"
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.chat"
+msgid "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.consents"
+msgid "The record that you asked us to delete the account, and that we did."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.h"
+msgid "What BookHop has to keep"
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.reports"
+msgid "Reports and problems, and what was decided about them."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.transfers"
+msgid "Books that changed hands — kept without your name, under a code that cannot be turned back into you."
+msgstr ""
+
+#: templates/account.html
+msgctxt "export.cta"
+msgid "Download a copy of my data"
+msgstr ""
+
+#: templates/privacy.html
+msgctxt "export.hint"
+msgid "A file listing what BookHop holds about you, what it is used for, and what is kept after you delete your account."
+msgstr ""
+
+#: templates/gate_closed.html
+msgctxt "gate.closed.body"
+msgid "You can leave a note saying which book you need, and we'll tell you when listings open."
+msgstr "உங்களுக்குத் தேவையான புத்தகத்தைக் குறிப்பிட்டு வைக்கலாம், பட்டியல்கள் திறக்கும்போது தெரிவிப்போம்."
+
+#: templates/gate_closed.html
+msgctxt "gate.closed.label"
+msgid "Not open yet"
+msgstr ""
+
+#: templates/gate_closed.html
+msgctxt "gate.closed.title"
+msgid "Listings aren't open at %(campus)s yet."
+msgstr "%(campus)s-ல் பட்டியல்கள் இன்னும் திறக்கப்படவில்லை."
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "grievance.cta"
+msgid "Contact the grievance officer"
+msgstr "குறைதீர்ப்பு அதிகாரியைத் தொடர்பு கொள்ள"
+
+#: templates/help.html
+msgctxt "help.faq.h"
+msgid "The things students ask most"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.q.checked"
+msgid "Does BookHop check the books?"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.q.pay"
+msgid "How do I pay?"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.q.photos"
+msgid "What happens to my photos?"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.q.ratings"
+msgid "Are there ratings or reviews?"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.q.wrong"
+msgid "What if the book isn't what the listing said?"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.response"
+msgid "We read every message. We aim to reply the same day — we're a small team."
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.routes.h"
+msgid "If you need a person"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.scope"
+msgid "We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money."
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.scope.label"
+msgid "What BookHop can and can't do"
+msgstr ""
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.community_rules"
+msgid "Community rules"
+msgstr ""
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.handover_guidance"
+msgid "Handover guidance"
+msgstr ""
+
+#: templates/legal.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.missing"
+msgid "This notice has not been published yet."
+msgstr ""
+
+#: templates/legal.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.missing.label"
+msgid "Not published yet"
+msgstr ""
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.ranking"
+msgid "How results are ordered"
+msgstr ""
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.seller_terms"
+msgid "Terms for selling a book"
+msgstr ""
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.terms"
+msgid "Terms"
+msgstr ""
+
+#: templates/legal.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "legal.version"
+msgid "Version %(version)s"
+msgstr ""
+
+#: web/forms.py
+msgctxt "nominee.email.label"
+msgid "Their email address"
+msgstr ""
+
+#: templates/privacy.html
+msgctxt "nominee.hint"
+msgid "You can name one person to exercise your rights if you cannot. BookHop stores their name and email address and nothing else."
+msgstr ""
+
+#: web/forms.py
+msgctxt "nominee.name.label"
+msgid "Their name"
+msgstr ""
+
+#: web/views.py
+msgctxt "nominee.saved"
+msgid "That person is recorded as your nominee."
+msgstr ""
+
+#: templates/privacy.html
+msgctxt "nominee.submit"
+msgid "Record this person"
+msgstr ""
+
+#: templates/privacy.html
+msgctxt "nominee.summary"
+msgid "Name someone to act for you"
+msgstr ""
+
+#: templates/help.html
+#. BLOCKING CLASS B4 (COPY-DECK §2)
+msgctxt "price.not_recorded"
+msgid "BookHop does not know and does not record what you actually pay."
+msgstr "நீங்கள் உண்மையில் எவ்வளவு கொடுக்கிறீர்கள் என்பதை BookHop அறியாது, பதிவும் செய்யாது."
+
+#: templates/privacy.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "privacy.data.h"
+msgid "Your data"
+msgstr ""
+
+#: templates/_notice_title.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "privacy.h1"
+msgid "What BookHop knows about you"
+msgstr "BookHop உங்களைப் பற்றி அறிந்திருப்பது"
+
+#: templates/account.html
+msgctxt "profile.display_name.hint"
+msgid "First name and an initial is enough. Other students see this on your listings."
+msgstr ""
+
+#: web/forms.py
+msgctxt "profile.display_name.label"
+msgid "The name other students see"
+msgstr ""
+
+#: web/forms.py
+msgctxt "profile.locale.label"
+msgid "Language"
+msgstr ""
+
+#: web/views.py
+msgctxt "profile.saved"
+msgid "Your profile is updated."
+msgstr ""
+
+#: templates/account.html
+msgctxt "profile.submit"
+msgid "Save"
+msgstr ""
+
+#: templates/first_run.html
+msgctxt "run.cta"
+msgid "Sign in with your college email"
+msgstr "உங்கள் கல்லூரி மின்னஞ்சலால் உள்நுழையுங்கள்"
+
+#: templates/first_run.html
+msgctxt "run.free"
+msgid "Free for students. There is no fee and no payment inside BookHop."
+msgstr "மாணவர்களுக்கு இலவசம். BookHop-ல் கட்டணம் இல்லை, பணப் பரிமாற்றமும் இல்லை."
+
+#: templates/first_run.html
+msgctxt "run.h1"
+msgid "Textbooks from your own campus"
+msgstr "உங்கள் கல்லூரியில் உள்ள பாடப் புத்தகங்கள்"
+
+#: templates/first_run.html
+msgctxt "run.money"
+msgid "You and the other student settle the money between yourselves, in person."
+msgstr "பணத்தை நீங்களும் மற்ற மாணவரும் நேரில் சந்தித்துக் கொள்ளுங்கள்."
+
+#: templates/first_run.html
+msgctxt "run.sub"
+msgid "Buy a copy from a classmate, or sell the ones you've finished with."
+msgstr "ஒரு வகுப்புத் தோழரிடம் வாங்குங்கள், அல்லது படித்து முடித்தவற்றை விற்றுங்கள்."
+
+#: templates/first_run.html
+msgctxt "run.what_it_is"
+msgid "BookHop matches the exact edition your syllabus asks for with a copy someone on your campus already owns."
+msgstr "உங்கள் பாடத்திட்டம் கேட்கும் சரியான பதிப்பை, உங்கள் கல்லூரியில் யாரிடம் இருக்கிறதோ அவருடன் BookHop இணைக்கிறது."
+
+#: templates/first_run.html
+msgctxt "run.why_email"
+msgid "Your college address is how we know you're on this campus. We don't ask for a document or a phone number."
+msgstr "நீங்கள் இந்தக் கல்லூரியில் இருப்பதை உங்கள் கல்லூரி முகவரியே காட்டுகிறது. ஆவணமும் தொலைபேசி எண்ணும் கேட்கவில்லை."
+
+#: templates/base.html
+msgctxt "sys.done.label"
+msgid "Done"
+msgstr ""
+
+#: templates/_errorslot.html
+msgctxt "sys.fix_count"
+msgid "%(n)s thing to fix"
+msgid_plural "%(n)s things to fix"
+msgstr[0] ""
+msgstr[1] ""
+
+#: templates/base.html
+msgctxt "sys.footer.h"
+msgid "About BookHop"
+msgstr ""
+
+#: templates/base.html
+msgctxt "sys.help"
+msgid "Help"
+msgstr "உதவி"
+
+#: templates/problem.html
+msgctxt "sys.home"
+msgid "Go to the start"
+msgstr ""
+
+#: templates/base.html
+msgctxt "sys.nav.label"
+msgid "Site"
+msgstr ""
+
+#: templates/base.html
+msgctxt "sys.needs_connection"
+msgid "needs a connection"
+msgstr ""
+
+#: templates/offline.html
+msgctxt "sys.offline"
+msgid "This didn't reach BookHop. Nothing was lost — try again when you have signal."
+msgstr "இது BookHop-ஐ எட்டவில்லை. எதுவும் தொலையவில்லை — சிக்னல் வந்தபிறகு மீண்டும் முயற்சிக்கவும்."
+
+#: templates/offline.html
+msgctxt "sys.offline.h"
+msgid "No connection"
+msgstr ""
+
+#: templates/problem.html
+msgctxt "sys.problem.label"
+msgid "What happened"
+msgstr ""
+
+#: templates/problem.html
+msgctxt "sys.request_id.label"
+msgid "Reference"
+msgstr ""
+
+#: templates/_field.html
+msgctxt "sys.required"
+msgid "required"
+msgstr ""
+
+#: templates/offline.html
+msgctxt "sys.retry"
+msgid "Try again"
+msgstr "மீண்டும் முயற்சி"
+
+#: templates/base.html
+msgctxt "sys.skip"
+msgid "Skip to content"
+msgstr "உள்ளடக்கத்திற்குச் செல்"
+
+#: templates/account.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.campus_mail"
+msgid "Signed in with a college email address."
+msgstr "கல்லூரி மின்னஞ்சல் முகவரியால் உள்நுழைந்தவர்."
+
+#: templates/help.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.check_yourself"
+msgid "Look at the book before you hand over any money."
+msgstr "பணம் கொடுப்பதற்கு முன் புத்தகத்தைப் பார்த்துக் கொள்ளுங்கள்."
+
+#: templates/help.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.exif"
+msgid "We remove the location and camera details from your photos."
+msgstr "உங்கள் படங்களிலிருந்து இடம் மற்றும் கேமரா விவரங்களை நீக்குகிறோம்."
+
+#: templates/help.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.no_ratings"
+msgid "There are no ratings on BookHop."
+msgstr "BookHop-ல் மதிப்பெண்கள் இல்லை."
+
+#: templates/help.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.not_checked"
+msgid "BookHop hasn't checked this book."
+msgstr "இந்தப் புத்தகத்தை BookHop சரிபார்க்கவில்லை."
+
+#: templates/help.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.recourse"
+msgid "If it isn't the book described, don't pay. Tell us and we'll take the listing down."
+msgstr "விவரித்தபடி புத்தகம் இல்லையென்றால், பணம் கொடுக்க வேண்டாம். எங்களுக்குச் சொல்லுங்கள், அந்தப் பட்டியலை நீக்குவோம்."
+

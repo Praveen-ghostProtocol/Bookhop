@@ -1,0 +1,35 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  COPY-DECK §5. SYSTEM §4.25 "Sign-in".
+
+  There is no password field, no CAPTCHA, no puzzle and no "type the code from
+  the email" step. SC 3.3.8 Accessible Authentication (Minimum), new in WCAG
+  2.2, is satisfied **by construction** by the emailed link rather than by an
+  exception — a typed code IS a cognitive function test and adding one would
+  break it (SYSTEM §2.7). Abuse control is the server-side rate limit, which is
+  invisible here on purpose.
+
+  `auth.email.hint` in the deck reads "Ends in {domain}. We send a link —
+  there's no password to remember." **The first sentence is dropped.**
+  Acceptance criterion 7f forbids a template interpolating
+  `campuses.email_domains` or any element of it, and there is no L1 function
+  that returns one anyway. JOURNEYS J1 step 2 wants the domain named
+  generically and the deck has a {domain} placeholder, so the deck, the journey
+  and criterion 7f disagree; dropping the clause is the fail-closed reading and
+  it is escalated to cto rather than resolved here. `run.why_email` on the
+  first-run page carries the campus-verification mechanism in the meantime.
+{% endcomment %}
+{% block title %}{% translate "Sign in" context "auth.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Sign in" context "auth.h1" %}</h1>
+
+{% include "_errorslot.html" %}
+
+<form method="post" action="/auth/start">
+  {% csrf_token %}
+  {% translate "We send a link — there's no password to remember." context "auth.email.hint" as email_hint %}
+  {% include "_field.html" with field=form.email required=True hint=email_hint %}
+  <button class="btn btn--primary" type="submit">{% translate "Send me the link" context "auth.submit" %}</button>
+</form>
+{% endblock %}

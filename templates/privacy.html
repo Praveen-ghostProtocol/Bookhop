@@ -1,0 +1,161 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J1 steps 5 and 6 on one screen; J8 step 1's privacy row. COPY-DECK §10.4 (B3,
+  blocking in Tamil). PRD US-A3, AC-A3.1/2/3 and US-X2. DATA-MODEL §2
+  `consents`.
+
+  SIX PURPOSES, LISTED INDIVIDUALLY, NONE PRE-TICKED. E-Com r.4(9) is in force
+  now, not 2027, and AC-A3.1 asserts no `checked` attribute appears on any
+  consent input in the rendered HTML in either locale. The guarantee is in
+  `web/forms.py ConsentForm` — `BooleanField(required=False)` with no `initial`
+  and no code path that can set one — because a template is the wrong place to
+  hold a legal rule. Note that `account` is the only REQUIRED purpose and it is
+  still not pre-ticked: a required consent that arrives ticked is not consent.
+
+  STEPS 5 AND 6 ARE ONE SCREEN. JOURNEYS J1's "where this journey strains" note
+  asks for the consent list and the college-email line together, if it can be
+  done without pre-ticking anything. It can: the campus line is a statement of
+  fact above the list and touches no checkbox.
+
+  THE SETTINGS SHAPE IS A TOGGLE THAT SHOWS ITS STATE, from
+  `consent_state(user)` — the latest row per purpose, computed in L1 so no
+  caller re-derives "which row wins". Each row is its own <form> with a hidden
+  purpose and a hidden decision, so it works with JavaScript off and no row
+  depends on another. Granting and withdrawing are each exactly one tap, which
+  is what DPDP r.3(c)(i)'s "as easy as granting" requires, and withdrawal is a
+  toggle here and never an email.
+
+  `consent.listing_publication.disclosure` is rendered as the
+  `listing_publication` purpose text and that is not editorial: it is condition
+  2 of COMPLIANCE §2.5a and acceptance criterion 7g — until this sentence is
+  live in the consent text **and** the privacy notice, `trust.campus_mail` is
+  outside the notified purpose and must not render anywhere. The notice half is
+  `notice_versions` content and is backend's; this half is discharged here.
+{% endcomment %}
+{% block title %}{% translate "What BookHop knows about you" context "privacy.h1" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "What BookHop knows about you" context "privacy.h1" %}</h1>
+
+{% if refused %}
+  {% comment %} J1 step 5 "goes wrong": the screen says which action a refusal
+     blocks and leaves the student signed in. It does not re-ask and does not
+     nag. The mapping is `BLOCKED_BY_REFUSING` in web/views.py, keyed off the
+     imported purpose list so a new purpose shows up as a missing key rather
+     than as silence. {% endcomment %}
+  <div class="notice notice--wait">
+    <span class="notice__label">{% translate "What you can't do yet" context "consent.refused.label" %}</span>
+    <ul>
+      {% for key in refused %}
+        {% if key == "account" %}<li>{% translate "Signing in" context "consent.blocks.account" %}</li>
+        {% elif key == "listing_publication" %}<li>{% translate "Putting a book on the list" context "consent.blocks.listing_publication" %}</li>
+        {% elif key == "chat" %}<li>{% translate "Messaging the other student" context "consent.blocks.chat" %}</li>
+        {% elif key == "safety_moderation" %}<li>{% translate "Reporting a problem" context "consent.blocks.safety_moderation" %}</li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+    <p>{% translate "You can allow any of these later on this screen." context "consent.refused.body" %}</p>
+  </div>
+{% endif %}
+
+{% comment %} AC-A3.3: the screen names the exact notice version the student is
+   agreeing to. If it cannot be read we say so rather than inventing one — and
+   the POST path refuses outright, because a consents row written against a
+   guessed version is a defective legal record. {% endcomment %}
+{% if notice_version %}
+  <p class="meta">{% blocktranslate context "consent.notice_version" with version=notice_version %}Privacy notice version {{ version }}.{% endblocktranslate %} <a href="/legal/privacy">{% translate "Read the privacy notice" context "consent.notice_link" %}</a></p>
+{% else %}
+  <p class="meta"><a href="/legal/privacy">{% translate "Read the privacy notice" context "consent.notice_link" %}</a></p>
+{% endif %}
+
+{% if setup %}
+
+  {% comment %} J1 step 6. The email domain matched, so nothing is asked — the
+     fact is stated. No domain is rendered (criterion 7f). {% endcomment %}
+  <p class="notice notice--live">
+    <span class="notice__label">{% translate "Your campus" context "campus.confirmed.label" %}</span>
+    {% translate "Signed in with a college email address." context "trust.campus_mail" %}
+  </p>
+
+  <form method="post" action="/account/privacy">
+    {% csrf_token %}
+    {% for key, granted, required in rows %}
+      <div class="check">
+        {% for field in form %}{% if field.name == key %}{{ field }}{% endif %}{% endfor %}
+        <label class="check__text" for="id_{{ key }}">
+          <strong>{% include "_purpose_name.html" with key=key %}</strong>
+          <span class="field__hint" id="id_{{ key }}-hint">{% include "_purpose_text.html" with key=key %}</span>
+          <span class="field__error" id="id_{{ key }}-error"></span>
+        </label>
+      </div>
+    {% endfor %}
+    {% comment %} PROVISIONAL COPY — no deck string. design-director to supply. {% endcomment %}
+    <button class="btn btn--primary" type="submit">{% translate "Save these choices" context "consent.submit" %}</button>
+  </form>
+
+{% else %}
+
+<ul class="rows">
+  {% for key, granted, required in rows %}
+    <li>
+      <strong>{% include "_purpose_name.html" with key=key %}</strong>
+      {% comment %} The state is a text label and not only a colour (SYSTEM rule
+         3). The chip carries its own word, so forced-colours mode and a screen
+         reader both get the answer. {% endcomment %}
+      {% if granted %}
+        <span class="chip chip--live">{% translate "Allowed" context "consent.state.allowed" %}</span>
+      {% else %}
+        <span class="chip chip--wait">{% translate "Not allowed" context "consent.state.not_allowed" %}</span>
+      {% endif %}
+      <p class="sub">{% include "_purpose_text.html" with key=key %}</p>
+      {% if required and not granted %}
+        <p class="field__error">{% translate "Without this you cannot sign in." context "consent.required.warning" %}</p>
+      {% endif %}
+      {% comment %} One button per row, which flips the state. Two buttons
+         ("Allow" / "Don't allow") would make the current state ambiguous now
+         that it is actually readable. The accessible name names the purpose,
+         because a screen reader lists controls without their surroundings
+         (SC 2.5.3 Label in Name, SC 2.4.6). {% endcomment %}
+      <div class="decide">
+        <form method="post" action="/account/privacy">
+          {% csrf_token %}
+          <input type="hidden" name="purpose" value="{{ key }}">
+          <input type="hidden" name="decision" value="{% if granted %}withdraw{% else %}grant{% endif %}">
+          <button class="btn btn--secondary" type="submit">{% if granted %}{% translate "Don't allow" context "consent.withdraw" %}{% else %}{% translate "Allow" context "consent.allow" %}{% endif %}<span class="vh"> — {% include "_purpose_name.html" with key=key %}</span></button>
+        </form>
+      </div>
+    </li>
+  {% endfor %}
+</ul>
+
+<div class="section">
+  <h2>{% translate "Your data" context "privacy.data.h" %}</h2>
+  {% comment %} US-X2 / AC-X2.1: a copy of their data, generated live with no
+     staff step. A plain <a> download, which works with JavaScript off. {% endcomment %}
+  <p><a href="/account/export">{% translate "Download a copy of my data" context "export.cta" %}</a></p>
+  <p class="meta">{% translate "A file listing what BookHop holds about you, what it is used for, and what is kept after you delete your account." context "export.hint" %}</p>
+
+  {% comment %} US-X2 / AC-X2.2: nomination exists and is **not promoted** — a
+     student who came to find a textbook does not need a nominee flow in their
+     way. So it is a collapsed <details>, which is the native disclosure
+     widget: a 44px summary row that announces its own expanded state and
+     needs no JavaScript. {% endcomment %}
+  <details>
+    <summary>{% translate "Name someone to act for you" context "nominee.summary" %}</summary>
+    <p class="meta">{% translate "You can name one person to exercise your rights if you cannot. BookHop stores their name and email address and nothing else." context "nominee.hint" %}</p>
+    <form method="post" action="/account/nominee">
+      {% csrf_token %}
+      {% include "_field.html" with field=nominee_form.name required=True %}
+      {% include "_field.html" with field=nominee_form.email required=True %}
+      <button class="btn btn--secondary" type="submit">{% translate "Record this person" context "nominee.submit" %}</button>
+    </form>
+  </details>
+</div>
+
+<div class="section actions--separated">
+  <h2>{% translate "Delete my account" context "erase.cta" %}</h2>
+  <a class="btn btn--secondary" href="/account/delete">{% translate "Delete my account" context "erase.cta" %}</a>
+</div>
+
+{% endif %}
+{% endblock %}

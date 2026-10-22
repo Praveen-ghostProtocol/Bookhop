@@ -160,6 +160,9 @@ def enqueue(kind: str, payload: dict, run_after=None) -> int
 # apps/accounts/services.py
 def request_magic_link(email: str, ip, user_agent) -> None     # RateLimited, EmailDomainNotRecognised
 def consume_magic_link(token: str, ip, user_agent) -> User     # TokenInvalid, TokenExpired, TokenAlreadyUsed
+def accepted_email_domains(campus) -> list[str]
+#   A-17: for the link-sent page (PRD AC-A1.2). Campus configuration, not
+#   anybody's attribute. Permitted in a template; never a literal in a .po.
 def submit_age_declaration(user, dob: date, ip) -> AgeOutcome  # UnderEighteen  (writes age_verification_events; DOB not persisted if rejected)
 def review_age(staff, user, outcome: str, note: str) -> None   # NotPermitted
 def grant_consent(user, purpose_key, notice_version, mechanism, ip, user_agent) -> None
@@ -449,7 +452,42 @@ agent knows exactly what it owns.
 | `GET /api/v1/account/export` | `GET /account/export` | **s11 access right** — a JSON summary of personal data and processing activities |
 | `POST /api/v1/account/nominee` | `POST /account/nominee` | **s14 nomination.** In the Act, built once, nobody else builds it |
 | `POST /api/v1/account/erase` | `POST /account/delete` | two-step confirm in L3. Runs `erase_account`. **Response states plainly which records are retained for one year and why** (r.8(3)) — the user learns it here, not from a support ticket |
-| `GET /api/v1/notices/{kind}` | `GET /legal/{kind}` | public, unauthenticated. `privacy`, `terms`, `seller-terms`, `community-rules`, **`handover-guidance`** *(renamed — see below)*, `ranking`, grievance officer contact (r.4(2)) |
+| `GET /api/v1/notices/{kind}` | `GET /legal/{kind}` | public, unauthenticated. `privacy`, `terms`, `seller-terms`, `community-rules`, **`handover-guidance`** *(renamed — see below)*, **`ranking`**, **`grievance-officer`** — the last composes the `GRIEVANCE_PROCEDURE` notice with the officer fields read from `legal_entities` at render time, never copied into a notice (`DATA-MODEL.md` A-25) |
+
+> **Amendment A-17 (2026-10-22) — `accepted_email_domains` is permitted on the
+> link-sent page, and design criterion 7f is narrowed to say so.**
+>
+> **The defect:** criterion 7f forbids any template interpolating
+> `campuses.email_domains`. **PRD AC-A1.2 — which the PRD itself calls *a
+> product requirement, not polish* — requires the link-sent page to tell the
+> student which domains the campus accepts**, and backend built
+> `accepted_email_domains(campus)` for exactly that page. **So the primary
+> journey could only work by violating a failable criterion.**
+>
+> **7f's rationale does not reach this case, and reading the rationale is what
+> settles it.** `COMPLIANCE.md` §2.5a is entirely about **a seller's** domain
+> appearing on **a listing** — where it is attribute disclosure about an
+> identifiable person, dressed as a trust badge. The accepted-domain list is
+> **campus configuration: identical for every visitor, about nobody, and
+> already public** (it is printed on the institution's own website). There is
+> no data subject.
+>
+> **Narrowed to: no template may render ANOTHER PERSON'S email domain.** The
+> second limb is kept exactly as it is — **no domain literal in any string
+> file; the value arrives from the service at render time** — which is what
+> frontend implemented and is the same rule A-25 applies to the grievance
+> officer's contact details.
+>
+> This is the third time a control has been **broader than its own rationale**.
+> The pattern worth naming: **a criterion written from a rationale, without the
+> rationale travelling with it, drifts wider than the risk it was written
+> for** — and the widening is invisible because the criterion still reads
+> protective. **7f's narrowed form must carry its rationale in one line beside
+> it**, or the next person restores the broad version.
+>
+> **Routed to design-director** (criterion 7f and `SYSTEM.md` are not mine to
+> edit). The contract position above is normative meanwhile: the route and the
+> service function are permitted and specified here.
 
 > **Amendment A-7 — the `handover-safety` slug is renamed to
 > `handover-guidance`, and `notice_versions.kind` from `HANDOVER_SAFETY` to

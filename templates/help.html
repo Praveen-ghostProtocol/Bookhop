@@ -1,0 +1,88 @@
+{% extends "base.html" %}{% load i18n %}
+{% comment %}
+  J9. Reached from the footer link that is in the same place on every single
+  page — SC 3.2.6 Consistent Help, new in WCAG 2.2.
+
+  THERE IS NO TICKET FORM, AND THAT IS NOT AN OMISSION. J9 is marked
+  ⛔ BLOCKED (CG-2) in JOURNEYS Appendix B: every support L1 function takes
+  `staff`, there is no endpoint, and nothing stores what a student writes. A
+  form that posted nowhere would be worse than no form, and adding a service
+  function is a contract change that is not mine to make. What ships is the
+  part that is buildable and honest.
+
+  WHAT WE CAN AND CANNOT DO IS STATED **BEFORE** THE STUDENT READS ANYTHING
+  ELSE (AC-H6.5). Saying it up front is cheaper than saying it in a reply, and
+  it is the one unmanaged expectation that turns into the belief that BookHop
+  vouches for the trade. "We can't refund you — we never hold the money" is
+  ADR-003 said out loud.
+
+  NO PHONE NUMBER AND NO WHATSAPP NUMBER appears here or anywhere in the
+  product, the emails or the notices (AC-H6.4, PRD EX-7). An unlogged channel
+  makes support minutes unmeasurable, and the support number is what D-009's
+  reversal trigger reads.
+
+  No SLA number for help (J9 step 7). Statutory clocks apply to reports,
+  grievances and disputes and those are stated exactly where they apply;
+  promising a time one staff member cannot keep is how a help surface becomes a
+  complaint surface.
+
+  PROVISIONAL COPY: COPY-DECK has no section for the help screen. The strings
+  below are JOURNEYS J9's own wording, which that document marks as
+  "behavioural intent; design-director owns the final words". Flagged in the
+  hand-back.
+{% endcomment %}
+{% block title %}{% translate "Help" context "sys.help" %}{% endblock %}
+
+{% block main %}
+<h1>{% translate "Help" context "sys.help" %}</h1>
+
+<div class="notice notice--wait">
+  <span class="notice__label">{% translate "What BookHop can and can't do" context "help.scope.label" %}</span>
+  <p>{% translate "We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money." context "help.scope" %}</p>
+</div>
+
+<div class="section">
+  <h2>{% translate "The things students ask most" context "help.faq.h" %}</h2>
+
+  {% comment %} <details> is the disclosure widget. No custom accordion: a summary is a
+     44px row, announces its own expanded state natively, and works with
+     JavaScript off (SYSTEM §5.5, ADR-001 §2.3). {% endcomment %}
+  <details>
+    <summary>{% translate "Does BookHop check the books?" context "help.q.checked" %}</summary>
+    <p>{% translate "BookHop hasn't checked this book." context "trust.not_checked" %} {% translate "Look at the book before you hand over any money." context "trust.check_yourself" %}</p>
+  </details>
+
+  <details>
+    <summary>{% translate "How do I pay?" context "help.q.pay" %}</summary>
+    <p>{% translate "You and the other student settle the money between yourselves, in person." context "run.money" %} {% translate "BookHop does not know and does not record what you actually pay." context "price.not_recorded" %}</p>
+  </details>
+
+  <details>
+    <summary>{% translate "What if the book isn't what the listing said?" context "help.q.wrong" %}</summary>
+    <p>{% translate "If it isn't the book described, don't pay. Tell us and we'll take the listing down." context "trust.recourse" %}</p>
+  </details>
+
+  <details>
+    <summary>{% translate "Are there ratings or reviews?" context "help.q.ratings" %}</summary>
+    <p>{% translate "There are no ratings on BookHop." context "trust.no_ratings" %}</p>
+  </details>
+
+  <details>
+    <summary>{% translate "What happens to my photos?" context "help.q.photos" %}</summary>
+    <p>{% translate "We remove the location and camera details from your photos." context "trust.exif" %}</p>
+  </details>
+</div>
+
+<div class="section">
+  <h2>{% translate "If you need a person" context "help.routes.h" %}</h2>
+  <p class="sub">{% translate "We read every message. We aim to reply the same day — we're a small team." context "help.response" %}</p>
+  <ul class="rows">
+    {% comment %} The statutory route that exists today and works without an account
+       (API-CONTRACT §5.6) — a rights holder or a parent is not a user, and no
+       safety path requires an account (THREAT-MODEL §5.7(b)). {% endcomment %}
+    <li><a href="/legal/grievance-officer">{% translate "Contact the grievance officer" context "grievance.cta" %}</a></li>
+    <li><a href="/legal/community-rules">{% translate "Community rules" context "legal.community_rules" %}</a></li>
+    <li><a href="/legal/handover-guidance">{% translate "Handover guidance" context "legal.handover_guidance" %}</a></li>
+  </ul>
+</div>
+{% endblock %}

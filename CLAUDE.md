@@ -49,6 +49,10 @@ the prompt — do not collapse the role into the main context.
    must require a check for it. No claim about a control may be quoted in a
    launch packet, an ADR or a report until its conformance test passes.
 
+   **A conformance test must assert the control at the boundary the document
+   claims, not at the boundary the implementation chose.** Otherwise it
+   measures the floor the floor has, and passes.
+
    *Why (D-026):* in one pass, four separate defects were all the same shape —
    a specification stronger than its implementation, with no test for the gap.
    A token list named 22 tokens while 15 were enforced. A section named four
@@ -56,6 +60,16 @@ the prompt — do not collapse the role into the main context.
    written**. A clause read stronger than the floor it guaranteed. In each
    case the document was the thing that was wrong. The claim and the check are
    one artefact, or they drift.
+
+   *Why the added clause (D-041):* the discovery gate's conformance test
+   passed while the enforced floor sat three statements below the ADR, because
+   the test asserted what the trigger checked rather than what the document
+   specified. **Every defect these rules caught was inside one artefact; the
+   worst defects found since were at the seams between artefacts — and a seam
+   is not specified anywhere, so no spec-first test can reach it.** Rules are
+   about claims and controls. None of them is about end-to-end behaviour,
+   which is why a suite of 835 tests passed while nobody had ever been served
+   a page.
 
 10. **Never hand-copy a rule into code.** One imported definition, many
     readers. Three hand-made copies of one legal rule existed in three files

@@ -1,0 +1,20 @@
+{% load i18n static %}{
+  "name": "BookHop",
+  "short_name": "BookHop",
+  "description": "{% translate "Textbooks from your own campus" context "run.h1" %}",
+  "lang": "{{ page_lang|default:'en' }}",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F0",
+  "theme_color": "#2B3A8F",
+  "icons": [
+    {
+      "src": "{% static 'icons/bookhop.svg' %}",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

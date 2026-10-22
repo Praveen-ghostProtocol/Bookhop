@@ -1,0 +1,126 @@
+# locale/FORBIDDEN_EXCEPTIONS.toml
+#
+# Owner: frontend-developer (TASKS §1). Read by
+# `tests/unit/test_forbidden_copy.py` (backend-developer, THREAT-MODEL
+# §6.1(a)).
+#
+# The English deny-list is eight words, whole-word, with their inflections
+# enumerated rather than stemmed:
+#
+#   safe · verified · guaranteed · protected · assured · trusted · certified ·
+#   authentic
+#
+# plus Ban 2's phrases — "pay the listed price", "fixed price",
+# "non-negotiable", "final price" — and the bare label "Price"
+# (COPY-DECK §1.1, COMPLIANCE §4.3.1).
+#
+# A banned word may appear only in a msgid listed under [strings] below, by
+# name, with a reason and a reviewer.
+#
+# A DIFF TO THIS FILE IS A CODE REVIEW ESCALATION, NOT A REVIEW COMMENT
+# (TASKS §1).
+#
+# ===========================================================================
+# STATUS AT S1: NO STRING EXCEPTION IS NEEDED. [strings] IS EMPTY.
+# ===========================================================================
+# All 122 S1 strings were scanned against the eight words and their
+# inflections, against Ban 2's four phrases, against a bare "Price" label and
+# against an @-prefixed domain literal (criterion 7f). Zero findings in shipped
+# copy. The deck's engineering holds: the trust strings say what we did NOT do
+# ("BookHop hasn't checked this book"), name a mechanism ("Signed in with a
+# college email address"), or instruct ("Look at the book before you hand over
+# any money") — none of them needs a banned word.
+#
+# COMPLIANCE §8.2 requires the privacy notice to use the phrase "data
+# protection" (the Data Protection Board, the Act's own name). That text lives
+# in `notice_versions` rows, which are backend's, NOT in a template or a .po —
+# so it is outside this test's scope and needs no entry here. **If the notice
+# body is ever moved into a .po, it needs one**, and that is the single most
+# likely future entry in this file. Recorded now so the next person does not
+# weaken the word list instead.
+#
+# ---------------------------------------------------------------------------
+# ONE SHAPE EXEMPTION IS NEEDED, AND IT IS NOT A STRING EXEMPTION
+# ---------------------------------------------------------------------------
+# The deny-list run over raw template source produces 7 findings, all of them
+# the word "trust" inside a gettext **context key**: `trust.campus_mail`,
+# `trust.not_checked`, `trust.check_yourself`, `trust.no_ratings`,
+# `trust.recourse`, `trust.exif`. These are COPY-DECK's own key names.
+#
+# CLAUDE.md rule 13 gives the order of resort, and resort 1 — rename our own
+# name — does not apply, because **this name is not ours to rename**:
+# COMPLIANCE §2.5a cites `trust.campus_mail` by name, and COPY-DECK §1.5a
+# already ruled on it: "the token key stays `trust.campus_mail` for continuity
+# with COMPLIANCE.md §2.5a… renaming a key that a ruling cites by name would
+# cost more than it buys." That is resort 2: exempt the shape, ratified,
+# because the colliding name is mandated by a frozen contract.
+#
+# THE EXEMPTION IS THE SHAPE, NEVER A STRING. The test must scan the
+# TRANSLATABLE TEXT, not the raw bytes of the file:
+#
+#   * exempt: the `context "…"` argument of `{% translate %}` /
+#     `{% blocktranslate %}`, the first argument of `pgettext` /
+#     `pgettext_lazy`, and a `msgctxt "…"` line in a .po file;
+#   * NOT exempt: every msgid, every msgid_plural, every msgstr, and every
+#     other byte of a template.
+#
+# CLAUDE.md rule 14 requires naming the layer that still catches what this
+# lets through. Two do, and the set of accepted *shipped strings* is unchanged
+# by this exemption:
+#
+#   1. the deny-list itself, which still runs over every msgid and msgstr — a
+#      banned word in copy is caught exactly as before;
+#   2. Code Review's COPY-DECK §1.2 sentence check, which is the only thing
+#      that catches "Trusted seller" and "You'll be fine" in any case, since
+#      neither contains a banned word.
+#
+# So this is a clarification of what the control reads, not a widening of what
+# it accepts. A key name is not copy: no student ever sees `trust.campus_mail`.
+#
+# COROLLARY, and it is the reason the shape rule matters more than this one
+# collision: the test must also strip `{% comment %}` bodies. Every rationale
+# in `templates/**` quotes the banned words in order to explain why they are
+# banned — this file does too. A test that fires on its own rationale is a test
+# that gets edited under schedule pressure, which is rule 13's whole point.
+# ---------------------------------------------------------------------------
+
+[meta]
+source = "company/design/COPY-DECK.md §1.1 · company/architecture/THREAT-MODEL.md §6.1(a)"
+locale = "en"
+match = "whole-word, case-insensitive, inflections enumerated not stemmed"
+scanned_at_S1 = 122
+findings_in_shipped_copy_at_S1 = 0
+
+# The shape rule above, as data, so the test does not hand-copy it
+# (CLAUDE.md rule 10). These name what the scanner must EXCLUDE from the text
+# it matches against; they are not string exceptions.
+[shapes.msgctxt]
+why = "A gettext context key is an identifier, never copy. COPY-DECK keys the trust strings `trust.*` and COMPLIANCE §2.5a cites one by name, so the name is not ours to rename (CLAUDE.md rule 13 resort 2)."
+applies_to = [
+  "the `context \"…\"` argument of {% translate %} and {% blocktranslate %}",
+  "the first argument of pgettext() and pgettext_lazy()",
+  "a `msgctxt \"…\"` line in a .po file",
+]
+never_applies_to = ["msgid", "msgid_plural", "msgstr", "msgstr[n]", "any other template text"]
+other_layer = "The deny-list still scans every msgid and msgstr; Code Review still applies COPY-DECK §1.2 to sentences."
+ratified_by = "PENDING — cto/code-review. Recorded by frontend-developer at S1; this file is the proposal, not the ratification."
+
+[shapes.template_comment]
+why = "Every rationale in templates/** and in this file quotes the banned words to explain the ban. A guard that fires on its own rationale gets edited, not obeyed (CLAUDE.md rule 13)."
+applies_to = ["{% comment %}…{% endcomment %} bodies", "# comment lines in a .po file", "// comments in templates/sw.js"]
+never_applies_to = ["any rendered text"]
+other_layer = "A comment is never served to a student; the scan over rendered text is unaffected."
+ratified_by = "PENDING — cto/code-review."
+
+# ---------------------------------------------------------------------------
+# Per-msgid exceptions. Each needs: the exact msgctxt, the word, a one-line
+# reason, and a reviewer who is a person.
+#
+#   [strings."privacy.notice.body"]
+#   word     = "protection"
+#   reason   = "DPDP's own name and the Data Protection Board's; r.3(c) requires the complaint route be named"
+#   reviewer = "<name>"
+#
+# EMPTY AT S1. Nothing needs one.
+# ---------------------------------------------------------------------------
+[strings]

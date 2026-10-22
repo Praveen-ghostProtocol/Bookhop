@@ -1,0 +1,620 @@
+/* ============================================================================
+   BookHop — the stylesheet. One file, hand-written, no build step, no
+   framework. Every value comes from `tokens.css`; a literal that is not a
+   token is a bug, and the four exceptions below say why they are exceptions.
+
+   Owner: frontend-developer. Spec: design/SYSTEM.md. Direction A, Catalogue
+   Card. Load order is tokens.css then this file; nothing else is loaded.
+
+   No webfont, no gradient, no shadow deeper than a 1px rule, no shimmer, no
+   decorative motion in a transaction path (SYSTEM §1 rule 5).
+
+   `outline: none` does not appear in this file and must never appear. Grep for
+   it is a hard build failure (SYSTEM §2.5).
+   ========================================================================== */
+
+/* -------------------------------------------------------------- 1. DOCUMENT */
+
+/* A percentage, never a px: 1rem = 17px by default AND the student's own
+   Android font-size setting still scales it (SYSTEM §2.3). */
+html {
+  font-size: 106.25%;
+  -webkit-text-size-adjust: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--c-paper);
+  color: var(--c-ink);
+  font-family: var(--f-text);
+  font-size: var(--t-base);
+  font-weight: var(--w-reg);
+  line-height: var(--lh-text);
+  /* SC 2.4.11 Focus Not Obscured (new in WCAG 2.2). 72px, so focusing a field
+     near the bottom of a form never leaves it under a sticky action bar. This
+     is the requirement most easily lost the first time someone adds one. */
+  scroll-padding-bottom: var(--s-18);
+}
+
+/* Tamil is not a translation layer; it changes the metrics (tokens.css §2.3).
+   The layout is sized to the Tamil string, not the English one (SYSTEM rule 10). */
+[lang="ta"] {
+  line-height: var(--lh-tamil);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 var(--s-3);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-tight);
+  /* Tamil headings need the taller leading too; `--lh-tight` crops vowel
+     signs that sit above the baseline. */
+  text-wrap: pretty;
+}
+
+[lang="ta"] h1,
+[lang="ta"] h2,
+[lang="ta"] h3 {
+  line-height: var(--lh-tamil);
+}
+
+h1 { font-size: var(--t-xl); }
+h2 { font-size: var(--t-lg); }
+h3 { font-size: var(--t-md); }
+
+p { margin: 0 0 var(--s-4); }
+
+ul, ol { margin: 0 0 var(--s-4); padding-inline-start: var(--s-5); }
+li { margin-bottom: var(--s-2); }
+
+/* --------------------------------------------------------------- 2. FOCUS
+   One indicator, everywhere, no exceptions. `:focus-visible` rather than
+   `:focus`, so a touch press paints no ring but every keyboard and
+   switch-control user always gets one. 3px + 2px offset also satisfies
+   SC 2.4.13 (AAA) in most cases; we are not claiming AAA, just noting we get
+   it for free. --c-focus is 11.08:1 on paper against a 3:1 bar. */
+
+:focus-visible {
+  outline: var(--bw-focus) solid var(--c-focus);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* On a stamp-filled button the ring needs a light halo to stay visible. */
+.btn--primary:focus-visible,
+.btn--destructive:focus-visible {
+  outline-color: var(--c-focus-inner);
+  box-shadow: 0 0 0 calc(var(--bw-focus) + 2px) var(--c-focus);
+}
+
+/* ---------------------------------------------------------------- 3. SHELL
+   SYSTEM §2.6 / §4.1. Two breakpoints and the small one is the design target.
+   At >=600px the column caps at 36rem and centres. There is no desktop
+   design: a 36rem column on a laptop is correct and finished. */
+
+.skip {
+  position: absolute;
+  left: var(--s-4);
+  top: -100%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--s-4);
+  background: var(--c-card);
+  color: var(--c-stamp);
+  border: var(--bw-ctrl) solid var(--c-rule-strong);
+}
+
+.skip:focus {
+  top: var(--s-4);
+}
+
+.shell {
+  max-width: 36rem;
+  margin: 0 auto;
+  /* The page gutter is 16px at every width. A 320px screen with an 8px gutter
+     reads as broken and a thumb resting on the bezel hits a control. */
+  padding: 0 var(--s-4) var(--s-10);
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s-2) 0;
+  border-bottom: var(--bw-hair) solid var(--c-rule);
+}
+
+.masthead__name {
+  font-family: var(--f-biblio);
+  font-size: var(--t-md);
+  font-weight: var(--w-bold);
+  /* text-transform is never set, anywhere (SYSTEM §4.2). */
+  letter-spacing: normal;
+}
+
+.masthead__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+/* Each language link is its own 44px target, 8px apart (SYSTEM §4.1). */
+.lang {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
+  justify-content: center;
+  padding: 0 var(--s-2);
+}
+
+.lang[aria-current="true"] {
+  font-weight: var(--w-bold);
+  text-decoration: none;
+}
+
+main {
+  padding-top: var(--s-6);
+}
+
+.pagefoot {
+  margin-top: var(--s-10);
+  padding-top: var(--s-4);
+  border-top: var(--bw-hair) solid var(--c-rule);
+  font-size: var(--t-sm);
+}
+
+/* Footer links are identical and identically ordered on every page
+   (SC 3.2.6 Consistent Help). Each is a 44px row. */
+.pagefoot ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pagefoot li {
+  margin: 0;
+  border-bottom: var(--bw-hair) solid var(--c-rule);
+}
+
+.pagefoot a,
+.pagefoot .pagefoot__dead {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
+}
+
+/* A link that needs the network, on the offline page, is plain text with its
+   reason beside it — never a disabled link (SYSTEM §4.3 `disabled`). */
+.pagefoot__dead {
+  color: var(--c-ink-3);
+}
+
+/* ------------------------------------------------------------ 4. TYPOGRAPHY */
+
+a {
+  color: var(--c-stamp);
+  /* Always underlined: colour alone is not an indicator (SC 1.4.1). */
+  text-decoration: underline;
+  /* 2px so a Tamil descender is not crossed out by its own underline. */
+  text-underline-offset: 2px;
+}
+
+a:active {
+  color: var(--c-stamp-deep);
+}
+
+.lede {
+  font-size: var(--t-md);
+  line-height: var(--lh-text);
+}
+
+[lang="ta"] .lede {
+  line-height: var(--lh-tamil);
+}
+
+.meta {
+  font-size: var(--t-xs);
+  color: var(--c-ink-3); /* 5.28:1 — the lightest text that ships */
+}
+
+.sub {
+  color: var(--c-ink-2); /* 7.29:1 */
+}
+
+.biblio {
+  font-family: var(--f-biblio);
+}
+
+.mono {
+  font-family: var(--f-mono);
+}
+
+/* A visually-hidden string that a screen reader still reads. Not
+   `display:none`, which removes it from the accessibility tree too. */
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --------------------------------------------------------------- 5. BUTTONS
+   48px default, 56px for the one irreversible action on a page, never below
+   44px. `min-height` not `height`, because a two-line Tamil label is normal
+   and the control has to grow rather than clip. No `text-overflow`, no
+   ellipsis, no `text-transform`, no letter-spacing. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-action);
+  padding: var(--s-2) var(--s-4);
+  border: var(--bw-ctrl) solid transparent;
+  border-radius: var(--r-md);
+  font: inherit;
+  font-size: var(--t-base);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-text);
+  white-space: normal;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn + .btn {
+  margin-top: var(--s-2); /* the 8px minimum between adjacent targets */
+}
+
+.btn--primary {
+  background: var(--c-stamp);
+  color: var(--c-on-stamp); /* 9.98:1 */
+}
+
+.btn--primary:active {
+  background: var(--c-stamp-deep); /* white on it = 13.14:1 */
+}
+
+.btn--secondary {
+  background: transparent;
+  color: var(--c-stamp);
+  border-color: var(--c-rule-strong); /* 3.55:1 on paper, bar is 3:1 */
+}
+
+.btn--destructive {
+  background: var(--c-alert);
+  color: #ffffff; /* 8.19:1 on --c-alert, the ratio SYSTEM §3.2 computed for
+                     this exact pair. Literal rather than a token: there is no
+                     --c-on-alert in tokens.css, and adding one would put a
+                     colour in a file whose ratios are owned elsewhere. */
+  min-height: var(--tap-commit);
+}
+
+.btn--commit {
+  min-height: var(--tap-commit);
+}
+
+.btn--quiet {
+  background: transparent;
+  color: var(--c-stamp);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: var(--w-reg);
+}
+
+.btn:active {
+  /* No transform and no scale anywhere (SYSTEM §4.2 `pressed`). */
+  border-style: inset;
+}
+
+/* A destructive action never sits next to the primary one: 24px minimum, and
+   in this product it is on its own screen as well. */
+.actions--separated {
+  margin-top: var(--s-6);
+}
+
+/* ------------------------------------------------------------ 6. FORM FIELDS
+   Label above the control, always visible, never a placeholder-as-label.
+   17px inputs and never smaller: a sub-16px input makes iOS Safari zoom the
+   page on focus and on Android it is simply hard to read. */
+
+form {
+  margin: 0;
+}
+
+.field {
+  margin-bottom: var(--s-5);
+}
+
+.field__label {
+  display: block;
+  margin-bottom: var(--s-1);
+  font-size: var(--t-xs);
+  font-weight: var(--w-bold);
+  color: var(--c-ink-2);
+}
+
+/* "Required" is words in the label, not an asterisk — an asterisk is
+   unreadable to a screen reader without extra wiring (SYSTEM §4.4). */
+.field__req {
+  font-weight: var(--w-reg);
+}
+
+/* Hint sits below the label and above the input, so it is read before the
+   control rather than after it. */
+.field__hint {
+  display: block;
+  margin-bottom: var(--s-2);
+  font-size: var(--t-xs);
+  color: var(--c-ink-3);
+}
+
+/* `_field.html` always emits both `aria-describedby` targets, because an
+   attribute pointing at a missing id is invalid ARIA and some screen readers
+   then announce none of it. Empty ones take no space but stay in the tree. */
+.field__hint:empty,
+.field__error:empty {
+  display: none;
+}
+
+.field input[type="email"],
+.field input[type="text"],
+.field input[type="date"],
+.field input[type="search"],
+.field select,
+.field textarea {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-action);
+  padding: var(--s-2) var(--s-3);
+  background: var(--c-card);
+  color: var(--c-ink);
+  border: var(--bw-ctrl) solid var(--c-rule-strong); /* 3.55:1 */
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--t-base);
+}
+
+.field--invalid input,
+.field--invalid select,
+.field--invalid textarea {
+  border-color: var(--c-alert);
+}
+
+/* The typed value is never cleared, and the message says what is wrong AND
+   what to do (SYSTEM §4.4 `error`). */
+.field__error {
+  display: block;
+  margin-top: var(--s-2);
+  color: var(--c-alert); /* 7.65:1 */
+  font-size: var(--t-sm);
+}
+
+/* A real checkbox in a 44px row. No pre-ticked boxes anywhere — enforced in
+   `web/forms.py`, not here, because CSS cannot hold a legal rule. */
+.check {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+  min-height: var(--tap-min);
+  padding: var(--s-3) 0;
+  border-top: var(--bw-hair) solid var(--c-rule);
+}
+
+.check input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  margin: var(--s-1) 0 0;
+  accent-color: var(--c-stamp);
+}
+
+.check__text {
+  flex: 1 1 auto;
+}
+
+.check__text strong {
+  display: block;
+}
+
+/* ------------------------------------------------------- 7. NOTICES & STATES
+   Rule 3: no colour carries meaning alone. Every state is a text label, a 4px
+   rail and a tint — in that order of importance. Each panel's boundary is its
+   rail (>=6.9:1), never its fill (1.06:1, declared decorative). */
+
+.notice {
+  margin: 0 0 var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  border-inline-start: var(--bw-rail) solid var(--c-rule);
+  background: var(--c-card);
+}
+
+.notice__label {
+  display: block;
+  margin-bottom: var(--s-1);
+  font-size: var(--t-xs);
+  font-weight: var(--w-bold);
+  color: var(--c-ink-2);
+}
+
+.notice > :last-child {
+  margin-bottom: 0;
+}
+
+.notice--error {
+  border-inline-start-color: var(--c-alert);
+  background: var(--c-alert-bg); /* ink on it = 15.40:1 */
+}
+
+.notice--error .notice__label {
+  color: var(--c-alert); /* 7.23:1 on --c-alert-bg */
+}
+
+/* Amber-brown, never red: a slow connection is not the student's mistake. */
+.notice--wait,
+.notice--offline,
+.notice--stale,
+.notice--gate {
+  border-inline-start-color: var(--c-wait);
+  background: var(--c-wait-bg); /* ink on it = 15.57:1 */
+}
+
+.notice--wait .notice__label,
+.notice--offline .notice__label,
+.notice--stale .notice__label,
+.notice--gate .notice__label {
+  color: var(--c-wait); /* 7.41:1 on --c-wait-bg */
+}
+
+.notice--live {
+  border-inline-start-color: var(--c-live);
+  background: var(--c-live-bg); /* ink on it = 15.38:1 */
+}
+
+.notice--live .notice__label {
+  color: var(--c-live); /* 6.57:1 on --c-live-bg */
+}
+
+/* The form error slot: one region immediately below the h1, height reserved so
+   an appearing error does not shift the form under a thumb already moving
+   (SYSTEM §4.6). `role="alert"` announces it; focus is not moved on a full
+   page post. */
+.errorslot {
+  min-height: var(--s-2);
+  margin-bottom: var(--s-4);
+}
+
+.errorslot ul {
+  margin: var(--s-2) 0 0;
+}
+
+/* The flash region. Not a toast: it is in the document, it persists until the
+   next navigation, and it is first in content order so a screen reader reaches
+   it immediately (SYSTEM §4.8). */
+.flash:empty {
+  display: none;
+}
+
+/* The one and only animation in the system, and it is removed under
+   prefers-reduced-motion by the token (tokens.css §5). */
+.chip {
+  display: inline-block;
+  padding: var(--s-1) var(--s-2);
+  border: var(--bw-hair) solid currentColor;
+  border-radius: var(--r-sm);
+  font-size: var(--t-sm);
+  transition: background-color var(--m-fast) var(--m-ease);
+}
+
+.chip--live { color: var(--c-live); background: var(--c-live-bg); }
+.chip--wait { color: var(--c-wait); background: var(--c-wait-bg); }
+
+/* ---------------------------------------------------------------- 8. BLOCKS */
+
+.card {
+  padding: var(--s-4);
+  background: var(--c-card);
+  /* The card's boundary is its top rule, not its fill. --elev-1 is the only
+     elevation in the system and it is a rule, not a shadow. */
+  border-top: var(--bw-ctrl) solid var(--c-rule-strong);
+  box-shadow: var(--elev-1);
+  margin-bottom: var(--s-5);
+}
+
+.card > :last-child {
+  margin-bottom: 0;
+}
+
+.section {
+  margin-bottom: var(--s-8);
+}
+
+.rows {
+  list-style: none;
+  margin: 0 0 var(--s-5);
+  padding: 0;
+  border-bottom: var(--bw-hair) solid var(--c-rule);
+}
+
+.rows > li {
+  margin: 0;
+  padding: var(--s-3) 0;
+  border-top: var(--bw-hair) solid var(--c-rule);
+}
+
+/* Two decisions side by side, each its own form, each its own 44px target,
+   8px apart. Used by the consent toggles: granting and withdrawing are one tap
+   each, which is what "as easy as granting" means (DPDP r.3(c)(i)). */
+.decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.decide form {
+  flex: 1 1 10rem;
+}
+
+.decide .btn {
+  margin-top: 0;
+}
+
+/* `<details>` is the disclosure widget. There is no custom accordion: a
+   summary is a 44px row and announces its own expanded state natively
+   (SYSTEM §5.5). */
+details {
+  margin-bottom: var(--s-5);
+  border-top: var(--bw-hair) solid var(--c-rule);
+  border-bottom: var(--bw-hair) solid var(--c-rule);
+}
+
+summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  color: var(--c-stamp);
+  cursor: pointer;
+}
+
+details > :not(summary) {
+  padding-bottom: var(--s-2);
+}
+
+/* ------------------------------------------------------- 9. FORCED COLOURS
+   Android's and Windows' high-contrast modes drop our colours, and the state
+   system is the one place colour carries meaning. Every state also carries a
+   text label and a border, so the tints can go; what must not go is the
+   boundary. tokens.css already remaps the rule and focus colours. */
+
+@media (forced-colors: active) {
+  .notice,
+  .card,
+  .chip {
+    border: var(--bw-hair) solid CanvasText;
+    border-inline-start-width: var(--bw-rail);
+  }
+
+  .btn {
+    border-color: CanvasText;
+  }
+}

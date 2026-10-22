@@ -32,6 +32,7 @@ Tokens come from `apps/core/p14.py`, never retyped (`CLAUDE.md` rule 10).
 """
 
 import json
+import re
 
 import pytest
 
@@ -41,6 +42,72 @@ pytestmark = pytest.mark.django_db
 
 #: The only key name that may be money-shaped, at the boundary as in the table.
 PERMITTED_KEYS = {column for _table, column in MONEY_WORDS_EXEMPT}
+
+# --- the value limb (QA-S0 F15) -------------------------------------------
+#
+# THREAT-MODEL §6 states this control's job as four limbs: *"No response
+# anywhere carries a forbidden key, a money-shaped key, a contact detail or an
+# amount."* S0 shipped the two key limbs. QA-S0 F15 measured what that left:
+#
+#   > *"**an amount as a value**. `{"handover_note": "Paid Rs 300"}` and
+#   > `{"meta": {"note": "he paid 300 rupees"}}` both pass. ADR-003 §2.3 W5's
+#   > free-text residual **is a value**, so the compensating control does not
+#   > currently reach the thing it compensates for."*
+#
+# That is the finding that matters, because W5's free-text residual is the whole
+# reason this file exists (ADR-003 §5.3 item 4). A control that covers only key
+# *names* compensates for the shape P14 already catches in the schema and not
+# for the shape it cannot. So the value limb lands here, in S1, as assigned.
+#
+# **The fourth limb — a contact detail — is NOT implemented here, and is
+# escalated rather than silently dropped.** See
+# `test_finding_the_contact_detail_limb_collides_with_a_mandated_response`.
+
+#: A currency marker, with the match rule for each (`CLAUDE.md` rule 11: a
+#: per-entry rule, so a false positive is narrowed rather than deleted).
+#: `word` entries match on word boundaries; `raw` entries are symbols with no
+#: word boundary to match on.
+CURRENCY_MARKERS = (
+    ("raw", "₹", "the rupee sign"),
+    ("raw", "₨", "the old rupee sign — still on some keyboards"),
+    ("word", r"rs\.?", "Rs / Rs. — by far the commonest written form"),
+    ("word", "inr", "the ISO currency code"),
+    ("word", "rupees?", "the word, singular or plural"),
+    ("word", "paise", "the unit the one permitted column is denominated in"),
+)
+
+#: A verb that makes an adjacent number an amount even with no currency marker.
+#: *"he paid 300"* is the shape QA measured; `MONEY_TOKEN_SHAPE_EXEMPTIONS` does
+#: not apply here because this limb reads prose, not identifiers.
+PAYMENT_VERBS = (
+    "paid", "pay", "paying", "gave", "giving", "received", "charged",
+    "owes?", "settled", "tendered", "refunded",
+)
+
+#: digits-near-marker, in either order. `\W{0,3}` is "adjacent": it spans a
+#: space, a colon, a currency separator or nothing, and stops well short of
+#: joining two unrelated clauses.
+_MARKER_ALT = "|".join(
+    [rf"\b(?:{p})\b" for kind, p, _why in CURRENCY_MARKERS if kind == "word"]
+    + [re.escape(p) for kind, p, _why in CURRENCY_MARKERS if kind == "raw"]
+    + [rf"\b(?:{v})\b" for v in PAYMENT_VERBS]
+)
+AMOUNT_IN_TEXT = re.compile(
+    rf"(?:(?:{_MARKER_ALT})\W{{0,3}}\d)|(?:\d\W{{0,3}}(?:{_MARKER_ALT}))|(?:\d\s*/-)",
+    re.IGNORECASE,
+)
+
+# ponytail: a marker-adjacent-to-digits regex over string values. **Ceiling: it
+# reads Latin-script digits beside an English or symbol marker.** "three hundred
+# rupees" (words, no digits), a Tamil-script amount, and a bare "300" with no
+# marker at all all pass — the last one necessarily, because a bare number in
+# free text is indistinguishable from a page count. That is exactly the residual
+# ADR-003 §2.3 W5 declares and §5.3 item 3 bounds with a product rule (PRD
+# EX-18: no in-app "how much did you pay?" field, anywhere). **This limb makes
+# the common case fail the build; it does not close W5, and §5.3's second
+# sentence — "guaranteed by none of them" — stays true.** Upgrade path: none
+# wanted. A broader matcher would fire on a listing title containing a page
+# count and would then be deleted, which is `CLAUDE.md` rule 13.
 
 
 def forbidden_keys_in(payload, path=""):
@@ -69,15 +136,71 @@ def forbidden_keys_in(payload, path=""):
     return offenders
 
 
-def assert_no_forbidden_keys(payload, where=""):
+def _decoded(text):
+    """A JSON document carried inside a string, or None.
+
+    QA-S0 F15's third gap: `{"payload": '{"paid": 30000}'}` is a document inside
+    a string, so the key walker sees one harmless key. `jobs.payload` is a real
+    jsonb column and a serialiser that `str()`s it produces exactly this — which
+    is not hypothetical, because the jsonb limb is one of the two residuals this
+    file is the compensating control for.
+    """
+    candidate = text.strip()
+    if not candidate.startswith(("{", "[")):
+        return None
+    try:
+        parsed = json.loads(candidate)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+def forbidden_values_in(payload, path=""):
+    """Every string value that carries an amount, anywhere in `payload`.
+
+    The value limb (QA-S0 F15). Also re-walks a double-encoded JSON document
+    with the **full** check, so a nested payload's keys are examined too.
+    """
+    offenders = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            offenders += forbidden_values_in(value, f"{path}.{key}" if path else str(key))
+    elif isinstance(payload, (list, tuple)):
+        for index, value in enumerate(payload):
+            offenders += forbidden_values_in(value, f"{path}[{index}]")
+    elif isinstance(payload, str):
+        inner = _decoded(payload)
+        if inner is not None:
+            where = f"{path or '<root>'} (double-encoded JSON)"
+            for offender in forbidden_keys_in(inner) + forbidden_values_in(inner):
+                offenders.append(f"{where} -> {offender}")
+        hit = AMOUNT_IN_TEXT.search(payload)
+        if hit:
+            offenders.append(f"{path or '<root>'} (an amount in free text: {hit.group(0)!r})")
+    return offenders
+
+
+def forbidden_content_in(payload, path=""):
+    """Both implemented limbs: a money-shaped key, and an amount as a value."""
+    return forbidden_keys_in(payload, path) + forbidden_values_in(payload, path)
+
+
+def assert_no_forbidden_content(payload, where=""):
     """The assertion later slices import. One line per endpoint test."""
-    offenders = forbidden_keys_in(payload)
+    offenders = forbidden_content_in(payload)
     assert offenders == [], (
         f"P14 at the contract boundary (ADR-003 §2.3): {where or 'this response'} "
-        "contains key(s) that name money. A price absent from storage but present "
-        "in a response is still a record, and no response key may be named price, "
-        "amount, total or value.\n" + "\n".join(offenders)
+        "contains money. A price absent from storage but present in a response is "
+        "still a record: no response key may be named price, amount, total or "
+        "value, and no response value may carry an amount in free text "
+        "(THREAT-MODEL §6; QA-S0 F15).\n" + "\n".join(offenders)
     )
+
+
+#: The S0 name, kept because every later slice's response test is told to call
+#: it. It now checks both limbs, which is the direction that cannot weaken a
+#: caller.
+assert_no_forbidden_keys = assert_no_forbidden_content
 
 
 # --- 1. the live surface S0 produces --------------------------------------
@@ -153,3 +276,120 @@ def test_the_walker_does_not_flag_a_legitimate_response(payload):
 def test_the_permitted_keys_are_exactly_the_two_adr_names():
     assert PERMITTED_KEYS == {"asking_price_paise", "price_fixed_at"}
     assert set(FORBIDDEN_RESPONSE_KEYS) == {"price", "amount", "total", "value"}
+
+
+# --- 3. the value limb (QA-S0 F15) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "payload,why",
+    [
+        ({"handover_note": "Paid Rs 300"}, "QA's first measured case"),
+        ({"meta": {"note": "he paid 300 rupees"}}, "QA's second, nested"),
+        ({"message": "I gave him Rs 300 for it"}, "QA's third"),
+        ({"body": "₹300"}, "the rupee sign with no space"),
+        ({"body": "it was 300/-"}, "the Indian short form, which no word list carries"),
+        ({"body": "INR 1,200 in cash"}, "the ISO code and a separator"),
+        ({"items": [{"note": "received 250"}]}, "inside a pagination envelope"),
+        ({"a": {"b": [{"c": "settled 30000 paise"}]}}, "deep, both a verb and a unit"),
+        # the double-encoded limb: a jsonb document serialised as a string
+        ({"payload": '{"paid": 30000}'}, "a jsonb document inside a string — the key"),
+        ({"payload": '{"note": "paid Rs 300"}'}, "a jsonb document inside a string — the value"),
+        ({"outer": '[{"settled_price": 1}]'}, "a double-encoded list"),
+    ],
+)
+def test_the_value_limb_catches_an_amount_in_free_text(payload, why):
+    """**QA-S0 F15, closed.** The free-text residual ADR-003 §2.3 W5 declares
+    *is a value*, so until this limb existed the compensating control did not
+    reach the thing it compensates for. Every case here is one QA measured as
+    passing, or the double-encoded shape QA named as a third gap.
+    """
+    offenders = forbidden_content_in(payload)
+    assert offenders != [], f"{why}: nothing fired on {payload!r}"
+    with pytest.raises(AssertionError, match="contract boundary"):
+        assert_no_forbidden_content(payload)
+
+
+@pytest.mark.parametrize(
+    "payload,why",
+    [
+        ({"ready": True}, "/readyz"),
+        ({"error": {"code": "GATE_CLOSED", "message": "Listings are not open on this campus yet.",
+                    "request_id": "01JB", "retry_after": None}},
+         "API-CONTRACT §2.2's error shape, which S1 ships"),
+        ({"needs": ["age", "consent", "campus"]}, "API-CONTRACT §5.1's auth/consume body"),
+        ({"display_name": "Priya R", "campus_name": "Demo Campus",
+          "pseudonym": "0f3c…"}, "COMPLIANCE §2.4(i)'s seller identity, exactly"),
+        ({"asking_price_paise": 30000}, "the one permitted money name, as an integer"),
+        ({"body_md": "We never handle money. You pay the seller directly, in person."},
+         "the handover-guidance notice: the word with no digits beside it"),
+        ({"body_md": "Records are kept for 1 year after you delete your account."},
+         "the deletion disclosure: a number with no currency marker"),
+        ({"message": "Too many requests. Please try again later."}, "the 429 message"),
+        ({"note": "48 hours to confirm"}, "an SLA clock in prose — 'hours' contains 'rs'"),
+        ({"title": "Physics for Class 12, 300 pages"},
+         "a page count: a bare number in prose, which W5 declares as residual"),
+        ({"version": "2026-11-01.1"}, "a notice version string"),
+    ],
+)
+def test_the_value_limb_stays_quiet_on_responses_the_contracts_mandate(payload, why):
+    """`CLAUDE.md` rule 13. A limb reading prose is the one most likely to fire
+    on copy three frozen contracts require, and the one whose false positive
+    would be fixed by deleting it.
+
+    **`{"note": "48 hours to confirm"}` is the case worth naming:** `rs` as a
+    bare substring matches inside "hours", so a marker list without word
+    boundaries would redden on every SLA sentence in the product. The
+    word-boundary rule in `CURRENCY_MARKERS` is what makes that safe, and this
+    asserts it rather than trusting the regex.
+
+    The page-count row is the declared ceiling, asserted as a ceiling: a bare
+    number in prose passes, deliberately, and ADR-003 §5.3 item 3's product rule
+    is what bounds it.
+    """
+    assert forbidden_content_in(payload) == [], why
+
+
+def test_the_value_limb_is_not_vacuous():
+    """`CLAUDE.md` rule 12, for the new limb specifically: one positive and one
+    negative, side by side, so a regex that stopped matching anything cannot be
+    reported as coverage."""
+    assert forbidden_values_in({"x": "Rs 300"}) != []
+    assert forbidden_values_in({"x": "no money here"}) == []
+    assert forbidden_values_in({"x": '{"paid": 1}'}) != []
+
+
+def test_finding_the_contact_detail_limb_collides_with_a_mandated_response():
+    """**The fourth limb is NOT implemented, and this is why — escalated to cto,
+    not dropped.**
+
+    THREAT-MODEL §6 names four limbs; three are now implemented. The fourth —
+    *"no response anywhere carries a contact detail"* — **cannot be written at
+    this file's scope without firing on a response API-CONTRACT §5.1
+    mandates**: `GET /api/v1/account` returns the signed-in student **their own
+    email address**, and `GET /legal/{kind}` publishes the grievance officer's
+    email because E-Com r.4(2) requires it. Both are contact details in a
+    response, both are correct, and a blanket matcher here would redden on them.
+    `CLAUDE.md` rule 13 then applies: a guard that fires on the contracts it
+    protects gets edited, not obeyed.
+
+    **The limb's real subject is a *counterparty's* contact detail** —
+    DATA-MODEL §5's *"no response anywhere contains a contact detail"* is about
+    the handover and disclosure surface, and it is S5's acceptance criterion.
+    That is a per-endpoint rule, not a global one: it needs to know whose
+    address it is looking at, which this walker cannot know from the payload.
+
+    **So the ruling this test asks cto for is one line: is the contact-detail
+    limb (a) scoped to the S5 transfer/message/disclosure responses, or (b)
+    global with a declared allow-list of the two mandated cases?** Until that
+    is answered, the limb stays unimplemented and this test keeps saying so —
+    which is `CLAUDE.md` rule 9 applied to a control I am declining to write
+    rather than to one I wrote.
+
+    It asserts the two mandated responses are *not* flagged, so the day someone
+    adds a global matcher, this fails and the ruling is forced before it ships.
+    """
+    own_profile = {"email": "priya@example.ac.in", "display_name": "Priya R"}
+    grievance_officer = {"grievance_officer_email": "grievance@example.test"}
+    assert forbidden_content_in(own_profile) == []
+    assert forbidden_content_in(grievance_officer) == []

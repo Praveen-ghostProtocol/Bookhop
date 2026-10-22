@@ -1,0 +1,58 @@
+# locale/ta/REVIEWED.toml
+#
+# Owner: frontend-developer (TASKS §1). Read by
+# `tests/unit/test_reviewed_locale.py` and `tests/unit/test_locale_gate.py`
+# (backend-developer, THREAT-MODEL §6.1(b)-(c)).
+#
+# ===========================================================================
+# THIS FILE IS DELIBERATELY EMPTY AND I MAY NOT ADD TO IT.
+# ===========================================================================
+#
+# An entry here records that a NAMED NATIVE TAMIL SPEAKER read a specific
+# string and signed it off. Writing a name into this file is granting that
+# sign-off. **No agent may do that** — it is fabricating evidence (CLAUDE.md
+# rule 1), and THREAT-MODEL §6.1 names it as residual risk A10: "nothing stops
+# an agent writing its own name into `reviewer` and inventing a sign-off… the
+# manifest makes a fabricated sign-off visible; it cannot make it impossible."
+#
+# So the manifest's protection is social, not technical, and it depends on this
+# file staying empty until a person fills it. It is empty. The Tamil strings
+# are written, in `locale/ta/LC_MESSAGES/django.po`, and they are not served.
+#
+# `feature_flags['i18n.ta_enabled']` is false and `test_locale_gate.py` keeps
+# it false while any blocking-class msgid (see `BLOCKING_CLASSES.toml`) has no
+# matching entry here. At S1 that is 64 strings in four classes, 46 of which do
+# not even have a Tamil draft yet. The flag cannot be turned on.
+#
+# WHAT IS ACTUALLY BLOCKED IS A PERSON, NOT A CONTROL. The gate is built, the
+# manifests exist, the test is specified. What is missing is a named native
+# Tamil speaker, which the founder has not yet provided. Until then, "Tamil is
+# supported" is not a true statement about this product.
+#
+# A DIFF TO THIS FILE IS A CODE REVIEW ESCALATION, NOT A REVIEW COMMENT
+# (TASKS §1): adding a hash is functionally granting a reviewer sign-off.
+#
+# ---------------------------------------------------------------------------
+# THE ENTRY FORMAT, from THREAT-MODEL §6.1(b). One table per msgctxt (the
+# COPY-DECK key), exactly as `locale/ta/LC_MESSAGES/django.po` spells it:
+#
+#   [run.why_email]
+#   sha256   = "…"                 # of the exact approved msgstr, UTF-8, no
+#                                  # surrounding whitespace
+#   reviewer = "<the person's name>"
+#   reviewed = "2026-__-__"
+#   class    = "blocking"          # or "standard"
+#   notes    = "TR-1: சரிபார் is used for the STUDENT's action here; the
+#              # subject is the student, not BookHop"
+#
+# Editing a reviewed Tamil string changes its hash and breaks the build until
+# it is re-reviewed. That is the property we want: **the control is on review,
+# not on vocabulary**, so it is immune to both Tamil morphology and negation —
+# which is why Tamil gets an allow-list where English gets a deny-list.
+#
+# The reviewer brief to hand over is COPY-DECK §2. The open questions are
+# COPY-DECK §11 (TR-1 through TR-12). The four blocking classes and what each
+# one risks are in `BLOCKING_CLASSES.toml`.
+# ---------------------------------------------------------------------------
+
+# (no entries)

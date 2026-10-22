@@ -13,6 +13,15 @@ from apps.core import views as core_views
 urlpatterns = [
     path("healthz", core_views.healthz, name="healthz"),
     path("readyz", core_views.readyz, name="readyz"),
+    # L2 — API-CONTRACT §1. Each app's own `urls.py` carries its §5 block, so
+    # this file gains one `include` per app and no route.
+    #
+    # TASKS §1 says this file *"includes `web.urls` once, in S0, and is not
+    # touched again by anyone"*. That sentence is about the **web include** and
+    # about frontend-developer never editing this file — there is no other root
+    # URLconf, so L2 has nowhere else to mount. Raised in the S1 slice note as
+    # a one-line TASKS clarification rather than taken silently.
+    path("api/v1/", include("apps.accounts.urls")),
 ]
 
 # `web/**` is frontend-developer's tree and is written concurrently, so S0 must
