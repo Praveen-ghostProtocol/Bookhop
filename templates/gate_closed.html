@@ -6,10 +6,29 @@
   403 GATE_CLOSED with **no listing data on the page at all**.
 
   No search field, no sample listings, no "coming soon" countdown, and **no
-  date** — `gate.closed.body` names none because we do not have one and we do
-  not invent one. The one available action is leaving a note, which needs no
-  open gate; `POST /wanted` is slice S2, so in S1 the page states the position
-  and stops rather than offering a control that posts nowhere.
+  date** — we do not have one and we do not invent one.
+
+  ====================================================================
+  `gate.closed.body` WAS AMENDED. IT PROMISED TWO THINGS WE CANNOT DO.
+  ====================================================================
+  It read: *"You can leave a note saying which book you need, and we'll tell
+  you when listings open."* That is two commitments on a page with no form —
+  `POST /wanted` is slice **S2** and the notification that would carry the
+  message is **S3/S7**. A student reading it would leave believing a request
+  had been lodged and an email was coming; neither is true, and nothing on this
+  page could have made it true.
+
+  Both halves are **predictions about our own future conduct**, which COPY-DECK
+  §1.2 forbids outright and which no grep catches — the string contains no
+  banned word. Code review read for it.
+
+  The replacement states the mechanism (the gate opens campus by campus) and a
+  fact (there is nothing here yet) and **stops**. SYSTEM §4.22 asks for "what
+  is happening, when it changes if we know (and nothing if we do not)" and "the
+  one thing they can do" — in S1 there is genuinely nothing they can do, so the
+  page offers nothing rather than offering a control that posts nowhere. The
+  "leave a note" action returns in S2 with `POST /wanted` behind it, and the
+  notification clause returns only when a job exists to send it.
 {% endcomment %}
 {% block title %}{% blocktranslate context "gate.closed.title" with campus=campus_name|default:"" %}Listings aren't open at {{ campus }} yet.{% endblocktranslate %}{% endblock %}
 
@@ -18,6 +37,6 @@
 
 <div class="notice notice--gate">
   <span class="notice__label">{% translate "Not open yet" context "gate.closed.label" %}</span>
-  <p>{% translate "You can leave a note saying which book you need, and we'll tell you when listings open." context "gate.closed.body" %}</p>
+  <p>{% translate "BookHop opens listings one campus at a time. There is nothing to search here yet." context "gate.closed.body" %}</p>
 </div>
 {% endblock %}

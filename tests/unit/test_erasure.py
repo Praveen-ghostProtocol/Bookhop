@@ -304,3 +304,96 @@ def test_a_magic_link_for_an_erased_address_does_not_resurrect_the_account(stude
     fresh = User.objects.get(email=address)
     assert fresh.id != student.id
     assert fresh.person_pseudonym != old_pseudonym
+
+
+# --- REVIEW-S1: the session scan, and the layer that actually holds --------
+
+
+def test_the_session_scan_reports_what_it_scanned_and_deleted(client, student, salt):
+    """**REVIEW-S1.** The scan used to swallow every exception around the
+    decode, on the assumption that an unreadable session would raise. Django's
+    `decode` catches everything itself and **returns `{}`**, so the `except` was
+    dead code for the modes it was written for and the real failure mode —
+    matching nothing — was silent.
+
+    The counts are what make silence detectable, so they are asserted.
+    """
+    from apps.accounts.sessions import SESSION_USER_KEY
+    from apps.accounts.services import _delete_sessions_for
+
+    session = client.session
+    session[SESSION_USER_KEY] = student.id
+    session.save()
+
+    scanned, deleted = _delete_sessions_for(student)
+    assert scanned >= 1
+    assert deleted == 1
+
+
+def test_a_scan_that_matches_nothing_is_logged_rather_than_silent(
+    client, student, salt, security_log
+):
+    """A rotated `SECRET_KEY` makes every decode return `{}`, which is
+    indistinguishable from "this student had no sessions" unless it is said out
+    loud. Simulated by a session belonging to somebody else: rows present, none
+    matching."""
+    from apps.accounts.sessions import SESSION_USER_KEY
+    from apps.accounts.services import _delete_sessions_for
+
+    session = client.session
+    session[SESSION_USER_KEY] = student.id + 999
+    session.save()
+
+    scanned, deleted = _delete_sessions_for(student)
+    assert (scanned, deleted) == (1, 0)
+    assert any(
+        record.getMessage() == "accounts.session_scan_matched_nothing"
+        for record in security_log
+    ), "a scan that matched nothing produced no signal at all"
+
+
+def test_the_device_is_signed_out_even_if_the_session_scan_matches_nothing(
+    client, student, salt
+):
+    """**The independent second layer, asserted rather than claimed**
+    (`CLAUDE.md` rule 14).
+
+    REVIEW-S1's reassuring half: even if `_delete_sessions_for` matched
+    nothing — a rotated `SECRET_KEY`, a changed serialiser — the student's
+    device is still signed out, because `sessions.session_user` excludes a
+    `TOMBSTONED` account and **flushes** the session it found. That layer does
+    not share the scan's decode dependency, which is what makes it independent.
+
+    Nothing tested it. This does, by erasing **without** the scan and then
+    using the session: the row survives the erasure and the request is still
+    unauthenticated.
+    """
+    from unittest.mock import patch
+
+    from apps.accounts.sessions import SESSION_USER_KEY
+
+    session = client.session
+    session[SESSION_USER_KEY] = student.id
+    session.save()
+    key = session.session_key
+
+    with patch("apps.accounts.services._delete_sessions_for", return_value=(0, 0)):
+        erase_account(student)
+
+    from django.contrib.sessions.models import Session
+
+    assert Session.objects.filter(session_key=key).exists(), (
+        "the scan was supposed to be disabled for this test, so the row should "
+        "survive — otherwise the second layer is not what is being measured"
+    )
+
+    from django.test import RequestFactory
+
+    from apps.accounts.sessions import session_user
+
+    request = RequestFactory().get("/")
+    request.session = client.session
+    assert session_user(request) is None, (
+        "a tombstoned account still resolved to a signed-in user; the second "
+        "layer does not hold and erasure leaves the device signed in"
+    )

@@ -21,10 +21,52 @@
   makes support minutes unmeasurable, and the support number is what D-009's
   reversal trigger reads.
 
-  No SLA number for help (J9 step 7). Statutory clocks apply to reports,
-  grievances and disputes and those are stated exactly where they apply;
-  promising a time one staff member cannot keep is how a help surface becomes a
-  complaint surface.
+  ====================================================================
+  TWO STRINGS ON THIS PAGE WERE AMENDED. BOTH PROMISED A SERVICE THAT
+  DOES NOT EXIST.
+  ====================================================================
+  `help.response` read: *"We read every message. We aim to reply the same day
+  — we're a small team."* On a page where **nothing stores what a student
+  writes**. The docstring above already said there was no door to open a
+  ticket, and then the copy underneath it promised a same-day reply — the
+  defect was sitting next to its own explanation. A student would type a
+  problem, be told it was read and answered today, and the message would go
+  nowhere. Worse than silence: *a student who knows there is no channel uses
+  one that exists; a student who believes a message was read waits.*
+
+  `help.scope` read: *"We can help you reach the other student, put a book
+  back up, or look at a listing. We can't refund you — we never hold the
+  money."* Three promises and one fact. The relay is **S5** (A-6), listings
+  are **S2**, and there is no channel to ask through in any case. **Only the
+  fact survives**, which is also the half that carries weight: it is the
+  vouching liability COMPLIANCE §2.5 and R-16 call our worst asymmetry, and
+  `tests/e2e/test_first_run_journey.py::test_the_help_page_says_what_bookhop_cannot_do_before_anything_else`
+  asserts exactly that half and not the promises — QA had already drawn the
+  line in the right place.
+
+  Both are **predictions about our own future conduct**, which COPY-DECK §1.2
+  forbids and which no grep can catch: neither contains a banned word. Code
+  review read for it, which is the division of labour THREAT-MODEL §6.1 states
+  outright — the grep catches words, the reviewer catches sentences, and
+  neither substitutes for the other.
+
+  `help.no_channel` replaces `help.response` and names the state instead:
+  there is no way to send BookHop a message from inside the app yet. The
+  grievance-officer link below is the one statutory route, and that page states
+  its own condition rather than this one making a claim on its behalf.
+
+  **Why the page still ships.** Everything left on it is a fact about the
+  product or an instruction, and the trust answers are the copy the product
+  most needs a student to read before they ever meet a listing. The footer Help
+  link is on every page by design (SC 3.2.6, SYSTEM §2.6) and pointing it at a
+  404 would be worse. If review disagrees, the scope question is whether
+  `/help` waits for CG-2 — but the content that remains is true today, and a
+  true page is not improved by deleting it.
+
+  No SLA number for help, and now no reply time at all (J9 step 7). Statutory
+  clocks apply to reports, grievances and disputes and those are stated exactly
+  where they apply; promising a time one staff member cannot keep is how a help
+  surface becomes a complaint surface.
 
   PROVISIONAL COPY: COPY-DECK has no section for the help screen. The strings
   below are JOURNEYS J9's own wording, which that document marks as
@@ -38,7 +80,7 @@
 
 <div class="notice notice--wait">
   <span class="notice__label">{% translate "What BookHop can and can't do" context "help.scope.label" %}</span>
-  <p>{% translate "We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money." context "help.scope" %}</p>
+  <p>{% translate "We can't refund you — we never hold the money. You and the other student settle it between yourselves, in person." context "help.scope" %}</p>
 </div>
 
 <div class="section">
@@ -49,7 +91,26 @@
      JavaScript off (SYSTEM §5.5, ADR-001 §2.3). {% endcomment %}
   <details>
     <summary>{% translate "Does BookHop check the books?" context "help.q.checked" %}</summary>
-    <p>{% translate "BookHop hasn't checked this book." context "trust.not_checked" %} {% translate "Look at the book before you hand over any money." context "trust.check_yourself" %}</p>
+    {% comment %} ANSWERED WITH A PLAIN FACT, NOT WITH `trust.not_checked`.
+
+       `trust.not_checked` reads *"BookHop hasn't checked **this** book."* It is
+       written to sit in the book block of a listing page, where "this" has a
+       referent and where COPY-DECK §3.2's scoping rule puts it. On a help page
+       with no book on screen the "this" points at nothing.
+
+       The fix is NOT a generically-scoped variant of that string. Minting a
+       second no-warranty sentence would need the same word-by-word scrutiny as
+       the first — B2 is blocking precisely because a natural rendering
+       over-promises — and it would leave two trust strings to keep in step.
+       A plain fact about the product sidesteps the scoping problem instead of
+       solving it, and it is squarely inside §1.2: "BookHop does not check
+       books" names what the product does, it does not predict and it does not
+       judge. Ruled by the coordinator on an item I escalated rather than
+       decided; recorded in COPY-DECK §9a and the v1.6 log row.
+
+       `trust.check_yourself` stays: it is an instruction, "the book" is
+       generic, and it is the actionable half of the answer. {% endcomment %}
+    <p>{% translate "BookHop does not check books." context "help.a.checked" %} {% translate "Look at the book before you hand over any money." context "trust.check_yourself" %}</p>
   </details>
 
   <details>
@@ -58,24 +119,32 @@
   </details>
 
   <details>
-    <summary>{% translate "What if the book isn't what the listing said?" context "help.q.wrong" %}</summary>
-    <p>{% translate "If it isn't the book described, don't pay. Tell us and we'll take the listing down." context "trust.recourse" %}</p>
-  </details>
-
-  <details>
     <summary>{% translate "Are there ratings or reviews?" context "help.q.ratings" %}</summary>
     <p>{% translate "There are no ratings on BookHop." context "trust.no_ratings" %}</p>
   </details>
+  {% comment %} TWO QUESTIONS WERE REMOVED FROM THIS LIST, NOT RE-WORDED.
 
-  <details>
-    <summary>{% translate "What happens to my photos?" context "help.q.photos" %}</summary>
-    <p>{% translate "We remove the location and camera details from your photos." context "trust.exif" %}</p>
-  </details>
+     "What if the book isn't what the listing said?" answered with
+     `trust.recourse` — *"Tell us and we'll take the listing down."* — and
+     "What happens to my photos?" answered with `trust.exif` — *"We remove the
+     location and camera details from your photos."*
+
+     Both are approved deck strings and both are correct **in the slice that
+     has listings**. Neither is correct here. There is no listing to take
+     down, no photo to strip, and no channel to tell us through: `POST /report`
+     is S6 and EXIF stripping is S2. They are the same class of defect as
+     `help.response` below — copy that says what *we* will do, with no
+     mechanism behind it — and the right fix is to move them to the slice that
+     earns them, not to soften them into something vaguer.
+
+     **Add both back in S2 (`trust.exif`) and S6 (`trust.recourse`).** They
+     stay in COPY-DECK §3, unchanged; what was wrong was the page they were on,
+     not the words. {% endcomment %}
 </div>
 
 <div class="section">
   <h2>{% translate "If you need a person" context "help.routes.h" %}</h2>
-  <p class="sub">{% translate "We read every message. We aim to reply the same day — we're a small team." context "help.response" %}</p>
+  <p class="sub">{% translate "There is no way to send BookHop a message from inside the app yet." context "help.no_channel" %}</p>
   <ul class="rows">
     {% comment %} The statutory route that exists today and works without an account
        (API-CONTRACT §5.6) — a rights holder or a parent is not a user, and no

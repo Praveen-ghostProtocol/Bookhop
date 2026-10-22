@@ -36,6 +36,9 @@ urlpatterns = [
     path("sw.js", views.service_worker, name="service-worker"),
     path("manifest.webmanifest", views.manifest, name="manifest"),
     path("robots.txt", views.robots, name="robots"),
+    # The conventional icon path. base.html declares `<link rel="icon">` so a
+    # browser never asks for this; the route is for clients that do anyway.
+    path("favicon.ico", views.favicon, name="favicon"),
     # LAST, AND NOTHING MAY FOLLOW IT.
     #
     # `handler404` must be declared in the root URLconf, which is backend's and

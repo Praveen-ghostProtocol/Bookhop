@@ -101,35 +101,80 @@ def current_notice_label(kind, locale=None):
     return getattr(notice, "version", None) if notice is not None else None
 
 
+def grievance_contact():
+    """The grievance officer's published details, or None.
+
+    **`/legal/grievance-officer` composes rather than stores** (DATA-MODEL
+    A-25): `GRIEVANCE_PROCEDURE` holds the versioned procedure prose, and the
+    officer's name, designation, email, phone and the registered address are
+    columns on `legal_entities`, read **at render time**. Baking them into an
+    immutable notice would create a second copy of a fact that changes without
+    the notice changing, and a stale grievance contact is a direct regulatory
+    failure (IT Rules r.3(2)(a), E-Com r.4(2), r.4(4)), not a cosmetic one.
+
+    It is the same rule as the accepted-domains ruling — **the value arrives
+    from the service, never baked into stored text** — and they are worth
+    recognising as one rule rather than two coincidences.
+
+    GAP: `API-CONTRACT.md` §3 has no function that returns it, and L3 does not
+    query. The import below is the signature this needs; until it lands the
+    read degrades to None and the page says the notice is not published, which
+    is true — the legal entity is empty, there is no appointed officer, and
+    `INCORPORATION-AND-BLOCKERS.md` §4.1 is explicit that inventing one is a
+    misrepresentation. Degrading rather than raising because this page is
+    linked from the footer of **every** page and is the one route that must
+    survive an outage.
+    """
+    try:
+        from apps.core.services import grievance_contact as _read  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        return _read()
+    except Exception:  # noqa: BLE001 — see docstring; a read is not a record
+        return None
+
+
 # --- Campus verification method -------------------------------------------
 
 #: `COPY-DECK.md` §3.2 condition 3, `SYSTEM.md` §4.11a and acceptance criterion
-#: 7h all require `trust.campus_mail` to render **only** when
+#: 7h require `trust.campus_mail` to render **only** when
 #: `campus_verifications.method` says the student signed in with a college
 #: email address, and to **fail closed** on anything else.
 #:
-#: THE THREE DOCUMENTS NAME A VALUE THAT DOES NOT EXIST. They say
-#: `'EMAIL_DOMAIN'`. `DATA-MODEL.md` §2's CHECK allows only
-#: `'INSTITUTIONAL_EMAIL'` and `'STAFF_MANUAL'`; `JOURNEYS.md` J1 step 6 says
-#: `INSTITUTIONAL_EMAIL`; and `apps/accounts/services.py` now **writes**
-#: `method="INSTITUTIONAL_EMAIL"` on every sign-in. So criterion 7h, written
-#: literally, asserts a value nothing ever writes and the database forbids — it
-#: can only ever pass vacuously, which `CLAUDE.md` rule 12 calls worse than no
-#: guard because it is reported as coverage. Escalated to cto; this is rule 10's
-#: shape, with the divergence now visible in running code.
+#: **RATIFIED AS `INSTITUTIONAL_EMAIL`.** The three documents used to say
+#: `'EMAIL_DOMAIN'`, which the CHECK constraint forbids and the service never
+#: writes; the spelling was corrected across `SYSTEM.md`, `COPY-DECK.md` and
+#: the criterion. The reasoning, recorded so it is not re-litigated:
+#: `INSTITUTIONAL_EMAIL` names **the thing verified** — an institutional
+#: affiliation — rather than the mechanism used, which is how its sibling
+#: `STAFF_MANUAL` is named and which stays correct when a second method
+#: arrives that still matches a domain.
 #:
-#: Until it is ruled, both spellings are accepted and **everything else fails
-#: closed**. Per rule 14, the layer that still catches the thing this guards
-#: against is the exclusion itself: `'STAFF_MANUAL'`, `None` and any unknown
-#: value render nothing under either spelling, so the control — never tell a
-#: buyer that a staff-re-verified student signed in with a college email
-#: address — holds whichever way the rename goes.
-EMAIL_METHODS = frozenset({"EMAIL_DOMAIN", "INSTITUTIONAL_EMAIL"})
+#: **The tolerance for both spellings is gone.** It was correct while the
+#: divergence was open and wrong the moment it closed: a tolerance that
+#: outlives its divergence is how the divergence comes back.
+#:
+#: Source of truth is `apps.accounts.models.CAMPUS_VERIFICATION_METHODS`.
+#: `apps.accounts.services` does not re-export it and L3 does not import a
+#: models module, so the value is named once here. Per `CLAUDE.md` rule 14 the
+#: second layer is acceptance criterion 7h, which asserts the string renders
+#: **iff** the method is `INSTITUTIONAL_EMAIL` — so a rename shows up as a red
+#: test, and the failure direction of this allow-list is safe in the meantime:
+#: an unrecognised value renders nothing rather than rendering wrongly.
+#: A one-line re-export from `services` would make this an import; asked for.
+EMAIL_METHOD = "INSTITUTIONAL_EMAIL"
 
 
 def signed_in_with_college_email(method):
-    """True only for a method that *is* a college-email sign-in. Fail closed."""
-    return method in EMAIL_METHODS
+    """True only for a method that *is* a college-email sign-in. Fail closed.
+
+    `STAFF_MANUAL`, `None` and any unknown value render nothing, with **no
+    substitute string and no comment on the absence** — a student
+    re-verified by staff did not sign in that way, and saying so would be a
+    false statement about a person (`COMPLIANCE.md` §2.5a condition 3).
+    """
+    return method == EMAIL_METHOD
 
 
 # --- Locale ----------------------------------------------------------------

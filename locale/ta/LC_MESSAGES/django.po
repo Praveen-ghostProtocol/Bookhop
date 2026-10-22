@@ -374,12 +374,6 @@ msgstr "இதை மீட்டெடுக்க முடியாது"
 
 #: templates/delete_confirm.html
 #. BLOCKING CLASS B3 (COPY-DECK §2)
-msgctxt "erase.confirm.rest"
-msgid "Everything else goes now."
-msgstr "மற்ற அனைத்தும் இப்போதே நீக்கப்படும்."
-
-#: templates/delete_confirm.html
-#. BLOCKING CLASS B3 (COPY-DECK §2)
 msgctxt "erase.confirm.retained"
 msgid "We have to keep these records for one year, because the law requires it:"
 msgstr "இந்தப் பதிவுகளை ஒரு வருடம் வைத்திருக்க வேண்டும், சட்டம் அதைக் கோருகிறது:"
@@ -410,6 +404,24 @@ msgstr ""
 
 #: templates/delete_confirm.html
 #. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.account"
+msgid "Your campus and city, and that your college email and your age were checked — under the same code, with no name or address attached."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.age"
+msgid "That BookHop checked you were 18 or over, and when. The date of birth you typed was never kept."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.audit"
+msgid "One line for each action you took on BookHop, with the IP address and the browser you used."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
 msgctxt "erase.retained.chat"
 msgid "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation."
 msgstr ""
@@ -418,6 +430,12 @@ msgstr ""
 #. BLOCKING CLASS B3 (COPY-DECK §2)
 msgctxt "erase.retained.consents"
 msgid "The record that you asked us to delete the account, and that we did."
+msgstr ""
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.email_hash"
+msgid "A scrambled code made from your email address, kept for one year so that a banned account cannot sign up again. It is a code, not an address."
 msgstr ""
 
 #: templates/delete_confirm.html
@@ -450,8 +468,8 @@ msgstr ""
 
 #: templates/gate_closed.html
 msgctxt "gate.closed.body"
-msgid "You can leave a note saying which book you need, and we'll tell you when listings open."
-msgstr "உங்களுக்குத் தேவையான புத்தகத்தைக் குறிப்பிட்டு வைக்கலாம், பட்டியல்கள் திறக்கும்போது தெரிவிப்போம்."
+msgid "BookHop opens listings one campus at a time. There is nothing to search here yet."
+msgstr ""
 
 #: templates/gate_closed.html
 msgctxt "gate.closed.label"
@@ -469,9 +487,25 @@ msgctxt "grievance.cta"
 msgid "Contact the grievance officer"
 msgstr "குறைதீர்ப்பு அதிகாரியைத் தொடர்பு கொள்ள"
 
+#: templates/legal.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "grievance.officer.h"
+msgid "The grievance officer"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.a.checked"
+msgid "BookHop does not check books."
+msgstr ""
+
 #: templates/help.html
 msgctxt "help.faq.h"
 msgid "The things students ask most"
+msgstr ""
+
+#: templates/help.html
+msgctxt "help.no_channel"
+msgid "There is no way to send BookHop a message from inside the app yet."
 msgstr ""
 
 #: templates/help.html
@@ -485,23 +519,8 @@ msgid "How do I pay?"
 msgstr ""
 
 #: templates/help.html
-msgctxt "help.q.photos"
-msgid "What happens to my photos?"
-msgstr ""
-
-#: templates/help.html
 msgctxt "help.q.ratings"
 msgid "Are there ratings or reviews?"
-msgstr ""
-
-#: templates/help.html
-msgctxt "help.q.wrong"
-msgid "What if the book isn't what the listing said?"
-msgstr ""
-
-#: templates/help.html
-msgctxt "help.response"
-msgid "We read every message. We aim to reply the same day — we're a small team."
 msgstr ""
 
 #: templates/help.html
@@ -511,7 +530,7 @@ msgstr ""
 
 #: templates/help.html
 msgctxt "help.scope"
-msgid "We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money."
+msgid "We can't refund you — we never hold the money. You and the other student settle it between yourselves, in person."
 msgstr ""
 
 #: templates/help.html
@@ -761,25 +780,7 @@ msgstr "பணம் கொடுப்பதற்கு முன் புத
 
 #: templates/help.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)
-msgctxt "trust.exif"
-msgid "We remove the location and camera details from your photos."
-msgstr "உங்கள் படங்களிலிருந்து இடம் மற்றும் கேமரா விவரங்களை நீக்குகிறோம்."
-
-#: templates/help.html
-#. BLOCKING CLASS B2 (COPY-DECK §2)
 msgctxt "trust.no_ratings"
 msgid "There are no ratings on BookHop."
 msgstr "BookHop-ல் மதிப்பெண்கள் இல்லை."
-
-#: templates/help.html
-#. BLOCKING CLASS B2 (COPY-DECK §2)
-msgctxt "trust.not_checked"
-msgid "BookHop hasn't checked this book."
-msgstr "இந்தப் புத்தகத்தை BookHop சரிபார்க்கவில்லை."
-
-#: templates/help.html
-#. BLOCKING CLASS B2 (COPY-DECK §2)
-msgctxt "trust.recourse"
-msgid "If it isn't the book described, don't pay. Tell us and we'll take the listing down."
-msgstr "விவரித்தபடி புத்தகம் இல்லையென்றால், பணம் கொடுக்க வேண்டாம். எங்களுக்குச் சொல்லுங்கள், அந்தப் பட்டியலை நீக்குவோம்."
 

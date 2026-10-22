@@ -368,12 +368,6 @@ msgstr "This cannot be undone"
 
 #: templates/delete_confirm.html
 #. BLOCKING CLASS B3 (COPY-DECK §2)
-msgctxt "erase.confirm.rest"
-msgid "Everything else goes now."
-msgstr "Everything else goes now."
-
-#: templates/delete_confirm.html
-#. BLOCKING CLASS B3 (COPY-DECK §2)
 msgctxt "erase.confirm.retained"
 msgid "We have to keep these records for one year, because the law requires it:"
 msgstr "We have to keep these records for one year, because the law requires it:"
@@ -404,6 +398,24 @@ msgstr "What happens now"
 
 #: templates/delete_confirm.html
 #. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.account"
+msgid "Your campus and city, and that your college email and your age were checked — under the same code, with no name or address attached."
+msgstr "Your campus and city, and that your college email and your age were checked — under the same code, with no name or address attached."
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.age"
+msgid "That BookHop checked you were 18 or over, and when. The date of birth you typed was never kept."
+msgstr "That BookHop checked you were 18 or over, and when. The date of birth you typed was never kept."
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.audit"
+msgid "One line for each action you took on BookHop, with the IP address and the browser you used."
+msgstr "One line for each action you took on BookHop, with the IP address and the browser you used."
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
 msgctxt "erase.retained.chat"
 msgid "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation."
 msgstr "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation."
@@ -413,6 +425,12 @@ msgstr "Messages you wrote to another student are not deleted. They are removed 
 msgctxt "erase.retained.consents"
 msgid "The record that you asked us to delete the account, and that we did."
 msgstr "The record that you asked us to delete the account, and that we did."
+
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.email_hash"
+msgid "A scrambled code made from your email address, kept for one year so that a banned account cannot sign up again. It is a code, not an address."
+msgstr "A scrambled code made from your email address, kept for one year so that a banned account cannot sign up again. It is a code, not an address."
 
 #: templates/delete_confirm.html
 #. BLOCKING CLASS B3 (COPY-DECK §2)
@@ -444,8 +462,8 @@ msgstr "A file listing what BookHop holds about you, what it is used for, and wh
 
 #: templates/gate_closed.html
 msgctxt "gate.closed.body"
-msgid "You can leave a note saying which book you need, and we'll tell you when listings open."
-msgstr "You can leave a note saying which book you need, and we'll tell you when listings open."
+msgid "BookHop opens listings one campus at a time. There is nothing to search here yet."
+msgstr "BookHop opens listings one campus at a time. There is nothing to search here yet."
 
 #: templates/gate_closed.html
 msgctxt "gate.closed.label"
@@ -463,10 +481,26 @@ msgctxt "grievance.cta"
 msgid "Contact the grievance officer"
 msgstr "Contact the grievance officer"
 
+#: templates/legal.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "grievance.officer.h"
+msgid "The grievance officer"
+msgstr "The grievance officer"
+
+#: templates/help.html
+msgctxt "help.a.checked"
+msgid "BookHop does not check books."
+msgstr "BookHop does not check books."
+
 #: templates/help.html
 msgctxt "help.faq.h"
 msgid "The things students ask most"
 msgstr "The things students ask most"
+
+#: templates/help.html
+msgctxt "help.no_channel"
+msgid "There is no way to send BookHop a message from inside the app yet."
+msgstr "There is no way to send BookHop a message from inside the app yet."
 
 #: templates/help.html
 msgctxt "help.q.checked"
@@ -479,24 +513,9 @@ msgid "How do I pay?"
 msgstr "How do I pay?"
 
 #: templates/help.html
-msgctxt "help.q.photos"
-msgid "What happens to my photos?"
-msgstr "What happens to my photos?"
-
-#: templates/help.html
 msgctxt "help.q.ratings"
 msgid "Are there ratings or reviews?"
 msgstr "Are there ratings or reviews?"
-
-#: templates/help.html
-msgctxt "help.q.wrong"
-msgid "What if the book isn't what the listing said?"
-msgstr "What if the book isn't what the listing said?"
-
-#: templates/help.html
-msgctxt "help.response"
-msgid "We read every message. We aim to reply the same day — we're a small team."
-msgstr "We read every message. We aim to reply the same day — we're a small team."
 
 #: templates/help.html
 msgctxt "help.routes.h"
@@ -505,8 +524,8 @@ msgstr "If you need a person"
 
 #: templates/help.html
 msgctxt "help.scope"
-msgid "We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money."
-msgstr "We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money."
+msgid "We can't refund you — we never hold the money. You and the other student settle it between yourselves, in person."
+msgstr "We can't refund you — we never hold the money. You and the other student settle it between yourselves, in person."
 
 #: templates/help.html
 msgctxt "help.scope.label"
@@ -755,25 +774,7 @@ msgstr "Look at the book before you hand over any money."
 
 #: templates/help.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)
-msgctxt "trust.exif"
-msgid "We remove the location and camera details from your photos."
-msgstr "We remove the location and camera details from your photos."
-
-#: templates/help.html
-#. BLOCKING CLASS B2 (COPY-DECK §2)
 msgctxt "trust.no_ratings"
 msgid "There are no ratings on BookHop."
 msgstr "There are no ratings on BookHop."
-
-#: templates/help.html
-#. BLOCKING CLASS B2 (COPY-DECK §2)
-msgctxt "trust.not_checked"
-msgid "BookHop hasn't checked this book."
-msgstr "BookHop hasn't checked this book."
-
-#: templates/help.html
-#. BLOCKING CLASS B2 (COPY-DECK §2)
-msgctxt "trust.recourse"
-msgid "If it isn't the book described, don't pay. Tell us and we'll take the listing down."
-msgstr "If it isn't the book described, don't pay. Tell us and we'll take the listing down."
 

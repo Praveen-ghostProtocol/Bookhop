@@ -247,3 +247,94 @@ def test_the_flag_cannot_be_true_while_a_blocking_class_string_is_unreviewed():
             "i18n.ta_enabled is true while blocking-class Tamil strings are "
             f"unreviewed, which is the gate THREAT-MODEL §6.1(c) forbids: {unreviewed}"
         )
+
+
+# --- B4: the bypass one layer below the middleware ------------------------
+
+
+@pytest.mark.urls("tests.urls_api_only")
+def test_a_published_tamil_notice_is_not_served_while_the_flag_is_off(
+    client, privacy_notice, privacy_notice_ta
+):
+    """**REVIEW-S1 B4, the measured bypass.**
+
+    `apps/accounts/api.notice` re-derived the locale from the raw
+    `Accept-Language` header, so it ignored the decision
+    `LocaleGateMiddleware` had made one layer above and **served the unreviewed
+    Tamil legal notice.** The gate now has one definition
+    (`apps.core.i18n.allowed_locale`) and the handler is a reader of it.
+
+    This asserts the **body**, not just the `locale` field: what matters is the
+    text a student reads, and a response labelled `en` carrying Tamil prose
+    would satisfy a weaker assertion.
+    """
+    _set_flag(False)
+    response = client.get("/api/v1/notices/privacy", headers={"Accept-Language": "ta"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["locale"] == "en"
+    assert "TAMIL-UNREVIEWED-BODY" not in body["body_md"], (
+        "the unreviewed Tamil notice was served while i18n.ta_enabled is false"
+    )
+
+
+@pytest.mark.urls("tests.urls_api_only")
+def test_the_fixture_can_actually_produce_the_tamil_condition(
+    client, privacy_notice, privacy_notice_ta
+):
+    """`CLAUDE.md` rule 12, aimed at the test above.
+
+    The previous version of the gate test passed because **no fixture published
+    a `ta` row at all** — `current_notice` fell back to English for a reason
+    that had nothing to do with the gate. So this proves the condition is
+    reachable: with the flag **on**, the same request serves the Tamil body. If
+    this ever fails, the test above is vacuous again and says nothing.
+    """
+    _set_flag(True)
+    body = client.get("/api/v1/notices/privacy", headers={"Accept-Language": "ta"}).json()
+    assert body["locale"] == "ta"
+    assert "TAMIL-UNREVIEWED-BODY" in body["body_md"]
+
+
+def test_a_stored_user_locale_is_gated_too(student, privacy_notice, privacy_notice_ta):
+    """`users.locale` is a second way to ask for a gated language — API-CONTRACT
+    §2.1 lets it win over the header — so a student whose stored preference is
+    `ta` must still get English while the flag is off."""
+    _set_flag(False)
+    student.locale = "ta"
+    student.save(update_fields=["locale"])
+
+    from apps.core.i18n import allowed_locale
+
+    assert allowed_locale(student.locale) == "en"
+    from apps.accounts.services import current_notice
+
+    assert current_notice("PRIVACY", allowed_locale(student.locale)).locale == "en"
+
+
+def test_the_gate_has_exactly_one_definition():
+    """`CLAUDE.md` rule 10, as a test, because this control has now been written
+    three times by three readers: a `web/` page helper, the middleware, and a
+    hand-rolled `Accept-Language` check in the JSON API — and the third served
+    an unreviewed legal notice.
+
+    So no application file outside `apps/core/i18n.py` may decide for itself
+    what `ta` means.
+    """
+    import pathlib
+
+    apps_dir = pathlib.Path(__file__).resolve().parents[2] / "apps"
+    files = [p for p in apps_dir.rglob("*.py") if p.name != "i18n.py"]
+    assert files, "no source files found — this test would pass vacuously"
+    offenders = [
+        path.relative_to(apps_dir.parent).as_posix()
+        for path in files
+        if 'startswith("ta' in path.read_text(encoding="utf-8")
+        or '== "ta"' in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        "a second definition of the Tamil gate: these files decide what `ta` "
+        "means instead of calling `apps.core.i18n.allowed_locale`, which is how "
+        f"REVIEW-S1 B4 happened: {offenders}"
+    )

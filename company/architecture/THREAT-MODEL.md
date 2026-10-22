@@ -393,6 +393,7 @@ that a reasonable developer would otherwise break by accident.
 | `tests/unit/test_scoping.py` | Every tenant-scoped model has `campus_id`/`city_id` NOT NULL and a leading index; **every `is_seed` model's default manager is the gated one, `Meta.base_manager_name` is `all_objects`, and `all_objects` appears only in allow-listed call sites** (ADR-002 §2.3) |
 | `tests/contract/test_p14.py` | **The whitelist, by type as well as name**; the widened money-token set over **every** table; **no money-shaped model field, property, serialiser key or response key in `apps/**`**; and `apps/core/p14.py` matches ADR-003 §2.3 so the control cannot drift from its spec. QA-S0 F1/F2 |
 | `tests/unit/test_forbidden_response.py` | **No response anywhere carries a forbidden key, a money-shaped key, a contact detail or an amount.** ADR-003 §5.3's compensating control — **owner: backend, S1** |
+| `tests/contract/test_append_only_is_enforced.py` | **TWO limbs, and the second is the guarantee** (corrected 2026-10-22 — see §6.3). **(a) Behavioural, per table per engine: UPDATE, DELETE and TRUNCATE are each refused.** **(b) Structural: the exact expected trigger set per table per engine** (`pg_trigger` / `sqlite_master`). Limb (b) alone **passed on PostgreSQL while the audit table was freely updatable**, because a surviving sibling trigger satisfied an existence check. On SQLite any `ALTER TABLE` rebuilds the table and silently drops its triggers; PostgreSQL's does not — so one migration can leave the guard live on one engine and gone on the other |
 | `tests/contract/test_migration_guards.py` | **Replaces a test I specified that cannot be written** (QA-S0 F9; ADR-001 §2.2 correction). Not "the flush GUC is unset in production" — **no mechanism can make production refuse a `SET`**. What is testable, and is: the escape is **default-deny** (two-arg `current_setting`, `= 'yes'`, NULL falls through to the exception); it appears in **exactly one** plpgsql body, so UPDATE and DELETE have no escape; and every `ENABLE ALWAYS` names a trigger the migrations create |
 | `tests/unit/test_p14_conformance.py` | **Every control ADR-003 §5.3 names exists in the repository** — so §5.3 cannot claim a control the code does not have. QA-S0 F4/F5 |
 | `tests/api/test_auth_matrix.py` | Every route × {anonymous, student, wrong-campus student, unverified student, staff} returns the expected status |
@@ -583,6 +584,37 @@ limb (b) is in the rule and not an afterthought.
 
 Implemented as `tests/unit/test_p14_conformance.py` for ADR-003 §5.3, and
 extended to each further named control as its slice lands.
+
+### 6.3 Standing rule — an existence check DIAGNOSES; only a behavioural check GUARANTEES
+
+**Added 2026-10-22, and the instance that forces it is one of mine.** Last
+round I specified `test_triggers_exist.py` as the structural control for the
+SQLite table-rebuild hazard. **QA found it passing on PostgreSQL while the
+audit table was freely updatable**: the control asserts that *a* trigger
+exists, and a surviving sibling satisfied it. **So the control I specified to
+catch a partial trigger loss reads green during exactly that loss.**
+
+> **A test that names an artefact may not stand in for a test of the property
+> that artefact provides. Ship both, and never only the first.**
+
+The two have different jobs and neither is redundant:
+
+| Limb | Job | On failure |
+|---|---|---|
+| **Behavioural** — "UPDATE is refused" | **The guarantee.** Fails whenever the property is gone, by any cause: dropped trigger, altered body, disabled trigger, replaced table | Tells you the property is broken |
+| **Structural** — "these exact triggers exist" | **The diagnostic.** Fails by *name*, so the cause is in the message | Tells you *which* one went missing |
+
+This is rule 15 applied to test design — **the behavioural limb asks the
+property, the structural limb enumerates the cases** — and rule 18 restated for
+controls rather than for data: *a control that guarantees a state does not
+thereby detect its absence.* **It is the fourth time this project has shipped
+a check that could pass while the thing it protects was broken**, and the first
+time the check was one I wrote specifically to stop that happening.
+
+**Apply it to every structural assertion already in §6**, not just this one:
+the plpgsql function inventory, the frozen column lists and the
+`ENABLE ALWAYS` check are all existence checks, and each needs a behavioural
+partner or an explicit note that its property is asserted elsewhere.
 
 **Dependency and supply chain:** pinned versions with hashes; `pip-audit` in
 CI; nine runtime packages (ADR-001 §2.8); htmx vendored rather than loaded from

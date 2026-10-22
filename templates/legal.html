@@ -43,7 +43,48 @@
      counsel's to decide, and a Markdown renderer written against zero real
      documents is a guess plus a dependency. {% endcomment %}
   <div class="notice-body">{{ notice.body_md|default:""|linebreaks }}</div>
-{% else %}
+{% endif %}
+
+{% if kind == "grievance-officer" %}
+  {% comment %} THIS PAGE COMPOSES. DATA-MODEL A-25.
+
+     `GRIEVANCE_PROCEDURE` above is the versioned procedure prose. The officer
+     themselves is NOT in it: name, designation, email, phone and the
+     registered address are columns on `legal_entities`, read at render time.
+     Freezing them into an immutable notice would put a second copy of a fact
+     in the database that changes without the notice changing, and **a stale
+     grievance contact is a direct regulatory failure** (IT Rules r.3(2)(a),
+     E-Com r.4(2), r.4(4)), not a cosmetic one.
+
+     Same rule as the accepted-domains line on the link-sent page: the value
+     arrives from the service, never baked into stored text.
+
+     EVERY FIELD IS GUARDED INDIVIDUALLY AND NOTHING IS INVENTED. There is no
+     appointed officer yet and no incorporated entity, so today this block
+     renders nothing at all and the page says the notice is not published —
+     which is true. `INCORPORATION-AND-BLOCKERS.md` §4.1: a placeholder name,
+     a placeholder CIN or "BookHop Private Limited" would each be a
+     misrepresentation, so the absence stays an absence.
+
+     The phone is the **one** declared exemption to AC-H6.4's ban on a
+     published number (`test_no_page_anywhere_publishes_a_phone_number_or_a_whatsapp`
+     exempts exactly this route). The ban is on a *support* number — a second
+     way to ask for help that nobody times — not on a statutory contact that
+     r.3(2)(a) requires. It renders here and nowhere else. {% endcomment %}
+  {% if contact %}
+    <div class="card">
+      <h2>{% translate "The grievance officer" context "grievance.officer.h" %}</h2>
+      <ul class="rows">
+        {% if contact.name %}<li>{{ contact.name }}{% if contact.designation %} · {{ contact.designation }}{% endif %}</li>{% endif %}
+        {% if contact.email %}<li><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></li>{% endif %}
+        {% if contact.phone %}<li><a href="tel:{{ contact.phone }}">{{ contact.phone }}</a></li>{% endif %}
+        {% if contact.address %}<li>{{ contact.address|linebreaksbr }}</li>{% endif %}
+      </ul>
+    </div>
+  {% endif %}
+{% endif %}
+
+{% if not notice %}
   <div class="notice notice--wait">
     <span class="notice__label">{% translate "Not published yet" context "legal.missing.label" %}</span>
     <p>{% translate "This notice has not been published yet." context "legal.missing" %}</p>

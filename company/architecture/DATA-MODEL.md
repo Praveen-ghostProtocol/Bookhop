@@ -228,6 +228,9 @@ the reviewer, the outcome and the timestamp — all three survive, in
 | `note` | text NULL | **must not contain a date of birth**; code review item |
 
 Retention: account life **+ 1 year** (r.8(3)). Never user-deletable.
+**Append-only is the expired-only-DELETE form specified under `consents`
+below** — this table has the same contradiction and the same resolution, and
+needs the same `purge_due_at` column and trigger.
 `REVOKED_MINOR_DISCOVERED` triggers the documented procedure — suspend, erase,
 log — and raises a `safety_incidents` row with `minor_involved = true` so the
 POCSO reporting duty (IT Rules r.3(1)(c)(iii)) is visible to ops.
@@ -347,6 +350,69 @@ with `withdrawn_at` set. Current state is the latest row per
 `(user_id, purpose_key)`. **No pre-ticked boxes** (E-Com r.4(9), in force now)
 and **withdrawal is a settings toggle, not an email** (DPDP r.3(c)(i)) — both
 are UI contracts in `API-CONTRACT.md` §5.2.
+> **RULING · append-only and a finite retention period are both kept, and the
+> rule becomes a property of the ROW rather than of the caller · cto,
+> 2026-10-22** *(backend S1 escalation 1; applies to `consents` AND
+> `age_verification_events`)*
+>
+> **Backend found a real contradiction between two of my own requirements.** I
+> asked for these tables to be append-only, and I asked for retention of
+> "account life + 1 year". A trigger that refuses every DELETE makes the
+> retention rule unimplementable — **so the contract required both a thing and
+> its opposite.** Backend did not code around it: it put both tables in the
+> purge skip list, tested the skip, and escalated. **That is the right handling
+> of a contract defect and the alternative — quietly picking one — is how the
+> inventory would have become false.**
+>
+> **Three options were on the table. I am taking none of them as offered.**
+> - *Retain indefinitely* fails: `COMPLIANCE.md` §8.3 is explicit that
+>   **"retaining beyond the purpose without a legal basis is its own breach"**,
+>   and r.8(3)'s one year is a **minimum**, not a licence. Indefinite retention
+>   of consent and age records would need a positive legal basis nobody has
+>   asserted.
+> - *Move the rows to a non-append-only table* fails worse: these are the two
+>   tables whose entire value is being **evidence**. Removing tamper
+>   protection from the evidence to satisfy a retention job is the wrong way
+>   round.
+> - *Let the trigger permit a purge actor* is the right direction and the wrong
+>   mechanism. An actor- or GUC-gated escape would put the key to deleting
+>   consent evidence in a **production code path used routinely** — and I have
+>   already ruled (ADR-001 §2.2) that **no mechanism can make production refuse
+>   a GUC.** That was tolerable for a test-harness escape on TRUNCATE; it is
+>   not tolerable for a job that runs every night against consent records.
+>
+> **The ruling: append-only is specified as a predicate on the row, with no
+> privileged caller at all.**
+>
+> | Operation | Permitted? |
+> |---|---|
+> | `UPDATE` | **Only** to set `purge_due_at` from NULL to non-NULL. Every other column immutable |
+> | `DELETE` | **Only** when `purge_due_at IS NOT NULL AND purge_due_at <= now()` |
+> | `TRUNCATE` | Never |
+>
+> `purge_due_at` is **NULL for the life of the account** — so a live consent or
+> age record is undeletable by anyone, including the expiry job — and is set to
+> `tombstoned_at + 1 year` by `erase_account` (§10.1), which is why the UPDATE
+> limb exists at all.
+>
+> **Why this is better than any actor-based rule: there is nothing to
+> impersonate.** The job has no privilege the attacker lacks; the row's own
+> retention state is the whole authorisation. An early DELETE fails for the
+> expiry job exactly as it fails for a compromised session.
+>
+> **And it is less new machinery than it sounds — the pattern is already in the
+> repository and already executed on PostgreSQL:** migration 0002's
+> `gate_authorisations` trigger permits UPDATE of `revoked_at`/`revoked_reason`
+> and nothing else. This is the same trigger shape with a different column list
+> and a time predicate. **Both engine halves are required, and the trigger
+> inventory test (see below) must cover them.**
+>
+> **To privacy-compliance, as a note and not a request:** §7 rows 7 and 18 say
+> "not user-deletable", which stays exactly true — **the user cannot delete
+> these rows; the expiry job can, once the stated period has elapsed.** The
+> inventory's retention column already says "+1 year", so the mechanism now
+> matches the inventory rather than contradicting it. Confirm if you disagree.
+
 Retention: account life **+ 1 year**. Not user-deletable — it is the record
 that the deletion itself was lawful.
 
@@ -366,6 +432,7 @@ The durable half of tombstone-plus-purge.
 | `person_pseudonym` | uuid PK | | — |
 | `campus_id`, `city_id` | bigint NOT NULL | coarse campus code survives | 5 |
 | `email_hash` | text NULL | **salted** sha256, 1 yr | 3 |
+| `salt_version` | smallint NOT NULL DEFAULT 1 | **A-27 (2026-10-22), added by backend on the compliance inventory's own instruction and confirmed here.** Which salt produced `email_hash`. Without it the salt can never be rotated — every existing hash becomes unverifiable and the ban-evasion/dispute-linkage purpose dies silently. **It records a key version, never the key**, which stays in `/etc/bookhop/env` and out of every dump (`INFRA.md` §2) | 3 |
 | `tombstoned_at` | timestamptz NOT NULL | | |
 | `purge_due_at` | timestamptz NOT NULL | `tombstoned_at + 1 year` | |
 | `purged_at` | timestamptz NULL | set by the expiry job | |
@@ -614,10 +681,27 @@ may never contain an address: there is no address to disclose, because none is
 collected.
 
 ### `idempotency_keys` — S0
-`(id, user_id FK NULL, key text NOT NULL, endpoint text NOT NULL,
+*(`user_id` is a plain nullable column, **no foreign key** — see the ruling
+below the indexes.)*
+`(id, user_id NULL, key text NOT NULL, endpoint text NOT NULL,
 request_hash text NOT NULL, response_status smallint, response_body jsonb,
 created_at, expires_at)` · 24-hour retention. Semantics in
 `API-CONTRACT.md` §4.
+
+> **`user_id` carries NO foreign key — backend's decision, CONFIRMED
+> 2026-10-22, and confirming it exposes a wrong premise of mine.** Backend's
+> reasoning is right: the break an FK would guard **cannot arise**, because
+> `erase_account` **tombstones rather than deletes** the `users` row (§10.1),
+> so a `user_id` here always points at a surviving row — and with 24-hour
+> retention no key outlives even the one-year purge.
+>
+> **The honest part: I rejected the `user_id = 0` sentinel (A-13) partly
+> *because* "it breaks the foreign key to `users` that S1 adds". S1 added no
+> such key, so that premise was false.** The conclusion stands on its other
+> leg — a partial unique index needs no extra column holding a value derived
+> from another — and that is the leg it should have rested on. **Recorded
+> rather than quietly left, because a conclusion propped up by a wrong premise
+> is one someone re-opens the moment they find the premise.**
 
 **Two unique indexes, not one — amendment A-13, corrected.**
 ```sql
@@ -1148,6 +1232,50 @@ has to learn an answer arrived), **`COUNTERPARTY_NUDGE`** (A-6, the relay).
 actor_pseudonym NULL, action, object_type, object_id, before_hash, after_hash,
 request_id, ip, user_agent, occurred_at, prev_hash, row_hash)`
 
+> **`actor_id` carries NO foreign key — CONFIRMED 2026-10-22, and the reason
+> generalises into a standing hazard that is bigger than this column.**
+>
+> Backend's reason: adding the constraint makes Django **rebuild the table on
+> SQLite** (create-new, copy, drop-old, rename — SQLite's `ALTER TABLE`
+> emulation), and **a rebuild silently drops every trigger attached to the old
+> table.** So the migration that adds an FK to `audit_log` would remove the
+> append-only guard — *the defect of the slice, introduced by a constraint
+> intended to improve integrity.* Confirmed, and the FK buys little anyway:
+> `actor_id` is NULLed by `erase_account` and the durable identifier is
+> `actor_pseudonym`.
+>
+> **The general hazard, which is the part worth keeping: on SQLite, ANY
+> migration that alters a triggered table silently drops its triggers.** That
+> is now four tables and will be five — `audit_log`, `gate_authorisations`,
+> `campuses`, `consents`/`age_verification_events` once the expired-only-DELETE
+> triggers land, and `listings` from S2. **And the divergence is the dangerous
+> shape: PostgreSQL's `ALTER TABLE` does not rebuild, so the guard survives
+> there and vanishes on SQLite — one engine protected, one not, from one
+> migration.**
+>
+> **The control needs BOTH limbs — corrected 2026-10-22, because the
+> structural half I specified here was found passing while the property was
+> broken.** `tests/contract/test_append_only_is_enforced.py`:
+> **(a) behavioural, per table per engine — UPDATE, DELETE and TRUNCATE are
+> each refused**, which is the guarantee and fails whatever the cause; and
+> **(b) structural — the exact expected trigger set** from `pg_trigger` /
+> `sqlite_master`, which is the diagnostic and fails *by name* so the message
+> says what went missing, rather than surfacing as a surprise red where **the
+> tempting fix is to skip the test** (rule 13's shape).
+>
+> **v1.0 of this paragraph specified only (b), on the reasoning that "a
+> behavioural test only catches it if someone wrote one for that table on that
+> engine". That reasoning was right about coverage and wrong about
+> sufficiency:** QA found (b) green on PostgreSQL while `audit_log` was freely
+> updatable, because a surviving **sibling** trigger satisfied the existence
+> check. **An existence check diagnoses; only a behavioural check
+> guarantees** — `THREAT-MODEL.md` §6.3.
+>
+> **Standing rule for backend: a migration that alters a triggered table
+> re-creates that table's triggers in the same migration.** `ENGINE-DIVERGENCE`
+> is the right home for the engine detail; the rule belongs wherever the
+> migration is written.
+
 `row_hash = sha256(prev_hash || canonical_json(row minus hashes))` — a hash
 chain, ~15 lines. Covers consent grants/withdrawals, age decisions, moderation
 actions, takedowns and restorations, contact disclosures, staff data access,
@@ -1523,6 +1651,50 @@ pseudonym, and the pseudonym→identity mapping is destroyed in step 2. The
 in the database**, so a database-only compromise cannot re-identify by
 rainbow-table.
 
+#### 10.1a · Erasure has TWO independent layers, and the second one is the guarantee
+
+**Specified 2026-10-22 on QA's erasure pass (S-2). This layer already exists in
+the code and existed in no document — it was doing the real work of the
+guarantee by accident of implementation, which is precisely the thing a later
+refactor deletes without noticing.**
+
+| | Layer | What it does |
+|---|---|---|
+| **1** | **Session destruction at erasure** — step 3 above | Scans and deletes the erased user's session rows. **Best-effort** |
+| **2** | **Tombstone refusal at request time** | **Every authenticated request resolves the actor and refuses if `users.status = 'TOMBSTONED'`, before any other precondition, regardless of whether the session is valid.** The guarantee |
+
+**Layer 1 is best-effort, and QA measured three ways it can match nothing:**
+a signing-key rotation without fallback, a changed session serialiser, and a
+**cookie-backed session store, where there are no rows to scan at all.** In two
+of those **a session row survives carrying the erased student's user id,
+decodable again if the key or the serialiser comes back.**
+
+**And yet no live session results — because layer 2 refuses the user, not the
+session.** QA proved it the right way round, by planting a *brand-new* session
+after erasure and finding it dead on arrival. **That is the difference between
+invalidating credentials and invalidating the principal**, and only the second
+survives a session store we did not anticipate.
+
+This is `CLAUDE.md` rule 14 in its intended form: **the exemption-free layer is
+the one that does not depend on enumerating how sessions are stored.** Layer 1
+stays — it frees storage and shortens the window — but **no document may cite
+layer 1 as the reason erasure holds.**
+
+> **WARNING, and it is the reason this is specified rather than merely
+> recorded: layer 2 refuses `TOMBSTONED` ONLY, and must not be "hardened" to
+> refuse `SUSPENDED`.** QA noted the asymmetry as a possible gap. **It is not a
+> gap — it is the behaviour `API-CONTRACT.md` §2.5 Stack S now requires**: a
+> suspended student must still reach export, erasure, consent withdrawal and
+> their own support ticket. **Extending layer 2 to suspension would silently
+> re-create P-1**, and would do it in the one place no endpoint-level review
+> would look. A tombstoned account is gone; a suspended account is a person we
+> have sanctioned who keeps their rights.
+
+**The test is QA's and it is already written.** The specification's job is to
+make the layer survive a refactor, and the one sentence that does that is:
+**an authenticated request from a tombstoned principal is refused even when the
+session is wholly valid.**
+
 ### 10.2 The expiry job — built in the same slice as the retention
 
 `retention.purge` runs nightly, walks every table with a `purge_due_at`, and
@@ -1683,6 +1855,9 @@ Nothing before that.
 | **A-16** | 2026-10-21 | `campuses.email_domains`: `text[]` → **`jsonb`** — one migration serves both engines, and membership is the only operation | ENGINE-DIVERGENCE §9.1, accepted | cto |
 | **A-17** | 2026-10-21 | `idempotency_keys`: **second partial unique index on `key` WHERE `user_id IS NULL`.** My `user_id = 0` sentinel correction was itself wrong — it breaks the S1 FK. **Consequence recorded: anonymous keys share one global namespace, so a stored response is returned to anyone presenting that key — S6 must confirm no anonymous endpoint stores more than its `ticket_ref` already reveals** | ENGINE-DIVERGENCE §9.6a — backend's rejection upheld · REVIEW-S0 **R3** | cto |
 | **A-18** | 2026-10-21 | **W1b's money-token exemption rescoped from the `listings` TABLE to the two permitted COLUMNS** — a table-wide exemption let a *second* money column onto `listings` (`paise_count`, `rupees_count`, `cash_total_count`, …) pass every layer, contradicting ADR-003 §2.1. Lands with S2 | REVIEW-S0 **R1** | cto |
+| **A-28** | 2026-10-22 | **`consents` and `age_verification_events`: append-only is specified as expired-only DELETE** — UPDATE only to set `purge_due_at` NULL→value, DELETE only when it has elapsed, TRUNCATE never. Resolves a contract contradiction (append-only + finite retention) **with no privileged caller: the row's own retention state is the authorisation.** Same trigger shape as `gate_authorisations` | backend S1 escalation 1 | cto |
+| **A-27** | 2026-10-22 | **`user_tombstones.salt_version` added.** Without it the salt can never be rotated and every existing `email_hash` becomes unverifiable. Records a key **version**, never a key | backend S1, on the inventory's instruction | cto |
+| — | 2026-10-22 | **No FK on `idempotency_keys.user_id`** (the break cannot arise under tombstone-plus-purge) and **no FK on `audit_log.actor_id`** (adding it rebuilds the table on SQLite and **silently drops the append-only triggers**). Both CONFIRMED. The second generalises: **any migration altering a triggered table drops its triggers on SQLite and not on PostgreSQL** → `tests/contract/test_append_only_is_enforced.py` (both limbs, THREAT-MODEL §6.3) | backend S1 escalations | cto |
 | **A-25** | 2026-10-22 | **`notice_versions.kind` gains `RANKING` and `GRIEVANCE_PROCEDURE`** — two routes in `API-CONTRACT.md` §5.1 were required and unpublishable. **`/legal/grievance-officer` composes** the procedure notice with the officer fields read from `legal_entities` at render time, because a versioned notice would hold a second copy of a fact that changes without it, and a stale officer contact is an r.3(2)(a) failure | frontend S1 escalation | cto |
 | **A-26** | 2026-10-22 | **`campus_verifications.method` spelling RATIFIED as `INSTITUTIONAL_EMAIL`.** `EMAIL_DOMAIN` appears in three design documents and in criterion 7h and **is not a value**, so 7h could only pass vacuously (rule 12) with the rule spelled two ways (rule 10). Doc edits routed to design-director | frontend S1 escalation | cto |
 | **A-24** | 2026-10-21 | **§8 DECISION: the audit chain stays GLOBAL.** Per-scope chains rejected — they would let an insider delete one campus's entire history while other chains verify clean (a §5.8/A1 regression), so this is a threat-model trade and not only a cost question. Checkpoint anchoring recorded as the upgrade with a measurable trigger (p99 attempts > 6, any `AuditAppendContention`, or the first month of real traffic). **Operational signal specified: attempts-to-win p50/p99 in the digest and contention paging on-call — splitting the error class off the tamper class is only safe with a watcher** | ENGINE-DIVERGENCE **§9.15**, first PostgreSQL run | cto |

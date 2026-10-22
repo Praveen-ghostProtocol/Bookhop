@@ -12,6 +12,17 @@ metered connection and buy nothing. The only script in the product today is
 `static/js/sw-register.js`, which registers the service worker and does nothing
 else.
 
+**EVERY ROUTE THAT ANSWERS `GET` ALSO ANSWERS `HEAD`.** RFC 9110 requires it —
+`HEAD` is `GET` without a body — and it is not a theoretical nicety: link
+checkers, uptime monitors, some proxies and several messaging apps send `HEAD`
+before they will render a preview, and a `405` makes a shared BookHop link look
+broken before anyone clicks it. Read-only views therefore use Django's
+`require_safe`, which *is* `require_http_methods(["GET", "HEAD"])` and names the
+pair so it cannot be split by accident; the four form views spell out
+`["GET", "HEAD", "POST"]`. **A new read route uses `require_safe`, never
+`require_http_methods(["GET"])`.** Found by walking the product in a real
+browser, which no test here does.
+
 ERROR HANDLING IS ONE BRANCH ON ONE ATTRIBUTE. Every accounts exception is an
 `apps.core.errors.ServiceError` carrying `.code` and `.http_status`
 (`API-CONTRACT.md` §2.2), so `_service_problem` maps codes to pages and no view
@@ -20,11 +31,18 @@ inside `<main>` — never a bare framework page, because a 500 still has to show
 the grievance-officer link in the footer (`SYSTEM.md` §4.1 `error`).
 """
 
-from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponsePermanentRedirect,
+    HttpResponseRedirect,
+    JsonResponse,
+)
 from django.shortcuts import render
+from django.templatetags.static import static
 from django.utils import translation
 from django.utils.translation import pgettext
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.accounts import services as accounts
 from apps.core import errors
@@ -58,35 +76,36 @@ NOTICE_SLUGS = (
 )
 
 
+#: The one slug whose kind is not its own name in UPPER_SNAKE, with the reason
+#: beside it. `CLAUDE.md` rule 11: a rule that cannot express its own
+#: exceptions gets replaced by a hand-maintained list the first time one
+#: appears, and then the list silently stops matching. So the derivation below
+#: stays the default and this is a declared exception of one.
+#:
+#: `/legal/grievance-officer` is the route a student is sent to for the
+#: contact; `GRIEVANCE_PROCEDURE` is the notice kind, and it holds the
+#: *procedure prose only* (DATA-MODEL A-25). The names differ because the page
+#: is not the notice: it composes versioned prose with officer fields read live
+#: from `legal_entities`. See `legal()`.
+NOTICE_KIND_OVERRIDES = {"grievance-officer": "GRIEVANCE_PROCEDURE"}
+
+
 def _notice_kind(slug):
     """The `notice_versions.kind` a route slug asks for.
 
-    A RULE, NOT A LIST (`CLAUDE.md` rule 15). `notice_versions.kind` is an
-    UPPER_SNAKE enum — `PRIVACY`, `TERMS`, `SELLER_TERMS`,
-    `HANDOVER_GUIDANCE`, `COMMUNITY_RULES` — and the routes are lower-kebab, so
-    the mapping is mechanical. Copying the five values here would be a second
-    definition of the enum in a file that may not import the model
-    (rule 10); deriving it means a sixth kind needs no edit.
-    
+    A RULE PLUS ONE DECLARED EXCEPTION, not a list (`CLAUDE.md` rules 11 and
+    15). `notice_versions.kind` is an UPPER_SNAKE enum and the routes are
+    lower-kebab, so the mapping is mechanical for six of the seven; copying all
+    seven values here would be a second definition of the enum in a file that
+    may not import the model (rule 10), and an eighth kind would need an edit.
+
     The derivation is not validated against the enum, deliberately: the
     database is asked for the notice, and a kind it has never heard of simply
     has none, which renders the same honest "not published yet" page as a kind
     that exists but is unpublished. The student needs the same sentence either
-    way, so there is nothing for a local copy of the enum to buy.
-
-    **TWO ROUTES HAVE NO KIND AT ALL, AND THAT IS AN ESCALATION.** `ranking`
-    and `grievance-officer` are both in `API-CONTRACT.md` §5.1's `/legal/{kind}`
-    list and neither is in the CHECK constraint, so neither can ever be stored.
-    But the ranking disclosure is required to be *published* in descending order
-    of significance (E-Com r.5(3)(f), r.4(11)(c)) and the grievance officer's
-    name, designation, email, phone and address are required to be *published*
-    (IT Rules r.3(2)(a), E-Com r.4(2), r.4(4)). Two regulatory publications with
-    nowhere to live. Raised with cto; until it is resolved both routes render
-    "not published yet", which is true and loud rather than a fabricated
-    officer — `INCORPORATION-AND-BLOCKERS.md` §4.1 is explicit that inventing
-    those details is a misrepresentation.
+    way.
     """
-    return slug.upper().replace("-", "_")
+    return NOTICE_KIND_OVERRIDES.get(slug) or slug.upper().replace("-", "_")
 
 #: Which action a refused consent blocks, for `JOURNEYS.md` J1 step 5's "the
 #: screen says which action that blocks". Data rather than prose in a template,
@@ -224,7 +243,7 @@ def _signed_in_only(view):
 
 # --- J1 · first run --------------------------------------------------------
 
-@require_http_methods(["GET"])
+@require_safe
 def first_run(request):
     """`GET /` — `JOURNEYS.md` J1 step 1.
 
@@ -240,7 +259,7 @@ def first_run(request):
 
 # --- magic link ------------------------------------------------------------
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "HEAD", "POST"])
 def auth_start(request):
     """`GET /auth/start` renders the form; `POST /auth/start` requests the link.
 
@@ -278,7 +297,7 @@ def auth_start(request):
     return _page(request, "sign_in.html", form=form)
 
 
-@require_http_methods(["GET"])
+@require_safe
 def auth_sent(request):
     """`GET /auth/sent` — a terminal page, not a spinner (`SYSTEM.md` §4.25).
 
@@ -323,7 +342,7 @@ def auth_sent(request):
     )
 
 
-@require_http_methods(["GET"])
+@require_safe
 def auth_consume(request, token):
     """`GET /auth/c/{token}` — single use, 10-minute expiry.
 
@@ -358,7 +377,7 @@ def auth_logout(request):
 
 # --- J1 · age gate ---------------------------------------------------------
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "HEAD", "POST"])
 @_signed_in_only
 def account_age(request):
     """`POST /account/age` — `JOURNEYS.md` J1 step 4, `PRD.md` US-A2.
@@ -391,7 +410,7 @@ def account_age(request):
 
 # --- J1 · consent, and the privacy settings screen -------------------------
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "HEAD", "POST"])
 @_signed_in_only
 def account_privacy(request):
     """`GET`/`POST /account/privacy` — the consent screen and the withdrawal
@@ -476,7 +495,7 @@ def account_privacy(request):
 
 # --- profile ---------------------------------------------------------------
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "HEAD", "POST"])
 @_signed_in_only
 def account(request):
     """`GET`/`POST /account` — profile, and the entry point to J8.
@@ -535,7 +554,7 @@ def account(request):
 
 # --- US-X2 · access and nomination -----------------------------------------
 
-@require_http_methods(["GET"])
+@require_safe
 @_signed_in_only
 def account_export(request):
     """`GET /account/export` — the s11 access right (`PRD.md` AC-X2.1).
@@ -604,7 +623,7 @@ def account_nominee(request):
 
 # --- J8 · deletion ---------------------------------------------------------
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "HEAD", "POST"])
 @_signed_in_only
 def account_delete(request):
     """`GET`/`POST /account/delete` — `JOURNEYS.md` J8, `PRD.md` US-X1.
@@ -638,7 +657,7 @@ def account_delete(request):
 
 # --- J9 · in-app help ------------------------------------------------------
 
-@require_http_methods(["GET"])
+@require_safe
 def help_page(request):
     """`GET /help` — `JOURNEYS.md` J9 steps 2, 3, 6, 7.
 
@@ -664,30 +683,46 @@ def help_page(request):
 
 # --- public notices --------------------------------------------------------
 
-@require_http_methods(["GET"])
+@require_safe
 def legal(request, kind):
     """`GET /legal/{kind}` — public, unauthenticated (`API-CONTRACT.md` §5.1).
 
     The text is the archived `notice_versions` body, so this view renders
     whatever the notice service returns and writes no legal copy of its own.
-    The grievance-officer contact in particular is **never** hard-coded: r.4(2)
-    requires real published details and there are none yet
-    (`INCORPORATION-AND-BLOCKERS.md` §4.1 — "BookHop Private Limited" and any
-    CIN are misrepresentations today).
+
+    **`grievance-officer` is the one page that composes rather than stores.**
+    `GRIEVANCE_PROCEDURE` holds the versioned procedure prose; the officer's
+    name, designation, email, phone and the registered address are columns on
+    `legal_entities` and are read **at render time** (DATA-MODEL A-25).
+    Freezing them into an immutable notice would be a second copy of a fact
+    that changes without the notice changing, and a stale grievance contact is
+    a direct regulatory failure. It is the same rule as the accepted-domains
+    line on the link-sent page: the value arrives from the service, never
+    baked into stored text.
+
+    The contact is **never** hard-coded here. r.4(2) requires real published
+    details and there are none yet — `INCORPORATION-AND-BLOCKERS.md` §4.1 is
+    explicit that "BookHop Private Limited" and any CIN are misrepresentations
+    today — so until the legal entity is filled in the page says the notice is
+    not published, which is true.
     """
     if kind not in NOTICE_SLUGS:
         raise Http404
-    # A read, so it degrades rather than raising: these seven links are in the
+    # Reads, so they degrade rather than raising: these seven links are in the
     # footer of every page, and a notice that cannot be read must not take the
     # grievance-officer route down with it.
     return _page(
-        request, "legal.html", kind=kind, notice=ctx.read_notice(_notice_kind(kind))
+        request,
+        "legal.html",
+        kind=kind,
+        notice=ctx.read_notice(_notice_kind(kind)),
+        contact=ctx.grievance_contact() if kind == "grievance-officer" else None,
     )
 
 
 # --- PWA shell -------------------------------------------------------------
 
-@require_http_methods(["GET"])
+@require_safe
 def offline(request):
     """`GET /offline` — the service worker's fallback (`SYSTEM.md` §4.27).
 
@@ -698,7 +733,7 @@ def offline(request):
     return _page(request, "offline.html", offline_mode=True)
 
 
-@require_http_methods(["GET"])
+@require_safe
 def service_worker(request):
     """`GET /sw.js` — served from the root so its scope is the whole origin.
 
@@ -710,7 +745,7 @@ def service_worker(request):
     return response
 
 
-@require_http_methods(["GET"])
+@require_safe
 def manifest(request):
     """`GET /manifest.webmanifest`. A template so its strings are translatable."""
     return render(
@@ -721,10 +756,38 @@ def manifest(request):
     )
 
 
-@require_http_methods(["GET"])
+@require_safe
 def robots(request):
     """`Disallow: /` — no listing is ever indexed (`API-CONTRACT.md` §5.8)."""
     return HttpResponse("User-agent: *\nDisallow: /\n", content_type="text/plain")
+
+
+@require_safe
+def favicon(request):
+    """`/favicon.ico` — the conventional path, for clients that ask for it.
+
+    **The primary fix is in `base.html`, not here.** Every page declares
+    `<link rel="icon">`, so a browser that renders a BookHop page never
+    requests this path. This route exists for the clients that ask anyway —
+    link previewers, feed readers, a bare `curl` — and for the first request a
+    browser makes to a URL whose response it has not parsed yet.
+
+    A **permanent** redirect rather than serving the bytes: the browser caches
+    the redirect, so the cost is one round trip ever rather than one per
+    navigation, and the icon stays a single file in `static/icons/` rather than
+    a second copy behind a second URL. The SVG is already in the service
+    worker's precache and is referenced by the manifest, so by the time anyone
+    follows this redirect the target is usually already in cache.
+
+    # ponytail: no `/apple-touch-icon.png`. Ceiling — iOS Safari requests it
+    # and will 404. The target device is a mid-range Android (`ADR-001`), the
+    # fix is a raster file we do not have, and a redirect to an SVG would not
+    # satisfy it. Add it with the PNG pair named in `static/icons/bookhop.svg`
+    # if iOS ever becomes a measured share of traffic.
+    """
+    response = HttpResponsePermanentRedirect(static("icons/bookhop.svg"))
+    response["Cache-Control"] = "public, max-age=604800"
+    return response
 
 
 # --- not found -------------------------------------------------------------

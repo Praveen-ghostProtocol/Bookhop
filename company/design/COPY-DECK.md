@@ -245,6 +245,54 @@ paid" is a **fact about our database**. Neither is a prediction and neither
 is a judgement. The negotiability copy is the easiest copy in the deck to
 write honestly, because it is simply true.
 
+### 1.7 Which slice a string becomes true in — new in v1.6
+
+**Added after five false claims shipped in one slice, three of them lifted from
+`JOURNEYS.md` (§14).** This generalises §9a, which recorded it for the help
+surface only; later slices lift copy from the same place and need the same
+guard.
+
+> **A journey describes the finished product. A template describes this slice.
+> Its tense is future and a template's tense is now.**
+
+`JOURNEYS.md` labels its own copy *"behavioural intent"* and hands final words
+to this deck — correctly, because it is the right artefact for designing a
+product and the **wrong source for a slice's copy**. Three of the five strings
+withdrawn in v1.4/v1.5 were journey wording describing mechanisms two to five
+slices away: a support reply with no ticket table, a relay that is S5, a
+`POST /wanted` form that is S2.
+
+**Three rules, which apply to every section of this deck and not only §9a:**
+
+1. **A deck row is approved for a meaning, not for a page.** `trust.recourse`
+   and `trust.exif` are correct, approved and unchanged — and were wrong on the
+   help page in S1 because the mechanisms they describe arrive in S6 and S2.
+   Where a string's truth depends on a slice, **the row says so** (§9a is the
+   worked example).
+2. **Name the code behind every first-person-plural verb.** *We read, we reply,
+   we'll tell you, we'll take it down, we remove.* Point at the function that
+   does it. **If the answer is a slice number rather than a file, the string
+   waits for that slice.**
+3. **A scoping problem is not always solved by a scoped variant.** When a
+   string cannot be used because its scope does not fit the page, prefer a
+   plain fact about the product to a second version of the string —
+   `help.a.checked` against `trust.not_checked` is the worked example. Minting
+   a variant of a **blocking** string doubles the review surface and leaves two
+   sentences to keep in step.
+
+**Why none of this is greppable, stated so nobody expects a test to do it.**
+All five strings were **green under `tests/unit/test_forbidden_copy.py` the
+entire time, because not one of them contains a banned word.** The control was
+working perfectly on the thing it checks — vocabulary — while the defect lived
+in *commitment*, which it does not check and cannot. That is the shape
+`CLAUDE.md` rule 12 warns about from the other direction: not a test that
+passes vacuously, but a **passing test whose green is read as coverage of
+something it never examined.** `THREAT-MODEL.md` §6.1 says it outright — *the
+grep catches words; the reviewer catches sentences; neither substitutes for the
+other* — and this slice is the first evidence in the project that the warning
+was load-bearing rather than cautious. §1.2 and these three rules are a **Code
+Review read, every slice.**
+
 ---
 
 ## 2. Review sign-off block — fill this in, do not delete it
@@ -540,7 +588,7 @@ of nothing on a metered connection), no "Welcome!", no counters, no "Join
 | `listing.reserved.cta` | Tell me if it comes back | திரும்பக் கிடைத்தால் எனக்குத் தெரிவி | — |
 | `listing.withdrawn` | The seller took this down. | விற்பவர் இதை நீக்கிவிட்டார். | — |
 | `gate.closed.title` | Listings aren't open at {campus} yet. | {campus}-ல் பட்டியல்கள் இன்னும் திறக்கப்படவில்லை. | `403 GATE_CLOSED` (`SYSTEM.md` §4.22) |
-| `gate.closed.body` | You can leave a note saying which book you need, and we'll tell you when listings open. | உங்களுக்குத் தேவையான புத்தகத்தைக் குறிப்பிட்டு வைக்கலாம், பட்டியல்கள் திறக்கும்போது தெரிவிப்போம். | **No date is given, because we don't have one** |
+| `gate.closed.body` **(amended v1.5)** | BookHop opens listings one campus at a time. There is nothing to search here yet. | — **NOT DRAFTED** (the previous Tamil draft is withdrawn with the English) | **No date is given, because we don't have one.** Was *"You can leave a note saying which book you need, and we'll tell you when listings open."* — **two promises on a page with no form.** `POST /wanted` is S2 and the notification is S3/S7, so both halves were predictions about our own future conduct (§1.2). A mechanism and a fact now, and no action, per `SYSTEM.md` §4.22's "nothing if we do not know". **The note and the notification return in the slices that can honour them** |
 
 ### 6.3 Making an offer
 
@@ -636,6 +684,36 @@ to add reassurance. Reviewer: don't.
 | `dispute.open` | You raised a problem. Ticket #{n}. | நீங்கள் ஒரு பிரச்சினையைத் தெரிவித்தீர்கள். டிக்கெட் #{n}. | — |
 | `dispute.unresolved` | We couldn't settle this. Ticket #{n} is closed. | இதை எங்களால் தீர்க்க முடியவில்லை. டிக்கெட் #{n} மூடப்பட்டது. | `CLOSED_UNRESOLVED` — honest, not padded |
 
+### 9a. The help surface — new in v1.5, and the deck's weakest section
+
+`JOURNEYS.md` J9 supplies this copy as *"behavioural intent"* and says
+`design-director` owns the final words. It had never reached this deck, so the
+help page shipped in S1 against the journey's own wording — and **two of those
+strings promised a service that does not exist** (§14). They are recorded here
+so the next string on this page is written against a deck row rather than
+against a journey note.
+
+**J9 is ⛔ BLOCKED (CG-2): no endpoint and no L1 function lets a student open a
+ticket, and nothing stores what they write.** Every string here has to be true
+of a page with no channel behind it.
+
+| Key | English | Tamil | Note |
+|---|---|---|---|
+| `help.scope.label` | What BookHop can and can't do | — **NOT DRAFTED** | AC-H6.5: said **before** the student reads anything else |
+| `help.scope` **(amended v1.5)** | We can't refund you — we never hold the money. You and the other student settle it between yourselves, in person. | — **NOT DRAFTED** | Was *"We can help you reach the other student, put a book back up, or look at a listing. We can't refund you — we never hold the money."* **Three promises and one fact; only the fact survives.** The relay is S5 (A-6), listings are S2, and there is no channel to ask through. The surviving half is the one that carries weight — the vouching liability `COMPLIANCE.md` §2.5 and R-16 call our worst asymmetry — and it is the half QA's test already pinned |
+| `help.no_channel` **(new v1.5, replaces `help.response`)** | There is no way to send BookHop a message from inside the app yet. | — **NOT DRAFTED** | A statement about the product. The grievance-officer link states its own condition rather than this string making a claim on its behalf |
+| ~~`help.response`~~ **WITHDRAWN v1.5** | ~~We read every message. We aim to reply the same day — we're a small team.~~ | ~~—~~ | **Nothing stores what a student writes (CG-2), so nothing was read and nothing was answered.** J9 step 7's wording, carried onto a page that cannot honour it. **No reply-time string ships until a ticket exists** — and when one does, J9 step 7 is explicit that there is **no SLA number for help** |
+| `help.faq.h` | The things students ask most | — **NOT DRAFTED** | — |
+| `help.q.checked` · `help.q.pay` · `help.q.ratings` | Does BookHop check the books? · How do I pay? · Are there ratings or reviews? | — **NOT DRAFTED** | Answered with `help.a.checked` + `trust.check_yourself`, `run.money` + `price.not_recorded`, and `trust.no_ratings` — all facts, mechanisms or instructions, all true in S1 |
+| `help.a.checked` **(new v1.6)** | BookHop does not check books. | — **NOT DRAFTED** | **A plain fact, deliberately NOT a generically-scoped `trust.not_checked`.** That string reads *"BookHop hasn't checked **this** book"* and belongs in a listing's book block, where "this" has a referent (§3.2). Minting a second no-warranty sentence would need the same word-by-word scrutiny as the first — B2 is blocking because a natural rendering over-promises — and would leave two strings to keep in step. A fact about the product sidesteps the scoping problem rather than solving it. **`trust.not_checked` stays reserved for a listing** |
+| `help.q.wrong` · `help.q.photos` | *(held back to S6 and S2)* | — | The questions themselves are fine; their answers — `trust.recourse` and `trust.exif` — describe a takedown channel and an EXIF step **that do not exist in S1**. §3's strings are unchanged; the page they were on was wrong. **Restore with the slice that earns them** |
+| `help.routes.h` | If you need a person | — **NOT DRAFTED** | Above the statutory routes. The grievance route works without an account (`API-CONTRACT.md` §5.6) and no safety path requires one (`THREAT-MODEL.md` §5.7(b)) |
+
+**The standing rule this section exists to enforce**, and it generalises past
+the help page: **when a string tells a student what *we* will do rather than
+what the product does, it needs a mechanism behind it or it does not ship.**
+A grep cannot check that. It is a Code Review read, every slice.
+
 ---
 
 ## 10. Cross-cutting strings
@@ -700,7 +778,12 @@ database, not a prediction.
 | `consent.listing_publication.disclosure` **(new v1.2, B3)** | When you put a book on the list, other students on your campus see your display name, your campus, and that you signed in with a college email address. | நீங்கள் ஒரு புத்தகத்தைப் பட்டியலில் சேர்க்கும்போது, உங்கள் கல்லூரியில் உள்ள மற்ற மாணவர்கள் உங்கள் காட்சிப் பெயரையும், கல்லூரியையும், நீங்கள் கல்லூரி மின்னஞ்சல் முகவரியால் உள்நுழைந்ததையும் பார்ப்பார்கள். | **`COMPLIANCE.md` §2.5a condition 2.** Showing the sign-in fact to a counterparty is a *different processing operation* from verifying it, so it must be notified before it is lawful (DPDP s5). Belongs in the `listing_publication` consent text **and** the privacy notice. **Without this sentence `trust.campus_mail` is outside the notified purpose and must not render** |
 | `erase.cta` | Delete my account | எனது கணக்கை நீக்கு | — |
 | `erase.confirm.h` | This cannot be undone | இதை மீட்டெடுக்க முடியாது | — |
-| `erase.confirm.retained` | We have to keep these records for one year, because the law requires it: {list}. Everything else goes now. | இந்தப் பதிவுகளை ஒரு வருடம் வைத்திருக்க வேண்டும், சட்டம் அதைக் கோருகிறது: {list}. மற்ற அனைத்தும் இப்போதே நீக்கப்படும். | **r.8(3) stated before the button, not after** (`API-CONTRACT.md` §5.1) |
+| `erase.confirm.retained` **(amended v1.4)** | We have to keep these records for one year, because the law requires it: | இந்தப் பதிவுகளை ஒரு வருடம் வைத்திருக்க வேண்டும், சட்டம் அதைக் கோருகிறது: | **r.8(3) stated before the button, not after** (`API-CONTRACT.md` §5.1). **`{list}` is rendered as a real `<ul>`, not inline** — eight record types in one comma-separated sentence is a wall at 320px and breaks §1.3 rule 5. **The trailing "Everything else goes now." is withdrawn — see `erase.confirm.rest`** |
+| ~~`erase.confirm.rest`~~ **WITHDRAWN v1.4** | ~~Everything else goes now.~~ | ~~மற்ற அனைத்தும் இப்போதே நீக்கப்படும்.~~ | **The string was false and the retentions were lawful.** QA measured a real erasure: the `users` row, `user_tombstones.email_hash`, `age_verification_events` and one `audit_log` row per action all survive. Forced by `tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is`. **No replacement, in either direction** — "Nothing else is kept" is the same unfalsifiable claim mirrored. The card asserts only what it enumerates |
+| `erase.retained.email_hash` **(new v1.4)** | A scrambled code made from your email address, kept for one year so that a banned account cannot sign up again. It is a code, not an address. | — **NOT DRAFTED** | **B3, and the item that forced the amendment.** §7 row 3 permits the salted hash for ban-evasion detection and dispute linkage, and the screen never mentioned it. Mechanism + period + purpose, and **no reassurance**: no "safe", no "don't worry". The one a reasonable person accepts when told and resents when discovered |
+| `erase.retained.account` **(new v1.4)** | Your campus and city, and that your college email and your age were checked — under the same code, with no name or address attached. | — **NOT DRAFTED** | The `users` row survives with `email`, `display_name` and `password` NULLed; `campus_verified` stays because the fact of eligibility outlives the evidence (`services.erase_account` step 4) |
+| `erase.retained.age` **(new v1.4)** | That BookHop checked you were 18 or over, and when. The date of birth you typed was never kept. | — **NOT DRAFTED** | `age_verification_events`, account life + 1 year. The second sentence restates `age.why` at the moment a student is auditing us, and it is a statement about our database (DATA-MODEL §2 amendment A-5 removed the table that could have held a DOB) |
+| `erase.retained.audit` **(new v1.4)** | One line for each action you took on BookHop, with the IP address and the browser you used. | — **NOT DRAFTED** | `audit_log`, untouched by erasure (step 7). Named plainly because an audit trail carrying an IP address is the retention a student is least likely to guess at |
 | `erase.done` | Your account is gone. | உங்கள் கணக்கு நீக்கப்பட்டுவிட்டது. | — |
 
 ### 10.5 Notification copy (Web Push, email)
@@ -809,7 +892,188 @@ remain open.
 
 | Version | Date | Change |
 |---|---|---|
+| **v1.6** | **2026-10-22** | **The open item from v1.5 ruled, and the structural fix generalised.** New `help.a.checked` — *"BookHop does not check books."* — answers the help page's question with **a plain fact instead of a generically-scoped `trust.not_checked`**, whose "this book" has no referent off a listing page; `trust.not_checked` stays reserved for a listing. **Ruled by the coordinator** on an item `frontend-developer` escalated rather than decided, because minting a variant of a **B2 blocking** no-warranty string is a different risk class from filling a copy gap. **New §1.7** lifts §9a's "which slice a string becomes true in" out of the help surface and makes it a rule over the whole deck, with the `JOURNEYS.md` tense diagnosis and the note that all five withdrawn strings were green under the banned-word test throughout |
+| **v1.5** | **2026-10-22** | **Two more strings promised a service that does not exist; Code Review read for them, because no grep can.** `help.response` **withdrawn** (promised a same-day reply on a page where nothing stores a message — CG-2); `help.scope` **amended** to keep only its one true clause (the relay is S5, listings are S2); `gate.closed.body` **amended** (promised a note form and a notification — S2 and S3/S7). New `help.no_channel`. **New §9a** records the help surface in the deck for the first time. Two FAQ answers — `trust.recourse`, `trust.exif` — **held back to S6 and S2**; the strings are unchanged, the page they were on was wrong. Amended by `frontend-developer`. Reason in full at §14 |
+| **v1.4** | **2026-10-22** | **A string on the point-of-no-return screen was false, and a QA test forced it out.** `erase.confirm.rest` ("Everything else goes now.") is **withdrawn in both languages**; `erase.confirm.retained` loses its trailing clause; four new B3 strings name what actually survives — `erase.retained.email_hash`, `.account`, `.age`, `.audit`. **Amended by `frontend-developer`, not `design-director`, who is stood down for this phase** (recorded because §2's sign-off block and this log otherwise imply one author). Reason, in full, below the table |
 | v1.0 | 2026-10-21 | First deck. Vouching ban, the §1.2 governing rule, "worth your while" deleted rather than translated, three blocking Tamil classes, ten TR items |
 | **v1.3** | **2026-10-21** | **Two referred items closed after reading the contracts directly rather than on report.** §12 item 3 closed by amendment **A-7** (`handover-safety` → `handover-guidance`, `HANDOVER_SAFETY` → `HANDOVER_GUIDANCE`). §3.1 and §12 item 2 updated: the no-offer-amount rule is enforced by **`ADR-003` §2.3 item 4 as patterns, under a whitelist** — the column cannot exist, so copy is not holding that line alone; `ADR-003` §2.4's resolution quoted. §1.5a records that the college/campus distinction is now a **project rule** owned beyond this deck. §12 item 4 restated: the Tamil gate is now mechanical (`i18n.ta_enabled` false, `locale/ta/REVIEWED.toml`), so what is open is a **person, not a control** |
 | **v1.2** | **2026-10-21** | **Both open compliance rulings implemented (`COMPLIANCE.md` v1.2 §2.5a and §4.3.3); §12 items 1 and 2 closed.** `trust.campus_mail` ships as "Signed in with a college email address" — no domain, notified, gated on verification *method*. New `trust.account_only`; `trust.not_checked` and `offer.under_button` **rescoped to the book**; new §3.2 solving the adjacency problem with two labelled blocks (`listing.seller.label`, `listing.book.label`); new §1.5a fixing "college" vs "campus". **Buyer-side figure prompt adopted** — `price.ask_in_messages` and `offer.message.hint` now invite a figure *addressed to the seller*; `listing.price.note` gains `price.not_recorded` as a mandatory condition; currency patterns banned from the contact-pattern regex. Three rows added to §10.2, one to §10.4. New TR-12 |
 | **v1.1** | **2026-10-21** | **Negotiability added as a copy requirement on instruction from `COMPLIANCE.md` §4.3.1.** New Ban 2 (§1.1), new §1.6 (the reasoning), new §3.1 (nine strings, blocking class **B4**), new TR-11. Changed: `sell.price.label` from a label to a question, `sell.price.hint` → `price.seller.hint`, new `sell.price.locked`, `listing.price` from "Asking ₹{n}" to "Seller's asking price ₹{n}", new `listing.price.note`, new `search.filter.price`, `offer.message.hint` extended, new `hand.price`, `confirm.why` extended, six new rows in §10.2, new rule (b) in §10.5. `trust.campus_mail` marked **blocked** pending a compliance ruling. New §12 |
+
+---
+
+## 13. v1.4 in full — the deletion disclosure, and why a copy fix was the right fix
+
+**Owner of this amendment:** `frontend-developer`. `design-director` is stood
+down for this phase and the correction was routed to me with the deck.
+
+### What was wrong
+
+`erase.confirm.rest` closed the deletion confirmation card with **"Everything
+else goes now."** `test-qa` ran a real erasure and enumerated what survives it.
+Four categories, every one of them about the student:
+
+| Survives `erase_account` | Retention | Basis |
+|---|---|---|
+| `users` — the row, with campus, city, pseudonym and both verification booleans | account life | `email`, `display_name`, `password` are NULLed; `campus_verified` stays because *the fact of eligibility outlives the evidence* (`services.erase_account` step 4) |
+| `user_tombstones.email_hash` — a **salted** hash of the address, plus its salt version | **1 year** | `COMPLIANCE.md` §7 row 3 — ban-evasion detection and dispute linkage. The salt is a server-side secret, deliberately **not** in the database |
+| `age_verification_events` | account life **+ 1 year** | §2, r.8(3). Step 7 leaves it untouched |
+| `audit_log` — one row per action, carrying `actor_pseudonym`, `ip`, `user_agent` | 365 days | Step 7 leaves it untouched; `CLAUDE.md`'s engineering standard requires the chain |
+
+**Every one of these retentions is lawful and not one of them changed.** That is
+the whole point of recording this here: the defect was the sentence.
+
+### Why this belongs in the deck's log and not only in a template
+
+This is `CLAUDE.md` rule 9's shape in student-facing copy — *a specification
+stronger than its implementation, with no test for the gap* — and it landed on
+the single screen the PRD calls the point of no return, where `AC-X1.2` and
+`JOURNEYS.md` J8 step 3 both say the student *"must learn it here, not from a
+support ticket"*. An approved string can be wrong about the system, and the deck
+is where that gets admitted.
+
+The test that forced it is
+`tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is`,
+and its construction is worth copying: **it fails only while the totality claim
+and the survivors are both present**, so it cannot go green on a cosmetic
+reword, and it goes green either by qualifying the claim or by actually deleting
+the data. The claim and the check are one artefact, which is rule 9's standard.
+
+### The three decisions inside the fix
+
+1. **No replacement sentence, in either direction.** "Nothing else is kept"
+   would be the identical defect mirrored: unfalsifiable from the screen, and
+   wrong the moment a ninth retention lands. The card now asserts **only what it
+   enumerates**, and the list is the assertion.
+2. **Four list items, not a longer paragraph.** `{list}` renders as a real
+   `<ul>`; eight record types in one comma-separated sentence is a wall at
+   320px on the screen where someone is about to do something irreversible, and
+   it breaks §1.3 rule 5 ("one sentence per line, one idea per sentence").
+   The email-hash item leads the new group because it is the one a reasonable
+   person accepts when told and resents when discovered.
+3. **`repeat_infringer_records` is deliberately NOT in the list.** On retention
+   grounds it belongs — it survives deletion and is **never** purged
+   (`AC-X1.4`, r.5(5)). But the table lands in **S6**, no S1 student can have a
+   row, and naming it on *every* student's deletion screen reads as an
+   accusation about a person, which §1.2 forbids outright.
+   **Condition that adds it:** the slice that ships the table, phrased as a
+   conditional about accounts rather than about the reader.
+
+### §1.2 compliance of the new strings
+
+Each one describes a mechanism, names a fact, or gives an instruction. None
+predicts and none judges:
+
+- *"A scrambled code made from your email address"* — mechanism.
+- *"for one year"* — fact.
+- *"so that an account that has been banned cannot sign up again"* — purpose,
+  stated about **accounts**, never about the reader.
+- *"The date of birth you typed was never kept"* — a statement about our
+  database, true by construction since amendment A-5 removed the table.
+
+**Nothing here reassures.** No "safe", no "protected", no "don't worry", no
+"your data is secure". The forbidden-copy scan is clean over all four
+(0 findings, whole-word, with inflections).
+
+### Tamil
+
+**All four new strings are `NOT DRAFTED` and the withdrawn Tamil string is
+removed from `locale/ta/`.** They are **B3** (legal and rights flow): a
+mistranslation misdescribes a statutory retention. Drafting Tamil for English
+that no native speaker has reviewed, on the screen carrying the r.8(3)
+disclosure, would hand the reviewer a longer moving target rather than a
+shorter correct one. The locale is gated off, so nothing is withheld from any
+student by leaving them empty. `locale/ta/REVIEWED.toml` stays empty and no
+reviewer's name has been written into it by any agent.
+
+Blocking-class count after this amendment: **69 of 138 strings, 52 with no
+Tamil draft.** §2's sign-off block still needs a named native speaker and this
+amendment adds four strings to what they must read.
+
+---
+
+## 14. v1.5 in full — three false claims in one slice, and what they had in common
+
+**Owner of this amendment:** `frontend-developer`. `design-director` is stood
+down for this phase.
+
+### The three
+
+| String | What it promised | What exists |
+|---|---|---|
+| `erase.confirm.rest` (§13, v1.4) | "Everything else goes now." | Four categories of the student's data survive erasure, all lawfully |
+| `help.response` | "We read every message. We aim to reply the same day." | **Nothing stores what a student writes.** CG-2: no endpoint, no L1 function, no table |
+| `help.scope` (first sentence) | "We can help you reach the other student, put a book back up, or look at a listing." | The relay is **S5** (A-6); listings are **S2**; and there is no channel to ask through in any slice yet |
+| `gate.closed.body` | "You can leave a note… and we'll tell you when listings open." | No form on the page. `POST /wanted` is **S2**; the notification is **S3/S7** |
+
+### What they had in common, which is the part worth keeping
+
+**All four read as helpful.** Not one contains a banned word, so
+`tests/unit/test_forbidden_copy.py` was green over every one of them, in both
+the template and the catalogue, the entire time. Three were found by Code
+Review reading sentences and one by a QA test that measured behaviour. That is
+exactly the division `THREAT-MODEL.md` §6.1 states and then warns about: *"the
+grep catches words; the reviewer catches sentences; neither substitutes for the
+other and the test suite must not be read as covering the second."* This slice
+is the first evidence in the project that the warning was load-bearing rather
+than cautious.
+
+**All four were predictions about our own future conduct**, which §1.2 forbids
+in one line. The failure mode is not carelessness about the rule — it is that
+the rule is easy to apply to a *judgement* ("Trusted seller" is obviously out)
+and hard to apply to a *kindness*. "We aim to reply the same day" does not feel
+like a violation. It feels like service. That is precisely why it survived
+authoring, self-review and a clean grep.
+
+**And three of the four were copied from a document that was describing the
+finished product**, not the slice. `help.response` and `help.scope` are
+`JOURNEYS.md` J9's wording, which J9 itself labels *"behavioural intent"* with
+`design-director` owning the final words; `gate.closed.body` describes the
+`POST /wanted` flow the journey assumes. A journey written against the whole
+product is the right artefact for product design and the **wrong** source for a
+slice's copy, because its tense is future and a template's tense is now.
+
+### The standing rule, which is the actual output of this amendment
+
+> **When a string tells a student what *we* will do rather than what the
+> product does, it needs a mechanism behind it or it does not ship.**
+
+Three checks follow from it, for whoever writes the next slice's copy:
+
+1. **Name the code.** For every first-person-plural verb in a string — *we
+   read, we reply, we'll tell you, we'll take it down, we remove* — point at
+   the function that does it. If the answer is a slice number rather than a
+   file, the string waits for that slice.
+2. **A deck string is approved for a meaning, not for a page.** `trust.recourse`
+   and `trust.exif` are correct, approved, unchanged — and were wrong on the
+   help page in S1 because the mechanisms they describe arrive in S6 and S2.
+   **The words were not the defect; the placement was.** Nothing in the deck
+   previously recorded *which slice* a string becomes true in, and §9a now does
+   for the help surface.
+3. **Prefer the absence to the softening.** Every one of these had a tempting
+   middle: "we usually reply the same day", "you may be able to leave a note".
+   A hedged promise is still a promise and it is harder to test. Removing the
+   claim leaves a page that is shorter and true; softening it leaves a page
+   that is the same length and still false.
+
+### Tamil
+
+The withdrawn Tamil drafts go with their English (`help.response` had none;
+`gate.closed.body`'s is withdrawn). The three amended or new strings are
+**NOT DRAFTED**: `help.*` is standard class, `gate.closed.body` is standard,
+and drafting Tamil for English that may yet be revised by a returning
+`design-director` hands the reviewer a moving target. `locale/ta/REVIEWED.toml`
+remains empty and no agent has written a reviewer's name into it.
+
+### Scope question, answered rather than referred
+
+The coordinator offered to route "should `/help` ship at all before CG-2" as a
+scope question. **My answer is that it should ship, and the reasoning is short
+enough to not need routing.** What remains on the page is a fact about the
+product or an instruction in every line, and the trust answers are the copy
+this product most needs a student to read before they ever meet a listing. The
+footer Help link is on every page by design (SC 3.2.6 Consistent Help, new in
+WCAG 2.2, and `SYSTEM.md` §2.6 calls it *"the only mechanism we have for a
+student who gets stuck mid-handover"*), so the alternative is pointing it at a
+404. **A true page is not improved by deleting it.** What must not ship is a
+page that implies a channel — and that is now removed rather than reworded.

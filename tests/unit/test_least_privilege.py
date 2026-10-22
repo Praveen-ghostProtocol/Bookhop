@@ -25,7 +25,7 @@ This file is in three parts, and the split is the point:
 import pathlib
 
 import pytest
-from django.db import connection
+from django.db import DatabaseError, connection, transaction
 from django.utils import timezone
 
 from apps.core.models import AuditLog, Campus, GateAuthorisation
@@ -134,12 +134,37 @@ def test_measured_the_application_role_owns_the_tables_it_is_revoked_on(engine):
 
 LIVE_CRITICAL = (
     "RED TEAM ENGINEERING-MEMO §1, CRITICAL, STILL OPEN. This is NOT a "
-    "limitation of the test — the attack genuinely succeeds. It closes when "
-    "ownership of `gate_authorisations` and `campuses` moves off the "
-    "application role (a superuser deployment step; this box has rolsuper=false) "
-    "and the harness can no longer re-grant. strict=True, so this file goes red "
-    "the day it is fixed and must be de-xfailed then."
+    "limitation of the test — the attack genuinely succeeds. On PostgreSQL it "
+    "closes when ownership of `gate_authorisations` and `campuses` moves off "
+    "the application role (a superuser deployment step; this box has "
+    "rolsuper=false) and the harness can no longer re-grant. **On SQLite the "
+    "cause is different and privileges are not it**: there is no role system at "
+    "all, and the gate opens because migration 0003's trigger accepts any live "
+    "authorisation row, placeholder evidence included. strict=True, so this goes "
+    "red the day either is fixed and must be de-xfailed then."
 )
+
+
+def _refused(operation):
+    """Run `operation` and report whether the database refused it.
+
+    **REVIEW-S1: without this the tripwire could never fire.** The bodies below
+    were written as `operation(); assert <the attack did not work>` — so on the
+    day the control lands, the forbidden operation **raises**, and an exception
+    under `xfail` is XFAIL, not XPASS. `strict=True` would never have triggered,
+    which makes the escalation forgotten rather than tracked: the exact opposite
+    of what an xfail is for.
+
+    Swallowing only `DatabaseError` is the point. A refusal is the control
+    working; any other exception is this test being wrong, and must still fail
+    loudly.
+    """
+    try:
+        with transaction.atomic():
+            operation()
+    except DatabaseError:
+        return True
+    return False
 
 
 @pytest.mark.xfail(strict=True, reason=LIVE_CRITICAL)
@@ -166,18 +191,23 @@ def test_three_orm_statements_cannot_open_the_discovery_gate(city, legal_entity)
         },
         authorised_by_human="a",
     )
-    audit_before = AuditLog.objects.count()
+    _refused(
+        lambda: Campus.objects.filter(id=campus.id).update(
+            discovery_enabled_at=timezone.now()
+        )
+    )
 
-    Campus.objects.filter(id=campus.id).update(discovery_enabled_at=timezone.now())
-
+    # The single assertion that can be satisfied by an implementation. The
+    # memo also asked for "audit rows written > 0" — **dropped, because no
+    # implementation can satisfy it**: a correctly refused gate write writes no
+    # audit row, so the two conditions are contradictory and the audit limb
+    # would keep the test red forever after the fix. The absence of an audit
+    # row on a *successful* unauthorised open is real and is covered by the
+    # gate opening at all, which is what this asserts.
     campus.refresh_from_db()
     assert campus.discovery_enabled_at is None, (
         "three ORM statements opened the discovery gate: ADR-002 §4.1(b)'s "
         "floor is below the control it describes"
-    )
-    assert AuditLog.objects.count() > audit_before, (
-        "the gate changed state with no audit row — the most legally "
-        "significant action in the system left no trace"
     )
 
 
@@ -201,7 +231,11 @@ def test_the_application_role_cannot_truncate_the_audit_log(city):
             "neither half of this attack exists here. ENGINE-DIVERGENCE §12."
         )
     record_audit(None, "test.one", city)
-    with connection.cursor() as cursor:
-        cursor.execute("SET bookhop.allow_flush = 'yes'")
-        cursor.execute("TRUNCATE audit_log")
+
+    def attack():
+        with connection.cursor() as cursor:
+            cursor.execute("SET bookhop.allow_flush = 'yes'")
+            cursor.execute("TRUNCATE audit_log")
+
+    _refused(attack)
     assert AuditLog.objects.exists(), "the application role emptied the audit log"

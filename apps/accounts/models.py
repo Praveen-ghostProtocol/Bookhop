@@ -190,6 +190,46 @@ class User(models.Model):
     def is_staff_member(self):
         return self.role in STAFF_ROLES
 
+    @property
+    def campus_verification_method(self):
+        """How this student's campus was verified, or `None`. §7 row 6.
+
+        **REVIEW-S1: frontend reads this attribute and it existed nowhere**, so
+        `getattr(user, "campus_verification_method", None)` was always `None`,
+        `signed_in_with_college_email` always returned False, and
+        `trust.campus_mail` — the disclosure a buyer is *owed* — could never
+        render. A fail-closed control that fails closed unconditionally is
+        indistinguishable from a missing feature.
+
+        **Derived from `campus_verifications.method`, never from
+        `users.campus_verified`.** `COMPLIANCE.md` §7 row 6 is explicit about
+        that, and the reason is the whole point of the string: the boolean says
+        *we verified this student somehow*, which includes `STAFF_MANUAL`, and
+        telling a buyer that a staff-re-verified student "signed in with a
+        college email address" would be a false statement about the one trust
+        signal the product makes.
+
+        **It returns the method and never the domain** — also §7 row 6. The
+        domain is stored (it is the campus evidence) and is never rendered.
+
+        The latest verification wins: a student re-verified by staff after an
+        email sign-in is `STAFF_MANUAL` now, and the string correctly stops
+        rendering.
+
+        # ponytail: one query per access, uncached. Ceiling: an N+1 on a page
+        # that lists many students — none exists; the string renders on the
+        # account page about oneself and, from S2, on a listing about its
+        # seller. Upgrade path: `select_related` is not available for a reverse
+        # one-to-many, so it would be an annotation on the listing query, which
+        # is S2's to add when there is a list to annotate.
+        """
+        row = (
+            self.campus_verifications.order_by("-verified_at", "-id")
+            .values_list("method", flat=True)
+            .first()
+        )
+        return row
+
 
 class EmailLoginToken(models.Model):
     """DATA-MODEL §2 `email_login_tokens`.

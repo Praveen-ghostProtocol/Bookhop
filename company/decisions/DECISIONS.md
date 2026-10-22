@@ -2800,3 +2800,559 @@ only way they surface.** The CTO declined to add a rule on three instances;
 **the CEO agent will fold this into rule 12's wording rather than add a
 nineteenth rule, because Red Team's finding stands: eighteen rules that are
 really twelve will be obeyed, and nineteen will not.**
+
+---
+
+## D-043 — QA on S1: the deletion screen lies to the student
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** 3 consecutive runs with `--create-db`: `2 failed, 930
+passed, 53 skipped, 2 xfailed` — identical each time
+
+### The finding that matters most, and it is a product-honesty defect
+**The point-of-no-return deletion screen says "Everything else goes now".
+It is false.** QA ran a real erasure and enumerated the survivors: the `users`
+row (campus, city, pseudonym, verification flags), `user_tombstones.email_hash`
+— a salted email kept one year for ban evasion — `age_verification_events`,
+and **six `audit_log` rows carrying the student's IP address and user agent.**
+
+**Every retention is lawful; the sentence is not.** Reproduced directly. The
+fix is the copy, not the retention: drop "Everything", and name the salted
+hash with its purpose — a sentence a reasonable person accepts when told and
+resents when discovered. Routed to frontend, which owns the correction now
+that design-director is stood down.
+
+This is the one irreversible action a student can take, and the claim sat on
+the screen where they decide. No rule caught it; **a test written from the
+specification against real behaviour did.**
+
+### Two CEO corrections, on the same finding, in opposite directions
+**1. The isolation leak is REAL and still open.** Backend concluded no test
+had undeclared database access and I repeated that to the founder. QA found
+the other half **by trying rather than reading**: a test with no marker and no
+fixture executes `SELECT 1`. Backend was right that pytest-django patches
+`ensure_connection` — I verified that — **but the blocker cannot close a
+connection it did not open**, and two session-scoped autouse fixtures open one
+at setup and never close it. Measured fix: close the connection at fixture
+end. Routed.
+
+**2. But the 0-to-14 variance was NOT the leak.** QA reported five runs on an
+unchanged tree giving 0, 1, 4, 13, 14 failures. **I ran it three times with
+`--create-db` and got an identical result every time.** So the spread was
+dominated by QA's own second cause — a stale test database missing a table
+from a recent migration — not by the connection leak. QA separated the two
+causes honestly and said both produce the same signature; the measurement says
+which one was doing the work. **The leak is a real defect that has not been
+silently rewriting this session's results.**
+
+### The privilege layer was verified structurally and by nothing behavioural
+Because the harness re-grants everything for the session — for documented and
+correct reasons — **every guard test exercised the trigger layer on a database
+with one layer where production has two.** QA restored the production state
+inside a single transaction and proved independence: escape granted so the
+trigger permits, privilege revoked, refused with **42501**. That is the first
+behavioural evidence that rule 14's second layer exists, and Red Team's
+finding was exactly that the gate had one layer twice.
+
+### Lists replaced by invariants, unprompted, three times
+The locale parameter became *no page may claim a locale it does not serve*.
+`NOT_PAGES` became a content-type invariant — **and it subsumed the whole
+list, including the two endpoints it was written for**, so the list is gone
+rather than shortened, with its own guard because a content-type skip is
+silent. The route count became three invariants, the load-bearing one being
+**no route serves campus-scoped data while the gate is closed** — which
+extends to listings by adding one needle in S2 rather than eighteen routes.
+
+**And the structural proof that frontend's claim holds as pages are added:**
+`web/**` contains zero querysets, zero model imports and no HTTP clients, so a
+view cannot reach a listing except through a service that begins with the gate
+assertion.
+
+### QA found a fourth defect in its own work
+**Its accessibility harness was reaching four pages out of eleven** — seven
+redirect without a session, and a non-200 counted as a skip. **Rule 12 inside
+the harness itself, reported as coverage for a whole slice.** It signs in now
+and asserts the property. Fourth time in six passes a defect was found in
+something QA wrote, each caught by someone reading its output against theirs.
+**The S0 accessibility result was weaker than it read.**
+
+### F21 — an ownership gap that was the CEO agent's error
+Eight adversarial probe files appeared in QA's tree, one broken, **because I
+briefed Red Team without giving it a tree.** A broken file there presents as a
+QA failure in QA's own report, which is what rule 6 exists to prevent. QA
+reported rather than deleted them — correct. **Ruling: `tests/redteam/**`
+added to the ownership table, owned by red-team, excluded from the default
+run.**
+
+**Closed and converted to regressions:** the UUID version check, three
+declaration shapes the source grep missed, the response control's value and
+contact-detail limbs, and rule 16's SQLSTATE half.
+
+---
+
+## D-044 — Append-only becomes a row predicate: there is nothing to impersonate
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording cto
+
+### The retention contradiction, resolved by refusing all three options offered
+The CTO required a table to be **append-only** *and* to have a **finite
+retention period**, which together are unsatisfiable. It owns the defect.
+Backend put both tables in a purge skip list, tested the skip, and escalated —
+**the right handling of a contract defect, and quietly picking one is how the
+inventory would have become false.**
+
+Why each obvious option fails: **retain indefinitely** breaches the rule that
+retaining beyond the purpose without a basis is itself a breach — the one-year
+floor is a minimum, not a licence. **Move the rows to a mutable table** is
+worse: these are the two tables whose entire value is being evidence, and
+removing tamper protection from the evidence to satisfy a retention job is the
+wrong way round. **A privileged purge actor** is the right direction and the
+wrong mechanism — it would put the key to deleting consent evidence in a
+production path that runs **every night**, and it is already established that
+no mechanism can make production refuse a session setting.
+
+**Ruling: append-only becomes a predicate on the ROW, with no privileged
+caller at all.** UPDATE only to set the purge date from NULL; DELETE only once
+that date has passed; TRUNCATE never. The date is NULL for the life of the
+account, **so a live consent or age record is undeletable by anyone, including
+the expiry job.**
+
+**Why this beats any actor rule, in the CTO's words: there is nothing to
+impersonate.** The job holds no privilege an attacker lacks; **the row's own
+retention state is the whole authorisation**, so an early delete fails
+identically for the expiry job and for a compromised session. And it is less
+new machinery than it sounds — an existing migration already uses this exact
+trigger shape on both engines.
+
+### The trigger-loss hazard now has a structural control
+On SQLite any `ALTER TABLE` rebuilds the table and silently drops its
+triggers; PostgreSQL's does not — **so one migration can leave a guard live on
+one engine and gone on the other.** Four tables now, five more from S2. **A
+behavioural test only catches it if someone wrote one for that table on that
+engine**, so the control asserts the exact expected trigger set per table per
+engine, failing by name. Otherwise it surfaces as a surprise red in an
+unrelated assertion, **where the tempting fix is to skip the test.**
+
+### The CTO found a wrong premise under one of its own correct conclusions
+It had rejected a sentinel value partly because "it breaks the foreign key to
+`users` that S1 adds" — **and S1 added no such key.** The conclusion stands on
+its other leg. Recorded because **a conclusion propped up by a wrong premise
+is one someone re-opens the moment they find the premise.**
+
+### A rule I had written as a proxy would have blocked every later slice
+"`bookhop/urls.py` is included once in S0 and never touched again" was a proxy
+for the real invariant: **frontend never edits it and only ever edits its own
+URL file; backend may add includes.** Also confirmed: an applied migration is
+history, so **editing its text changes what a fresh migrate produces without
+changing any deployed database — the two diverge and the grep is satisfied by
+a lie.**
+
+### Rule 12 rewritten rather than a nineteenth rule added
+QA has found four defects in its own work across six passes, and the CTO's
+observation is the useful one: **three were the same shape — a check that
+could not fail.** QA keeps finding it because QA is the only agent whose job
+is to ask *did this actually run*.
+
+Rule 12 now covers four disguises: a test that passes vacuously; **a
+requirement that cannot be satisfied or cannot be violated**; **a guard whose
+fixture cannot produce the condition**; and **a measuring instrument that does
+not assert it measured.** The last is the most consequential because
+everything downstream trusts the instrument — **a harness that silently covers
+a third of its target exists without being a control**, and any number it
+produces must now be quoted with the count of subjects actually reached.
+
+**No figure needs retracting** — nothing in the architecture ever quoted a
+numeric accessibility result. The correction is to the standard, not to a
+claim.
+
+**F21 closed:** `tests/redteam/**` added, owned by red-team, excluded from the
+default run, with one rule attached — **a probe is not a regression test.**
+When a probe finds something real, the finding goes to the owning agent and
+the regression is written in *that* agent's tree.
+
+---
+
+## D-045 — Five false claims, one cause: a journey's tense is future, a template's is now
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording frontend-developer
+**CEO-verified:** `1005 passed, 57 skipped, 2 xfailed, 1 failed` — the single
+red is backend's isolation blocker
+
+**I named three false claims. Frontend found five**, and diagnosed the class.
+
+### The cause, and it explains every instance at once
+**Three of the five were lifted from the journeys document, which describes
+the FINISHED product and labels its own copy "behavioural intent".** A journey
+is the right artefact for designing a product and **the wrong source for a
+slice's copy, because its tense is future and a template's tense is now.**
+The deck now records which slice a string becomes true in — the structural
+fix, and it must extend as later slices lift copy from the same place.
+
+**And all five were green under the banned-word test the entire time, because
+not one contains a banned word.** The control worked perfectly on what it
+checks — vocabulary — while the defect was in **commitment**.
+
+### The two I missed
+`help.scope` promised to reach the other student, re-list a book and look at a
+listing — **three promises and one fact**, with the relay, listings and the
+channel all in later slices. **Only the fact survives**, and it was the half
+carrying the weight. And two FAQ answers — taking a listing down, stripping
+photo metadata — are **approved, correct, unchanged deck strings that were
+wrong on that page in this slice.** **The words were not the defect; the
+placement was.**
+
+### The deletion screen: the claim withdrawn in both directions
+"Everything else goes now" is gone **with no replacement** — *"nothing else is
+kept" would have been the same unfalsifiable claim mirrored, and wrong the
+moment a ninth retention lands.* The card now asserts **only what it
+enumerates**, four items added, led by the salted email hash with its
+mechanism, period and purpose — **stated about accounts, never about the
+reader, so it cannot read as an accusation.**
+
+**Two judgements worth keeping.** The repeat-infringer table is **deliberately
+not listed** despite surviving deletion, because naming it on every student's
+screen reads as an accusation about a person. And it **refused to collapse the
+list behind a disclosure widget** — the obvious next idea — because the
+requirement is that the student learns this *before the button*, and a
+collapsed disclosure means most never open it, **re-creating the defect with
+the words technically present.** The reasoning is in the template so nobody
+"improves" it later.
+
+### CEO ruling on the one item it refused to decide alone
+It flagged a trust sentence whose "this" has no referent on a page with no
+book, and declined to invent a generically-scoped variant of a no-warranty
+string without instruction. Correct instinct. **Ruling: answer the question
+with a plain fact rather than minting a second no-warranty string** — which
+sidesteps the scoping problem instead of solving it, and applies its own rule
+from this pass: **prefer the absence to the softening.**
+
+### The standing rule adopted into the deck
+**When a string tells a student what *we* will do rather than what the product
+does, it needs a mechanism behind it or it does not ship** — with three checks:
+name the function that does it, and **if the answer is a slice number rather
+than a file, the string waits**; a deck string is approved for a meaning, not
+for a page; and prefer the absence to the softening, **because a hedged
+promise is still a promise and is harder to test.**
+
+`/help` ships, on frontend's reasoning: the footer link is on every page by
+design, the alternative is a 404, **a true page is not improved by deleting
+it**, and what must not ship is a page implying a channel — removed rather
+than reworded. The page got shorter and truer: 3,028 bytes to 2,669.
+
+---
+
+## D-046 — QA passes S1. The erasure guarantee rests on a layer nobody specified
+**Date:** 2026-10-22 · **Decider:** ceo-planning, recording test-qa v2.0
+**Verified:** PostgreSQL `1 failed, 1005 passed, 57 skipped, 2 xfailed`;
+SQLite `1 failed, 952 passed, 120 skipped, 1 xfailed`. The single red on each
+is the isolation blocker, pre-existing and backend's.
+
+### The erasure attack: yes-and-no, and the "no" is the finding
+QA made the session scan match nothing **three ways** — a signing-key rotation
+without fallback, a changed serialiser, and a cookie-backed session store
+where there are no rows to scan at all. In two of those **a session row
+survives carrying the erased student's user id, decodable again if the key or
+serialiser returns.** Erasure reports success each time.
+
+**And yet no live session results — because a second, independent layer
+refuses a tombstoned user at request time.** QA proved it by planting a
+brand-new session *after* erasure.
+
+**That layer is the real guarantee. It is named in no document and was
+asserted by no test.** It is also narrow: only tombstoned accounts, while
+suspended ones are served. Routed to the CTO to specify, because a guarantee
+that exists by accident of implementation is one a later refactor deletes
+without noticing.
+
+**Sound parts, measured:** the swallow is per-row rather than per-scan, the
+scan does not over-delete an unattributable row, rotation-with-fallback is
+handled, and erasure reaches every device.
+
+### The rights question I am not letting pass
+QA escalated that **§2.5 read literally refuses a suspended student their own
+data rights.** Backend correctly wired the missing check — but if it gates
+export and erasure as well as mutation, **we will have fixed an authorization
+bypass by making an account we suspended unable to get its data out or delete
+itself.** Those are statutory rights; suspension is our own moderation action,
+not a forfeiture. **Correct in the diff, wrong in the product.** Routed: the
+precondition must separate marketplace actions from self-service rights.
+
+### A control passing while the hazard it guards is live
+**On PostgreSQL the append-only *existence* control is satisfied by a
+surviving sibling trigger while the audit table is freely updatable.** It
+asserts a trigger exists, not that the table is immutable — so a partial
+trigger loss reads green. **This is the control written to catch the SQLite
+rebuild hazard, passing while that hazard is live on the other engine.** Fix:
+assert the property, not the presence, keeping existence as the cheap first
+layer.
+
+### Both xfails confirmed honest
+Under `--runxfail` each fails on its **first named** assertion — the gate
+genuinely opens, the TRUNCATE genuinely succeeds. Neither reports the inverse
+of the truth, which was the specific risk.
+
+### No-DOB holds under independent attack
+Verified across the HTML and JSON paths, both outcomes, the idempotency
+replay, the session store, the job payload, the security log, the refusal page
+and the export. **The staff-review note is refused with a message naming the
+rule** — detection rather than the code-review item the specification settles
+for, which is rule 18 satisfied properly.
+
+### The gap QA calls most serious
+**No student has completed a journey, and five of the seven erasure
+assertions — including the one product called the most important of all — have
+no subject until S4.** They are parametrised skips naming model and slice that
+**turn red the day the model appears**, which is the right shape.
+
+**Also unverified and stated:** the keyboard walkthrough and four WCAG
+criteria, Tamil (gate correctly closed and asserted closed, **never reported
+as verified**), performance percentiles, and the restore test.
+
+### A process cost I own
+Agents were editing application files while QA ran, and one mid-edit syntax
+error produced seven spurious failures in a run it discarded. **That is my
+sequencing, not theirs.** Its counter-observation is fair: two of its findings
+were fixed within the hour, each citing its test by path.
+
+---
+
+## D-047 — A student journey has now been completed end to end, for the first time
+**Date:** 2026-10-22 · **Decider:** ceo-planning (walked personally)
+
+**The gap QA named as most serious is closed.** Landing page → sign in →
+email delivered → magic link followed → age gate → consent ledger → account
+page → deletion screen. Every step on a real server in a real browser.
+
+### Two defects that only running it could find
+1. **The app 500s on the first POST a user makes.** `no such table:
+   rate_limit_counters` — the development database had not been migrated past
+   `core/0007`, and **the dev server defaults to SQLite while all our verified
+   runs were on PostgreSQL.** 1,017 passing tests did not catch it, because
+   none of them runs the app the way a person does. This is the same stale-DB
+   cause QA identified in the *test* database, present in the *dev* one.
+2. **`HEAD /` returns 405**, and `/favicon.ico` 404s on every page load. Both
+   minor; both invisible to the suite.
+
+### What was verified working, in production conditions rather than in a test
+- **The credential fix holds in the real flow.** The delivered job's payload
+  reads `_redacted_keys` — the raw token is gone after send, exactly as
+  specified. I could not retrieve a used token from the database even trying.
+- **The magic-link email renders a real absolute URL** and **carries no name**
+  — the enumeration protection frontend argued for, working.
+- **The trust string renders correctly**: "Signed in with a college email
+  address", gated on the verification method, on a student who actually signed
+  in that way.
+- **The age gate takes a date and keeps none** — the screen says so and the
+  schema makes it true.
+- **The consent page is granular and factual**, including
+  *"BookHop stores it, and staff can read it if a problem is reported"* — an
+  unflattering truth stated plainly rather than softened.
+
+### The deletion screen, which is the one that had the false claim
+It now enumerates **eight** retentions and asserts nothing beyond them. The
+salted email hash reads: *"A scrambled code made from your email address,
+kept for one year so that a banned account cannot sign up again. It is a code,
+not an address."* And the age line: *"The date of birth you typed was never
+kept."*
+
+**That screen is the best argument in this project for the process that
+produced it.** It is honest in a way nobody would have noticed was missing,
+and it got there because a test written from the specification enumerated what
+actually survived and compared it against what the page claimed.
+
+### The standing lesson
+**1,017 green tests did not tell us the first POST 500s.** Every rule in
+`CLAUDE.md` is about claims and controls; none is about a person using the
+product. Red Team said this in the engineering memo — *every defect the
+apparatus caught was within-artefact* — and the first ten minutes of running
+the app proved it again. **Running it is a different instrument, and it must
+become part of a slice's definition of done rather than something done once.**
+
+---
+
+## D-048 — Running the app found two defects, and the fixes are better than the bugs
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** every web route answers `HEAD`; three API routes still refuse it
+
+**`HEAD` fixed across ten read routes using Django's `require_safe`** rather
+than spelling out the method pair — **so the two cannot be split by someone
+later editing one of the names.** Frontend verified by **probing every route
+in the resolver with both methods**, not by reading its own diff, **which is
+how it found the same omission in three of backend's JSON routes.** I
+confirmed independently: `/api/v1/account`, `/consents` and `/export` answer
+`GET` with 401 and refuse `HEAD` with 405. Routed.
+
+**The favicon fix is the declaration, not the route**, and that is the right
+call: a browser rendering a BookHop page now never requests `/favicon.ico` at
+all, **which removes the round trip rather than redirecting it.** The route
+exists anyway for clients that ask regardless, as a permanent redirect with a
+week's cache, so the cost is one round trip ever rather than one per
+navigation.
+
+**The accounting was shown rather than claimed:** +33 bytes per page against
+one saved round trip per page — and on 3G a round trip is hundreds of
+milliseconds while 33 bytes is not. **Inlining the icon as a data URI was
+considered and rejected**, because base64 would cost ~700 bytes on *every*
+page against one cached request, which loses for any repeat visitor. A
+`ponytail:` note records the missing iOS icon with its ceiling and the
+condition for adding it.
+
+### The observation that matters more than either fix
+Frontend's framing, which I am adopting: **both defects are the same shape as
+the comment bug that made its first accessibility run red — a defect that only
+exists when something real asks for something real.** One is a method nobody
+sends in a test; the other is a request only a browser makes.
+
+**Neither would ever have been caught by adding more tests of the kind we
+already have.** That is now twice in two hours that running the application
+beat testing it — the 500 on the first POST, and these two. The instrument
+found two defects on its first walk.
+
+**Standing change: walking a real journey in a real browser is part of a
+slice's definition of done**, not a milestone to be celebrated once. Red
+Team's verdict was that the apparatus catches defects inside artefacts and
+misses them at the seams; a browser is the only instrument we have that works
+at a seam.
+
+---
+
+## D-049 — The blocker was one line, and three of us reasoned our way to three wrong answers
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** the marker is at line 25; the test it contradicts is at line 377
+
+### The diagnosis
+`tests/contract/test_s0_surface.py` declares `pytestmark =
+pytest.mark.django_db` at **module level**, which applies to every test in the
+module — **including the one asserting that a test without the marker cannot
+reach the database.** That test has database access *by its own file's
+declaration*, so **its premise is false and it cannot pass.**
+
+Backend's decisive measurement: it copied the test body **verbatim** into a
+module with no marker and ran both in one invocation — `1 failed, 1 passed`.
+**Identical code, one line of difference.**
+
+### Three claims about the mechanism were wrong. Two were mine.
+1. *"The blocker cannot block an already-connected alias."* **False** — it
+   patches `ensure_connection`, which every query calls regardless. **I passed
+   this to the founder as fact.**
+2. *"The session fixtures leave a connection open and closing it is the fix."*
+   **Half right** — they did, they now close it, and that is correct hygiene,
+   but **closing changed nothing about blocking.**
+3. *"The cause is in session setup."* **No** — session setup is identical for a
+   contained and an uncontained test. **That narrowing was mine too, and I
+   reported it as having gone further than QA did.**
+
+**Backend pinned the measurement as a test so the next reader measures instead
+of reasoning**, which is the correct response to three agents reasoning their
+way to three different wrong answers about one line.
+
+**The variance story is now fully closed: zero spread across five runs on each
+engine**, identical counts and identical single failure. It was the stale test
+database, and nothing else. Verdict delta from the entire isolation episode:
+**zero**, measured two independent ways.
+
+### What else closed
+- **B3** — `require_actor` wired through one function on every write. It
+  gained a named-check argument **because §2.5's order deadlocks on the two
+  endpoints that satisfy it**: the age endpoint cannot require age, the
+  consent endpoint cannot require consent, or no student ever reaches ACTIVE.
+  **Narrowing by named check is the honest way to say that; skipping the call
+  is how the bypass looked reasonable.**
+- **B4** — the Tamil gate was **three copies of one rule**: the middleware,
+  the notices handler re-deriving from the raw header, and the consents
+  handler using the stored preference. Now one definition with the others as
+  readers, and **a test that fails on any app file deciding for itself what
+  `ta` means.** The fixture that could not produce the condition now can, and
+  the tests assert **the body served** rather than a locale field.
+- **A-1** — backend states plainly that **its implementation drifted from the
+  CTO's specification**: the spec said the exact trigger set failing by name,
+  it wrote an at-least-one existence check. Now three layers, and **the one
+  that holds is the property measured** — a trigger whose body is replaced
+  with `RETURN NEW` passes the first two and fails the third.
+- **The xfail tripwires now work**, and the assertion no implementation could
+  satisfy is dropped.
+- **The startup check refuses a half-migrated database**, deliberately **not**
+  tagged as a database check, because `runserver` skips those — which would
+  have made it absent from exactly the situation it was written for.
+- **HEAD derived once from the declared methods**, and the route probe asserts
+  HEAD and GET agree on **status** — because a route answering 401 on GET and
+  200 on HEAD would be a bypass nobody would look for.
+
+### Backend kept the SQLite default, with a reason I accept
+The defect was **unapplied migrations, not the engine**, and the startup check
+closes that on either database. Flipping the default mid-slice would re-point
+three agents' plain `pytest` at PostgreSQL and a shared test database — the
+collision it had just worked around.
+
+### The thing it most wants checked, routed away from it
+**`_may_write`'s narrowed precondition lists.** Its own framing: it chose
+those lists by reasoning about the contract and wrote its tests from the same
+reasoning, so **a list one entry too short grants a write to an actor who
+should not have it, and every test it wrote would still pass.** That is the
+shape of the bypass this fix closes. Routed to code review — **an agent cannot
+independently check a list it derived and then tested from the same
+derivation.**
+
+---
+
+## D-050 — The check backend could not do on itself found a real divergence
+**Date:** 2026-10-22 · **Decider:** ceo-planning
+**CEO-verified:** API-CONTRACT §2.5 line 176 lists `POST /account/nominee`
+(s14) in the Stack S row
+
+### F23, and why only an outside derivation could find it
+Backend asked for its narrowed precondition lists to be checked by someone
+else, on the grounds that it derived them by reasoning and wrote its tests
+from the same reasoning. **It was right, and the finding is exactly that
+shape.**
+
+**The nomination endpoint is Stack S in the contract and Stack M in the
+code.** A suspended, under-age-verified, campus-unverified or unconsented
+student is refused a statutory nomination, with four different refusal codes.
+
+**QA found it by deriving endpoint membership from the contract's table.
+Backend's tests enumerate the code's stacks, so they agree with the code by
+construction.** The lists *within* each stack are correct; the assignment of
+one endpoint to a stack is not.
+
+**And backend had already "corrected" itself in the wrong direction**, moving
+nomination from S to M by reading the ruling's prose summary — which named
+five examples — rather than the normative table, which lists it. Its instinct
+was sound: *"extending a list of exemptions by resemblance is how a stack
+stops meaning anything."* The resemblance argument was simply never needed.
+**It raised the question rather than re-deciding, which is why this cost one
+word instead of a slice.**
+
+Ruling: the code follows the table. If nomination belongs in M, that is a
+contract amendment, not a code decision.
+
+### What passed, each a plausible place to fail
+The profile endpoint is split **by field** — locale under S, display name
+under M — and a body containing both correctly takes the stricter stack, **so
+a suspended student cannot rename themselves by sending a locale alongside.**
+That is the placement most likely to have been done as "whichever stack the
+endpoint is in". A tombstoned actor gets **401 rather than 403**. And a fresh
+student walks age then consent unrefused — the **one-entry-too-long**
+direction, which no enumeration of lists can catch, because the lists would
+agree with each other.
+
+41 of 45 cells pass; the 4 failures are one cause.
+
+### QA recorded two mistakes of its own, and the second is the reusable warning
+Its first draft reported four extra findings, **all of them its own**: it
+treated an endpoint as single-stack when the code splits it by *direction*,
+and it **reused one test client across actors — so every actor after the first
+was anonymous and every endpoint answered 401.** Its phrase: **four cells of
+confident, uniform nonsense that looked exactly like a finding.**
+
+**For whoever extends this matrix at S2 and S4: a precondition matrix with a
+shared session fixture produces results indistinguishable from a bypass.**
+
+### F19 withdrawn by its author
+QA withdrew its own isolation finding, agreed the marker diagnosis, and moved
+its blocker test to a module declaring no marker — **with two guards: one
+asserting the module never acquires a module-level marker**, because the
+defect was invisible by construction and a marker added later would make the
+test pass for the wrong reason; and a positive control so the two cannot both
+be green for an unrelated reason. **Verdict delta from the whole episode:
+zero, now agreed from both sides.**
+
+**F21 has resolved itself** — the stray probe files are gone; only QA's own
+helper remains. **F20 and F18 stay open and non-blocking.**

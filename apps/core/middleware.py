@@ -91,27 +91,21 @@ class LocaleGateMiddleware:
     # a cache-invalidation bug here would ship unreviewed Tamil.
     """
 
-    #: Always available, flag or no flag. One entry today; a second gated
-    #: locale adds itself to `GATED_LANGUAGES` rather than editing this.
-    UNGATED_LANGUAGES = frozenset({"en"})
-
-    #: language code -> the `feature_flags` key that opens it. A per-entry rule
-    #: rather than a flat list (`CLAUDE.md` rule 11), so a future locale with a
-    #: different gate can be added without rewriting the check.
-    GATED_LANGUAGES = {"ta": "i18n.ta_enabled"}
-
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         from django.utils import translation
 
-        from .services import flag
+        from .i18n import allowed_locale
 
         active = translation.get_language()
-        gate_key = self.GATED_LANGUAGES.get((active or "").split("-")[0])
-        if gate_key is not None and not flag(gate_key):
-            translation.activate("en")
+        # `apps.core.i18n.allowed_locale` is the **one** definition of the gate
+        # (REVIEW-S1 B4 / `CLAUDE.md` rule 10): this middleware and every
+        # service that picks a locale are readers of it, never second copies.
+        permitted = allowed_locale(active)
+        if permitted != (active or "").split("-")[0]:
+            translation.activate(permitted)
             request.LANGUAGE_CODE = translation.get_language()
         return self.get_response(request)
 

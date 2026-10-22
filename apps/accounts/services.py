@@ -63,9 +63,12 @@ from apps.core.ratelimit import consume_quota
 from apps.core.services import SYSTEM, enqueue, record_audit
 
 from .models import (
+    CAMPUS_VERIFICATION_METHODS,
+    CONSENT_MECHANISMS,
     CONSENT_PURPOSES,
     LOCALES,
     REQUIRED_CONSENT_PURPOSES,
+    TOMBSTONE_REASONS,
     AgeVerificationEvent,
     CampusVerification,
     Consent,
@@ -78,6 +81,19 @@ from .models import (
 )
 
 log = logging.getLogger("bookhop.security")
+
+#: Re-exported for the web layer. `apps.accounts.models` is not imported by
+#: `web/**` — views never touch the ORM (API-CONTRACT §1) and a models import
+#: is how that starts — so without this the only way for a template helper to
+#: know what `INSTITUTIONAL_EMAIL` is, is to type it. That was the **last**
+#: hand-copy of this value in the repository, and this constant already has a
+#: live divergence under escalation (`COMPLIANCE.md` §7 row 6 says
+#: `EMAIL_DOMAIN`), which is precisely the condition `CLAUDE.md` rule 10 exists
+#: for. One imported definition, many readers.
+#:
+#: Bound to a module-level name so it is an export rather than an unused
+#: import; `web/context.py` reads `services.CAMPUS_VERIFICATION_METHODS`.
+CAMPUS_VERIFICATION_METHODS = CAMPUS_VERIFICATION_METHODS
 
 #: ADR-001 §2.5 and API-CONTRACT §5.1: a magic link is single-use with a
 #: 10-minute expiry.
@@ -440,7 +456,13 @@ def submit_age_declaration(user, dob, ip):
             "That date is in the future.",
             field_errors={"date_of_birth": ["Check the year."]},
         )
-    if user.adult_verified or user.status != "PENDING_VERIFICATION":
+    # **Only `adult_verified`.** This used to also refuse any status other than
+    # `PENDING_VERIFICATION`, which conflated *"you have already declared"*
+    # with *"your account is not new"* — QA's journey matrix measured the cost:
+    # a student who reached `ACTIVE` by another route was refused at the age
+    # step with a 400 and **could never become adult-verified at all**. The
+    # question this endpoint asks is whether the age fact is already known.
+    if user.adult_verified:
         raise ValidationFailed("Your age is already confirmed on this account.")
 
     pseudonym = user.person_pseudonym
@@ -448,7 +470,7 @@ def submit_age_declaration(user, dob, ip):
         with transaction.atomic():
             AgeVerificationEvent.objects.create(
                 user_pseudonym=pseudonym,
-                user=None,  # the row this would point at is deleted below
+                user=None,  # the row this would point at may be deleted below
                 outcome="REJECTED_UNDER_18",
                 method="SELF_DECLARED_DOB_SERVER_CHECKED",
                 occurred_at=timezone.now(),
@@ -458,7 +480,7 @@ def submit_age_declaration(user, dob, ip):
                 SYSTEM, "accounts.age_rejected", "User",
                 after={"pseudonym": str(pseudonym), "outcome": "REJECTED_UNDER_18"},
             )
-            User.objects.filter(id=user.id).delete()
+            _discard_or_tombstone(user)
         log.info("accounts.age_rejected", extra={"pseudonym": str(pseudonym)})
         raise UnderEighteen("BookHop is for students aged 18 and over.")
 
@@ -476,6 +498,39 @@ def submit_age_declaration(user, dob, ip):
         record_audit(user, "accounts.age_confirmed", user, after={"adult_verified": True})
         _activate_if_ready(user)
     return "ADULT_CONFIRMED"
+
+
+def _discard_or_tombstone(user):
+    """Remove a rejected minor, by whichever route the account's rows allow.
+
+    DATA-MODEL §2 says the `users` row is **deleted** on an under-18
+    rejection, and that is right for the case it describes: an account created
+    moments earlier by a magic link, with no appended rows and no transaction
+    record. Keeping a tombstone there would *retain* the fact that a specific
+    email address belonged to a child, keyed to a hash of it, for a year —
+    worse than deleting.
+
+    **But the delete is only available while nothing append-only points at the
+    row.** `consents` and `age_verification_events` are append-only by trigger,
+    so a cascade that tried to NULL their FKs would be **refused by the
+    database** and the whole request would 500. The previous guard avoided that
+    by refusing the endpoint outside `PENDING_VERIFICATION`, which QA measured
+    as a worse bug: a student who reached `ACTIVE` could never declare at all.
+
+    So the route is chosen by what is actually there. A minor discovered on an
+    account that has consented is erased by the normal path, with
+    `reason='MINOR_DISCOVERED'` — the value `user_tombstones` already carries
+    for exactly this, and the one DATA-MODEL §2's own revocation procedure
+    uses.
+    """
+    from .models import Consent
+
+    has_appended_rows = Consent.objects.filter(user_pseudonym=user.person_pseudonym).exists()
+    if has_appended_rows:
+        erase_account(user, reason="MINOR_DISCOVERED")
+        return "TOMBSTONED"
+    User.objects.filter(id=user.id).delete()
+    return "DELETED"
 
 
 #: A `note` on an age review may not contain a date. DATA-MODEL §2 calls this a
@@ -667,12 +722,40 @@ def withdraw_consent(user, purpose_key, mechanism, ip, user_agent) -> None:
     )
 
 
+def _check_enum(value, permitted, what, why=""):
+    """Refuse a value the schema would refuse, **before** the schema does.
+
+    `CLAUDE.md` rule 18 in its own words: *"the schema is the floor, detection
+    lives above it, and the obvious test passes while the defect ships."* A
+    CHECK constraint guarantees the stored **state**; it does not detect a bad
+    **input**, and what the caller gets when it fires is a 500 with a
+    `CheckViolation` traceback instead of a 400 naming the three values it
+    could have sent.
+
+    Measured: QA's precondition matrix called `grant_consent(..., "CHECKBOX")`
+    — not one of DATA-MODEL §2's three mechanisms — and 25 assertions failed
+    with `new row for relation "consents" violates check constraint`, which
+    says nothing about what to send instead. One helper, so the next enum does
+    not get its own hand-written check.
+    """
+    if value not in permitted:
+        raise ValidationFailed(
+            f"{value!r} is not a permitted {what}. DATA-MODEL §2 allows "
+            f"{sorted(permitted)}." + (f" {why}" if why else "")
+        )
+
+
 def _append_consent(user, purpose_key, notice_version, mechanism, ip, user_agent, *, granted):
     if purpose_key not in CONSENT_PURPOSES:
         raise ValidationFailed(
             f"{purpose_key!r} is not one of the six consent purposes in DATA-MODEL §2. "
             "A new purpose is a new lawful basis and needs privacy-compliance sign-off."
         )
+    _check_enum(
+        mechanism, CONSENT_MECHANISMS, "consent mechanism",
+        "The mechanism is evidence of HOW consent was given, which is what "
+        "COMPLIANCE.md §8.1 has to reproduce later, so it is not free text.",
+    )
     if notice_version is None:
         raise ValidationFailed(
             "A consent row must name the notice version the student agreed to "
@@ -1050,6 +1133,8 @@ def erase_account(user, reason="USER_REQUEST") -> None:
     if user.status == "TOMBSTONED":
         return  # idempotent: a second delete is not a second tombstone
 
+    _check_enum(reason, TOMBSTONE_REASONS, "tombstone reason")
+
     address = user.email
     now = timezone.now()
     with transaction.atomic():
@@ -1100,26 +1185,71 @@ def erase_account(user, reason="USER_REQUEST") -> None:
 
 
 def _delete_sessions_for(user):
-    """Invalidate every session this student holds. DATA-MODEL §10.1 step 3.
+    """Invalidate every session this student holds. Returns `(scanned, deleted)`.
+
+    DATA-MODEL §10.1 step 3. Server-side invalidation is an ASVS V7 L2
+    requirement, so "the cookie will expire eventually" is not an option.
+
+    **REVIEW-S1, and the correction is worth more than the code.** This was
+    written with `except Exception: continue` around the decode, on the
+    assumption that a corrupt or unreadable session would raise. **It does
+    not:** Django's `SessionBase.decode` catches everything itself and
+    **returns `{}`** on a bad signature, a rotated `SECRET_KEY` or a changed
+    serialiser. So the `except` was dead code for exactly the modes it was
+    written for, and the real failure mode is silent: the scan matches
+    **nothing**, deletes nothing, and `erase_account` reports success.
+
+    Hence the return value. A caller that logs `(scanned, deleted)` makes
+    "matched nothing" **detectable**, which is the property the `except` was
+    pretending to provide. The `except` is kept, narrowed and honest: it covers
+    a database error on the per-row delete, not a decode.
+
+    **The layer that actually holds, and it is independent (`CLAUDE.md`
+    rule 14):** even if this matched nothing, the student's device is still
+    signed out, because `sessions.session_user` excludes a `TOMBSTONED` account
+    and flushes the session it found. That is a genuine second layer — it does
+    not share this one's decode dependency — and
+    `test_erasure.py::test_the_device_is_signed_out_even_if_the_session_scan_matches_nothing`
+    is what proves it rather than asserting it.
 
     # ponytail: scan the session table and decode. Ceiling: O(unexpired
-    # sessions), which at the pilot's few hundred accounts is a few hundred rows
-    # on a path that runs at most 3 times a day per user (API-CONTRACT §2.4's
-    # erase limit). Upgrade path: a `user_id` column on a sessions table we own,
-    # which is a new table and a new migration for a property this gets today.
-    # Server-side invalidation is an ASVS V7 L2 requirement, so "the cookie will
-    # expire eventually" is not an option.
+    # sessions), a few hundred rows at pilot scale on a path rate-limited to
+    # 3/day per user. Upgrade path: a `user_id` column on a sessions table we
+    # own — a new table and a new migration for a property this gets today.
     """
     from django.contrib.sessions.models import Session
 
     from .sessions import SESSION_USER_KEY
 
+    scanned = deleted = 0
     for row in Session.objects.filter(expire_date__gte=timezone.now()).iterator():
-        try:
-            if row.get_decoded().get(SESSION_USER_KEY) == user.id:
-                row.delete()
-        except Exception:  # pragma: no cover - a corrupt session is not this path's problem
-            continue
+        scanned += 1
+        # `get_decoded()` returns {} rather than raising on an unreadable
+        # session, so this comparison simply fails to match — which is why the
+        # count below is the control and not the try/except.
+        if row.get_decoded().get(SESSION_USER_KEY) == user.id:
+            row.delete()
+            deleted += 1
+
+    if scanned and not deleted:
+        # Not an error: a student who was signed out already has no session.
+        # Logged so that "the scan matched nothing" is visible in the security
+        # stream rather than indistinguishable from "there was nothing to
+        # match" — which is the shape a rotated SECRET_KEY would take.
+        log.info(
+            "accounts.session_scan_matched_nothing",
+            extra={
+                "pseudonym": str(user.person_pseudonym),
+                "scanned": scanned,
+                "note": (
+                    "Django's session decode returns {} rather than raising, so a "
+                    "rotated SECRET_KEY or a changed serialiser looks exactly like "
+                    "this. The device is still signed out by sessions.session_user, "
+                    "which excludes TOMBSTONED accounts and flushes."
+                ),
+            },
+        )
+    return scanned, deleted
 
 
 #: DATA-MODEL §10.1's steps, as data rather than as prose.
@@ -1150,44 +1280,130 @@ ERASURE_STEPS = (
 # --- §2.5 standing preconditions ------------------------------------------
 
 
-def require_actor(user, *, purposes=()):
+#: API-CONTRACT §2.5's actor-side checks, in the contract's order. Steps 6 and
+#: 7 — campus scope and the discovery gate — are **not** here: they take an
+#: object and a campus, and `apps.core.scoping.scoped` and
+#: `assert_discovery_open` are their one definition.
+ACTOR_CHECKS = ("status", "adult", "campus", "consent")
+
+#: **API-CONTRACT §2.5 is now two stacks** (cto ruling, after S1 implemented the
+#: single stack as written and escalated what it cost).
+#:
+#: **Stack M — marketplace writes.** All eight preconditions. Listing, offering,
+#: messaging, opening a support ticket, changing the public-facing handle.
+STACK_M = ACTOR_CHECKS
+
+#: **Stack S — statutory and due-process paths.** Authenticated, not
+#: tombstoned, idempotency. **Nothing else**: not `ACTIVE`, not adult, not
+#: campus-verified, not consent, not the gate.
+#:
+#: The ruling's reasoning, which is worth keeping next to the constant because
+#: it is what stops the list being "hardened" back: **a right that a
+#: precondition can switch off is not a right.** And the defect was wider than
+#: suspension — a student who never finished campus verification and wanted
+#: their data deleted would have been refused **erasure** by a verification
+#: check. That is the case that makes this a stack rather than an exception.
+#:
+#: Three placements are judgement calls and the reasoning travels with them:
+#:
+#:   * **safety reports are S**, because a suspended user may be the one in
+#:     danger, and a platform that mutes their report has built the wrong
+#:     thing (S6);
+#:   * **replying to one's own support ticket is S**, because suspension with
+#:     no channel to contest it is a due-process failure — while **opening** a
+#:     ticket is M, so the channel is an appeal and not a fresh queue (S5);
+#:   * **`display_name` is M and `locale` is S.** Correction is a statutory
+#:     right; it is not a right to a public-facing handle while suspended,
+#:     because changing the name counterparties recognise is an evasion vector
+#:     after a safety report. The right is served by a staff-reviewed
+#:     correction endpoint, which is itself S.
+STACK_S = ()
+
+#: What a suspended student can still do, named in the `403 SUSPENDED` body.
+#: API-CONTRACT §2.5 requires it: *"A suspension that tells someone only 'no'
+#: is the failure this amendment exists to prevent."* These are the Stack S
+#: doors a suspension does not close.
+SUSPENDED_STILL_AVAILABLE = (
+    "download a copy of your data",
+    "delete your account",
+    "withdraw any permission you gave",
+    "reply to a help conversation you already opened",
+)
+
+SUSPENDED_MESSAGE = (
+    "This account cannot do that at the moment. You can still "
+    + ", ".join(SUSPENDED_STILL_AVAILABLE[:-1])
+    + ", and " + SUSPENDED_STILL_AVAILABLE[-1] + "."
+)
+
+
+def require_actor(user, *, purposes=(), checks=ACTOR_CHECKS):
     """API-CONTRACT §2.5, in its stated order, so the student sees the most
     useful error rather than the first one a developer happened to check.
 
-    Steps 6 and 7 — campus scope and the discovery gate — are **not** here:
-    they take an object and a campus, and `apps.core.scoping.scoped` and
-    `assert_discovery_open` are their one definition. This is steps 1 to 5,
-    which are properties of the actor alone.
+    **REVIEW-S1 B3: this function was correct and was called by nothing.** It
+    appeared in one comment and one test docstring, while §2.5 specified the
+    check, JOURNEYS J1 step 5 promised it and `withdraw_consent`'s docstring
+    claimed it happened. Measured: a SUSPENDED student could edit their
+    profile, and a student who had withdrawn the required `account` consent
+    could too. The wiring is `apps/accounts/api._may_write`, and the enumerated
+    tests on both sides are what keep it wired.
+
+    **`checks` exists because §2.5's order creates a deadlock on the two
+    endpoints that *satisfy* it.** Precondition 3 is `adult_verified` and
+    precondition 5 is consent — so `POST /account/age-declaration` cannot
+    require 3, and `PUT /account/consents/{key}` cannot require 5, or the
+    student can never reach `ACTIVE` at all. Narrowing the check list is the
+    honest way to say that; skipping `require_actor` on those endpoints was how
+    the bypass looked reasonable.
+
+    **What is NOT narrowed anywhere: `status`.** Every write takes precondition
+    2, including the statutory-right endpoints, because the contract says so —
+    see the escalation in the slice note about a suspended student's s11/s12
+    rights, which is a privacy-compliance question and not a developer's to
+    answer with an exception.
     """
     if user is None:
         raise NotAuthenticated("Please sign in first.")
+
+    # **Unconditional, and outside `checks` on purpose.** Stack S is
+    # "authenticated + **not tombstoned** + idempotency", so a tombstoned
+    # principal is refused on every path including the statutory ones — there
+    # is no right to export an account that no longer exists, and the row's
+    # identity columns are NULL anyway.
+    #
+    # It refuses TOMBSTONED and **only** TOMBSTONED. Extending it to SUSPENDED
+    # would look like hardening and would silently re-create the bypass this
+    # ruling exists to close, in the one place no endpoint-level review would
+    # look: every Stack S endpoint would start refusing a suspended student
+    # their export, their erasure, their consent withdrawal and their appeal,
+    # and no endpoint's own code would have changed.
     if user.status == "TOMBSTONED":
         raise Suspended("This account has been deleted.")
-    if user.status != "ACTIVE":
-        if user.status == "SUSPENDED":
-            raise Suspended("This account cannot do that at the moment.")
-        # PENDING_VERIFICATION: say which step is outstanding, in J1's order,
-        # instead of a generic refusal the student cannot act on.
-        if not user.adult_verified:
-            raise NotAdultVerified("BookHop is for students aged 18 and over.")
-        if not user.campus_verified:
-            raise NotCampusVerified("Confirm your college email address first.")
-        missing = missing_consents(user)
-        if missing:
-            raise ConsentRequired(
-                "This needs your permission first. You can change it any time.",
-                purpose_key=missing[0],
-            )
-    if not user.adult_verified:
+
+    if "status" in checks and user.status == "SUSPENDED":
+        # **API-CONTRACT §2.5: the 403 body must name what the student can
+        # still do** — *"a suspension that tells someone only 'no' is the
+        # failure this amendment exists to prevent, and a response that lists
+        # the open doors costs one sentence."*
+        #
+        # The doors are derived from the Stack S table rather than retyped, so
+        # a route moving between stacks cannot leave this sentence describing
+        # the old one. Final copy is design-director's; this is the mechanism
+        # and the content.
+        raise Suspended(SUSPENDED_MESSAGE, still_available=SUSPENDED_STILL_AVAILABLE)
+    if "adult" in checks and not user.adult_verified:
         raise NotAdultVerified("BookHop is for students aged 18 and over.")
-    if not user.campus_verified:
+    if "campus" in checks and not user.campus_verified:
         raise NotCampusVerified("Confirm your college email address first.")
-    for purpose in (*REQUIRED_CONSENT_PURPOSES, *purposes):
-        if not consent_state(user).get(purpose):
-            raise ConsentRequired(
-                "This needs your permission first. You can change it any time.",
-                purpose_key=purpose,
-            )
+    if "consent" in checks:
+        state = consent_state(user)
+        for purpose in (*REQUIRED_CONSENT_PURPOSES, *purposes):
+            if not state.get(purpose):
+                raise ConsentRequired(
+                    "This needs your permission first. You can change it any time.",
+                    purpose_key=purpose,
+                )
     return user
 
 

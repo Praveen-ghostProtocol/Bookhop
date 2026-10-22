@@ -26,7 +26,17 @@
 <title>{% block title %}{% endblock %} · BookHop</title>
 <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
 <link rel="stylesheet" href="{% static 'css/app.css' %}">
+<link rel="icon" href="{% static 'icons/bookhop.svg' %}" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
+{% comment %} The icon is DECLARED, which is the actual fix rather than the
+   fallback: a browser that is told where the icon is never requests
+   `/favicon.ico` at all. Without this line every single navigation spent a
+   round trip on a 404 — on a metered 3G connection, on the one device this
+   product is designed for, and a 404 storm in the log that would mask real
+   ones. `/favicon.ico` still exists as a route for clients that ask anyway
+   (`views.favicon`), but no browser reaching this page should need it.
+   Found by loading a page in a real browser; no test here looks for a request
+   that was never made. {% endcomment %}
 {% comment %} No webfont is requested on any page. The device's own Noto Sans Tamil via
    the system stack costs 0 bytes and buys everything a 40-90 KB Tamil webfont
    would at 17px (tokens.css §2). Acceptance criterion 12 asserts it. {% endcomment %}

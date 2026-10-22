@@ -37,7 +37,7 @@ notifications and analytics.
 
 | Path | Owner | Notes |
 |---|---|---|
-| `bookhop/settings/**`, `bookhop/urls.py`, `bookhop/wsgi.py` | **backend-developer** | `bookhop/urls.py` includes `web.urls` **once, in S0**, and is not touched again by anyone |
+| `bookhop/settings/**`, `bookhop/urls.py`, `bookhop/wsgi.py` | **backend-developer** | **Clarified 2026-10-22:** `bookhop/urls.py` is backend's and **backend may add includes to it** — S1 added `/api/v1/`, and S5/S6 will add more. v1.0's "included once in S0 and not touched again" was over-tight: it was written to stop *two agents* editing one file, and that invariant is **"frontend never edits it; it only ever edits `web/urls.py`"**. That is the rule; the once-only phrasing was a proxy for it that would have blocked every later slice |
 | `apps/core/**` | backend-developer | scoping, gate, audit, jobs, flags, idempotency |
 | `apps/accounts/**` | backend-developer | |
 | `apps/catalog/**` | backend-developer | |
@@ -54,6 +54,7 @@ notifications and analytics.
 | `locale/en/**`, `locale/ta/**`, `locale/FORBIDDEN_EXCEPTIONS.toml`, `locale/ta/REVIEWED.toml`, `locale/ta/BLOCKING_CLASSES.toml` | frontend-developer | EN + TA `.po` files **and the two copy-enforcement manifests** (`THREAT-MODEL.md` §6.1). **A diff to either manifest is a Code Review escalation, not a review comment** — adding a hash is functionally granting a reviewer sign-off |
 | `tests/unit/**`, `tests/api/**` | backend-developer | including the CI guard tests |
 | `tests/e2e/**`, `tests/a11y/**`, `tests/contract/**` | **test-qa** | written **independently of implementation** |
+| `tests/redteam/**` | **red-team** | **Added 2026-10-22 on QA-S1 F21.** Adversarial probes, written to be run and often to be thrown away. **Excluded from the default suite run** (`--ignore=tests/redteam` in `pytest.ini`'s `addopts`, or its own marker) and run deliberately. **A probe is not a regression test:** when a probe finds something real, the finding goes to the owning agent and the *regression* is written in that agent's tree, not here |
 | `deploy/**`, `ops/runbooks/**` | **platform-sre** | **dormant until S8.** **Correction 2026-10-21 (REVIEW-S0):** platform-sre owns **deployment** pipelines only. The CI workflow that runs lint, types and tests is **developer tooling and belongs to backend-developer in S0** — v1.0 put `ruff`/`mypy`/CI in S0's scope while this table made CI dormant until S8, which is a contradiction that would have left S0 unable to finish. |
 | `.github/workflows/**` *(or the chosen CI)*, `pyproject.toml`, `ruff.toml` | **backend-developer** | From S0. Test/lint/type CI only; nothing that deploys. |
 | `company/architecture/**` | **cto** | no developer edits these |
@@ -61,6 +62,25 @@ notifications and analytics.
 | `requirements.txt`, `requirements-dev.txt` | backend-developer | **adding a package needs Code Review sign-off**; one touching personal data needs a founder DPA signature |
 | `README.md` (repo root), `CONTRIBUTING.md` | backend-developer | |
 | `fixtures/seed_*.json`, `apps/core/management/commands/seed_demo.py` | backend-developer | seed data (ADR-002 §4.1(c)) |
+
+> **F21 recorded, and the gap was in this table rather than in anyone's
+> conduct.** Eight files appeared in `tests/e2e/**` from the Red Team
+> engineering pass — and kept arriving while QA was measuring in that tree —
+> one of which failed on an `ImportError`, **so another agent's broken scratch
+> file presented as a QA failure in QA's own report. That is precisely what
+> rule 6 exists to prevent, and it happened because this table had no row for
+> adversarial work.** Red Team reviewing by *running probes* is the right
+> instinct; it had nowhere to put them.
+>
+> **QA was right not to delete them.** Silently deleting another agent's work
+> is worse than reporting it, and it excluded them from its numbers with the
+> exclusion stated in the command so nobody reads around it. **Both halves of
+> that are the correct handling and worth copying.**
+>
+> `tests/e2e/test_erasure_sessions.py` raised a real subject — erasure and
+> sessions — which belongs in **test-qa's** tree as an S1 regression if it
+> holds up, not in a probe tree. Routed to test-qa to adopt or decline on the
+> merits.
 
 **The shared-file risks, and how each is removed:**
 
@@ -299,6 +319,23 @@ survives, is pseudonymous, and cannot be relinked.
 > nine checklist items. **That ratio turned out to be the right way to have
 > framed it** — the run's value was the two defects it found, both in the seven
 > items reading could not reach.
+
+**Also landing here, from S1 (2026-10-22):** the **Django admin** — backend
+deferred it from S1 and that is right, because the moderation queue it exists
+for is an S2 surface and an admin with no models to moderate is scaffolding.
+And the **expired-only-DELETE triggers** on `consents` and
+`age_verification_events` with their `purge_due_at` columns
+(`DATA-MODEL.md` §2), which resolve a contract contradiction S1 could only
+record. Both engine halves, plus `tests/contract/test_append_only_is_enforced.py` —
+**behavioural and structural limbs both** (THREAT-MODEL §6.3).
+
+**One judgement from S1 confirmed rather than re-opened:** backend declined to
+reword an **already-applied** migration's trigger text to satisfy a cosmetic
+grep. **Correct.** An applied migration is history; editing its text changes
+what a future `migrate` from empty produces without changing any deployed
+database, so the two diverge and the grep is satisfied by a lie. **If the text
+must change it changes in a new migration, and if it is only cosmetic it does
+not change at all.**
 
 **The gated default manager lands here** (ADR-002 §2.3) — recorded as a line
 item because *a deferral recorded only in a review is how an ownerless control
@@ -563,7 +600,13 @@ A slice is done when **all** of these are true:
       it has a reviewer-signed entry in `locale/ta/REVIEWED.toml`**
       (`THREAT-MODEL.md` §6.1).
 - [ ] a11y: automated pass plus a keyboard-only walkthrough — **in English,
-      and in Tamil once `i18n.ta_enabled` is on**.
+      and in Tamil once `i18n.ta_enabled` is on**. **The harness must assert
+      it reached the page**: QA found its own harness covering **4 of 11
+      pages**, because seven redirect without a session and a non-200 counted
+      as a *skip* — **rule 12 inside the harness, reported as coverage for a
+      whole slice.** It signs in now. **Consequence: S0's accessibility result
+      was weaker than it read, and any a11y number is quoted with the count of
+      pages actually reached.**
 - [ ] Guard tests still green — **including the three copy-enforcement tests,
       unmodified**.
 - [ ] Code Review approved by `code-review` — **not by the author**.

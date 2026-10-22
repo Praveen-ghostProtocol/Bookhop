@@ -82,10 +82,30 @@ the prompt — do not collapse the role into the main context.
     and coverage is silently lost. Give a list a per-entry match rule, not a
     flat membership test.
 
-12. **A guard test that passes vacuously is worse than no guard**, because it
-    is reported as coverage. This has been found five times. Where a property
-    cannot be tested on the available engine, the test **skips with a reason
-    naming the engine and the slice** — it never passes.
+12. **A check that cannot fail is worse than no check**, because it is
+    reported as coverage. Found eight times, in four disguises:
+
+    - **A test that passes vacuously.** Where a property cannot be tested on
+      the available engine, the test **skips with a reason naming the engine
+      and the slice** — it never passes.
+    - **A requirement that cannot be satisfied, or cannot be violated.** A
+      criterion gated on a value that does not exist; a criterion broader than
+      its own rationale, which the primary journey must violate to work; a
+      route whose storage was never allowed. These surface only when someone
+      tries to build against them.
+    - **A guard whose fixture cannot produce the condition.** The locale guard
+      passed because its fixture published no Tamil row; the gate guard passed
+      because it tested the floor the floor had.
+    - **A measuring instrument that does not assert it measured.** The
+      accessibility harness reached four pages of eleven, because seven
+      redirect without a session and a non-200 counted as a skip — a third of
+      the target silently uncovered, **reported as coverage for a whole
+      slice.** An instrument must assert its own reach, and any number it
+      produces is quoted with the count of subjects actually reached.
+
+    The last is the most consequential, because everything downstream trusts
+    the instrument. **A harness that silently covers a third of its target
+    exists without being a control.**
 
 13. **A guard that fires on the contracts it protects will be edited, not
     obeyed.** Seen three times. The alternative to resolving a false positive

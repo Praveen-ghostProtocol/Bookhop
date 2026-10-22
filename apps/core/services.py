@@ -45,6 +45,7 @@ __all__ = [
     "enqueue",
     "idempotent",
     "canonical_uuid4",
+    "grievance_contact",
 ]
 
 #: The first row's predecessor. A constant rather than NULL so that `prev_hash`
@@ -412,3 +413,54 @@ def store_idempotent_response(row, status, body):
 
 def new_request_id():
     return uuid.uuid4().hex
+
+
+# --- Statutory publication (E-Com r.4(2), IT Rules r.3(2)(a)) --------------
+
+#: The role title published beside the officer's name. A fact about the role,
+#: not a stored personal datum — `legal_entities` has no `designation` column
+#: and should not grow one, because the designation is fixed by the rules that
+#: require the appointment.
+GRIEVANCE_OFFICER_DESIGNATION = "Grievance Officer"
+
+
+def grievance_contact():
+    """The grievance officer's published contact details, or `None`.
+
+    A signature frontend named, for the statutory publication page. **It
+    composes rather than stores** — the same ruling as the accepted-domain
+    list and the `GRIEVANCE_PROCEDURE` notice: the versioned *procedure prose*
+    lives in `notice_versions`, and these five fields are read from
+    `legal_entities` **at render time**.
+
+    The reason is not tidiness. Baking the officer's name and email into an
+    immutable versioned notice creates a second copy of a fact that changes
+    without the notice changing, and **a stale grievance-officer contact is a
+    direct regulatory failure** (E-Com r.4(2), r.4(4); IT Rules r.3(2)(a)) —
+    not a cosmetic one. Noticing that this is the same rule as the domain list
+    is why the composition is right rather than fussy.
+
+    **Returns `None` when there is no `legal_entities` row**, and individual
+    fields may be `None` before incorporation (Gate B1) — every column on that
+    table is nullable because the row exists before the company does. Frontend
+    guards each field, so the page renders correct and empty rather than
+    broken, which is the right behaviour for a route linked from every footer:
+    **it must survive an outage of the thing it describes.**
+
+    `registered_address` is the **only** address column permitted anywhere in
+    the database (ADR-003 §2.3) and this is the one place it is published —
+    which the rules require, and which is why the P14 deny-list scopes its
+    address exception to that single column rather than to the table.
+    """
+    from .models import LegalEntity
+
+    entity = LegalEntity.objects.order_by("id").first()
+    if entity is None:
+        return None
+    return {
+        "name": entity.grievance_officer_name,
+        "designation": GRIEVANCE_OFFICER_DESIGNATION,
+        "email": entity.grievance_officer_email,
+        "phone": entity.grievance_officer_phone,
+        "address": entity.registered_address,
+    }

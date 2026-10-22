@@ -24,6 +24,7 @@ renderer does not take the message from the exception at all for a 5xx — it
 takes it from `GENERIC_MESSAGES` and logs the real one.
 """
 
+import functools
 import json
 import logging
 
@@ -152,11 +153,24 @@ def endpoint(*, methods, idempotent_write=None, actor=None):
     The handler signature is `handler(request, body, user) -> (status, payload)`.
     """
 
+    # **Anything that answers GET must answer HEAD.** Derived here, once, from
+    # the `methods` the endpoint declares, so the pair cannot be split by
+    # someone later editing one of the two names — which is the property
+    # Django's own `require_safe` has and why frontend used it for the same
+    # omission in its tree. Measured by frontend's resolver probe: three JSON
+    # routes answered GET and refused HEAD with 405.
+    #
+    # Worth recording what found it rather than only what it was: a HEAD is a
+    # request only a real client sends, so no amount of the tests we already
+    # write would have caught it. Both defects found by running the app this
+    # week were that shape.
+    allowed = frozenset(methods) | ({"HEAD"} if "GET" in methods else frozenset())
+
     def decorate(handler):
         def view(request, *args, **kwargs):
             request_id = current_request().get("request_id")
             try:
-                if request.method not in methods:
+                if request.method not in allowed:
                     raise MethodNotAllowed()
                 body = _parse_body(request) if request.method in ("POST", "PATCH", "PUT") else {}
                 user = actor(request) if actor else None
@@ -179,8 +193,13 @@ def endpoint(*, methods, idempotent_write=None, actor=None):
             except ServiceError as exc:
                 return error_response(exc, request_id=request_id)
 
-        view.__name__ = handler.__name__
-        view.__doc__ = handler.__doc__
+        # `functools.wraps` rather than copying two attributes by hand: it
+        # also sets `__wrapped__`, which is what makes `inspect.getsource`
+        # return the **handler** instead of this wrapper. Without it, any test
+        # that reads a handler's body — including the one asserting each
+        # endpoint calls the precondition gate §2.5's table requires — reads
+        # the decorator for every endpoint and compares it against itself.
+        functools.wraps(handler)(view)
         view.csrf_exempt = False
         return view
 

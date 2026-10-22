@@ -269,6 +269,16 @@ LOCKED already makes that safe), then a real broker only if that fails.`
 
 Rate limiting and the small amount of caching use **Django's database cache
 backend**, for the same reason: it removes Redis.
+> **Amendment 2026-10-22 — backend's S1 rate-limiting deviation is accepted,
+> including its rule-13 rename.** §2.4 specified a DB-cache fixed-window
+> limiter; backend deviated and renamed rather than exempting a colliding
+> name, which is **order-of-resort step 1** and the preferred resolution.
+> Accepted on the standing condition that applies to every deviation from a
+> frozen contract: **it is recorded in `ENGINE-DIVERGENCE.md` with a row, not
+> carried silently.** The property that matters is unchanged — a per-key
+> window enforced server-side, no Redis, and the limits in
+> `API-CONTRACT.md` §2.4 are the contract of record.
+
 `# ponytail: DB-backed fixed-window rate limiter. Ceiling: a few hundred
 req/s, and window edges are sloppy. Upgrade path: Redis token bucket.`
 

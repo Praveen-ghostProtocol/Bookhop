@@ -124,10 +124,29 @@ one bad actor exhaust a victim's ability to report). 10/day is per *reporter*,
 never per *target*, and report-system abuse is handled by review, not by
 throttling the target — see `THREAT-MODEL.md` §5.7.
 
-### 2.5 Standing preconditions on every student-facing write
+### 2.5 Standing preconditions — TWO stacks, because a right is not a marketplace action
 
-Checked in L1, in this order, so the error the user sees is the most useful
-one:
+> **Amendment 2026-10-22 (QA erasure pass, P-1). v1.0 of this section was
+> headed "every student-facing write" and listed one stack — which, read
+> literally, means a student we suspended cannot export or delete their own
+> data.** Backend has just wired `require_actor` correctly (it was called by
+> nothing, and a suspended student could edit their profile), so **the defect
+> is about to harden into behaviour.**
+>
+> **Export and erasure are statutory rights. Suspension is our own moderation
+> action, not a forfeiture of them.** Fixing an authorization bypass by
+> denying a data subject their s11 and s12(3) rights would be, exactly as the
+> coordinator puts it, **correct in the diff and wrong in the product.**
+>
+> **And the defect is wider than suspension**, which is why the fix is a
+> restructure rather than one exception: preconditions 3 and 4 have the same
+> shape. A student who signed up, never completed campus verification and now
+> wants their data deleted would be refused erasure by
+> `403 NOT_CAMPUS_VERIFIED`. **The stack was written for marketplace writes and
+> then declared to apply to every write.**
+
+**Stack M — marketplace actions.** Checked in L1 in this order, so the error
+the user sees is the most useful one:
 
 1. authenticated → else `401 NOT_AUTHENTICATED`
 2. `status='ACTIVE'` → else `403 SUSPENDED`
@@ -139,6 +158,47 @@ one:
 7. **campus discovery gate open, or both parties are seed** (ADR-002 §4) →
    else `403 GATE_CLOSED`
 8. idempotency + version checks (§4)
+
+**Stack S — self-service rights, safety, and the right to contest.** Checked
+in L1:
+
+1. authenticated → else `401 NOT_AUTHENTICATED`
+2. **`status <> 'TOMBSTONED'`** → else `401` *(not 403 — the account is gone;
+   see `DATA-MODEL.md` §10.1 layer 2)*
+3. idempotency + version checks (§4)
+
+**And nothing else. Not `ACTIVE`, not `adult_verified`, not
+`campus_verified`, not consent, not the discovery gate.** A right that a
+precondition can switch off is not a right.
+
+| Stack | Endpoints |
+|---|---|
+| **S** | `POST /auth/logout` · `GET /account` · `GET /account/export` (s11) · `POST /account/erase` (s12(3)) · `GET` and `PUT /account/consents/{purpose_key}` — **withdrawal above all** (DPDP r.3(c)(i): as easy as granting) · `POST /account/nominee` (s14) · `POST /account/correction` (s12(1)–(2)) · `PATCH /account` **for `locale` only** · `GET /legal/{kind}` · `POST /grievances` · `POST /reports` where category is `SAFETY_INCIDENT` or `NCII_OR_IMPERSONATION` · `GET /help`, `GET /help/{id}` and **`POST /help/{id}/reply` on the student's own ticket** |
+| **M** | Everything else: listings and photos, `book_requests`, search and discovery, offers and every transfer transition, handover and contact disclosure, messages, blocks, non-safety reports, `POST /support/tickets`, and **`PATCH /account` for `display_name`** |
+
+**Three placements that are judgement calls, with the reasoning, because each
+could defensibly have gone the other way:**
+
+- **Safety reports stay in S.** `THREAT-MODEL.md` §5.7 already rules that no
+  safety path is rate-limited to zero or requires an account. **A suspended
+  user may be the one in danger**, and a platform that suspends someone and
+  thereby mutes their safety report has built the wrong thing.
+- **Replying to their own support ticket stays in S.** **Suspension with no
+  channel to contest it is a due-process failure**, and it is also a grievance
+  problem: r.3(2)(a) does not carve out people we have sanctioned. They may
+  reply to an existing ticket; **opening a new one is in M**, so the channel is
+  the appeal rather than a fresh queue.
+- **`display_name` is in M while `locale` is in S.** Correction of personal
+  data is a statutory right, but **it is not a right to a public-facing handle
+  while suspended** — changing the name counterparties recognise is an evasion
+  vector after a safety report. The right is satisfied by
+  `POST /account/correction`, which is in S, staff-reviewed and logged.
+
+**The `403 SUSPENDED` body must name what the student can still do** — export,
+erase, withdraw consent, reply to their ticket. **A suspension that tells
+someone only "no" is the failure this amendment exists to prevent**, and a
+response that lists the open doors costs one sentence. Copy routed to
+design-director.
 
 ---
 

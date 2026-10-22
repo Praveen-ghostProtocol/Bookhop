@@ -49,17 +49,32 @@ def allow_test_flush(django_db_setup, django_db_blocker):
     test should have to opt into avoiding, and because on Postgres the setting
     must be live on **every** connection the harness might flush with — see
     `_declare_flush_escape` for why "every" is the word that was wrong before.
+
+    **It closes the connection, and that line is the whole of QA's measured
+    isolation fix.** Connecting the signal is enough; *using* a connection here
+    and leaving it open was not. pytest-django's blocker patches
+    `ensure_connection`, so it can stop an alias being **opened** — it cannot
+    close one it did not open. A session-scoped fixture that leaves a
+    PostgreSQL connection behind therefore hands every subsequent
+    non-`django_db` test a live alias, and a test with undeclared access writes
+    **outside** the per-test transaction, so its rows commit and survive into
+    every later test. Measured cost on an unchanged tree: 0, 1, 4, 13 and 14
+    failures across five consecutive runs, landing on the audit-chain tests
+    rather than on whichever test leaked, because the chain is one linked list
+    across the whole table.
+
+    The retroactive `_declare_flush_escape(None, connection)` call this used to
+    make is now **gone, and redundantly so rather than as a trade**: with the
+    connection closed, the next real test opens a fresh one and
+    `connection_created` fires for it. There is no connection left for a
+    retroactive declaration to be about.
     """
     if connection.vendor != "postgresql":
         yield
         return
     connection_created.connect(_declare_flush_escape)
     with django_db_blocker.unblock():
-        # The signal cannot fire retroactively, so the connection that already
-        # exists at session setup is declared here. A custom GUC needs no
-        # privilege and grants none: see ENGINE-DIVERGENCE §7.1 on why
-        # production cannot refuse it either.
-        _declare_flush_escape(None, connection)
+        connection.close()
     yield
     connection_created.disconnect(_declare_flush_escape)
 
@@ -92,17 +107,27 @@ def restore_gate_privileges_for_the_harness(django_db_setup, django_db_blocker):
     not finished until ownership moves. `test_least_privilege.py` asserts the
     revocation exists in the migration and measures the live grant state, so
     this fixture cannot be mistaken for the control being absent.
+
+    **And it closes the connection afterwards** — the same one line as
+    `allow_test_flush`, for the same measured reason: pytest-django's blocker
+    patches `ensure_connection`, so it cannot close an alias this fixture
+    opened, and a session-scoped fixture that leaves one open gives every later
+    non-`django_db` test undeclared, **committing** database access. A fixture
+    whose job is to restore the harness must not break the harness's isolation
+    to do it.
     """
     from django.db import connection
 
     if connection.vendor != "postgresql":
         yield
         return
-    with django_db_blocker.unblock(), connection.cursor() as cursor:
-        cursor.execute("SELECT current_user")
-        role = cursor.fetchone()[0]
-        cursor.execute(f'GRANT INSERT, UPDATE, TRUNCATE ON gate_authorisations TO "{role}"')
-        cursor.execute(f'GRANT TRUNCATE ON audit_log TO "{role}"')
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_user")
+            role = cursor.fetchone()[0]
+            cursor.execute(f'GRANT INSERT, UPDATE, TRUNCATE ON gate_authorisations TO "{role}"')
+            cursor.execute(f'GRANT TRUNCATE ON audit_log TO "{role}"')
+        connection.close()
     yield
 
 
@@ -125,54 +150,22 @@ def _public_origin(settings):
     return settings.PUBLIC_ORIGIN
 
 
-#: The fixtures pytest-django injects when a test is allowed to touch the
-#: database. `django_db` as a *marker* is implemented by injecting `db`, so
-#: checking the fixture names covers both spellings.
-_DB_FIXTURES = {"db", "transactional_db", "django_db_reset_sequences"}
-
-
-@pytest.fixture(autouse=True)
-def _isolate_rate_limit_counters(request):
-    """Rate-limit counters must not leak between tests.
-
-    `rate_limit_counters` is a real model, so `django_db` rolls it back — but
-    not across a `transactional_db` test, which flushes and commits. The first
-    symptom of a leak would be a `429` in an unrelated test whose only crime was
-    running sixth, which is the kind of failure someone fixes by raising the
-    published limit.
-
-    **It asks whether this test has database access instead of trying and
-    swallowing, and the difference is the whole point.** The first version of
-    this fixture ran the DELETE unconditionally inside
-    `try: ... except RuntimeError: pass`. That is a vacuous mechanism: for every
-    test without a `db` fixture it attempted a doomed query and reported
-    nothing, so the fixture's behaviour was unknowable from its output and a
-    *genuine* failure here — a misconfigured database, a renamed table — would
-    have been swallowed in exactly the same way. There is now no `except`, so a
-    failure to isolate is a failing test.
-
-    **Measured, because the mechanism was in question (`CLAUDE.md` rule 17).**
-    The concern raised was that `allow_test_flush` leaves a PostgreSQL
-    connection open and pytest-django's blocker therefore cannot block an
-    already-connected alias, which would have meant ~99 tests silently holding
-    real database access. **VERIFIED HERE on PostgreSQL 16.15:** a query issued
-    from a test with no `db` fixture, with the session connection open, raises
-    `RuntimeError: Database access not allowed, use the "django_db" mark, …`.
-    pytest-django patches `BaseDatabaseWrapper.ensure_connection` itself rather
-    than checking for an open socket, so an open connection does not weaken it.
-    So the undeclared-access half did not occur; **the swallow did**, and that
-    is what is fixed here.
-    """
-    if not _DB_FIXTURES & set(request.fixturenames):
-        yield
-        return
-
-    from apps.core.models import RateLimitCounter
-
-    RateLimitCounter.objects.all().delete()
-    yield
-    RateLimitCounter.objects.all().delete()
-
+# There is deliberately **no autouse fixture clearing `rate_limit_counters`.**
+#
+# An earlier version of this file had one, and it was wrong twice over. It was
+# written when the limiter used Django's **database cache** table, which is
+# created by a migration rather than by a model and is therefore **not** rolled
+# back by `django_db` — so isolation really did need a fixture. The limiter is
+# now `apps.core.models.RateLimitCounter`, an ordinary model: `django_db` rolls
+# it back and `transactional_db`'s flush truncates it. The fixture became
+# unnecessary the moment the backend changed and nobody noticed, which is the
+# ordinary way scaffolding outlives its reason.
+#
+# It was also actively harmful. As an autouse function-scoped fixture it ran
+# **before** an explicitly-requested `db` fixture, so a test written
+# `def test_x(db)` rather than with the `django_db` marker **errored at setup**
+# with "Database access not allowed" — measured. A fixture that has to guess
+# whether the database is available yet is a fixture that will guess wrong.
 
 @pytest.fixture
 def engine():
@@ -242,9 +235,22 @@ def security_log():
         logger.removeHandler(handler)
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def salt(settings):
-    """A development tombstone salt.
+    """A development tombstone salt, supplied to **every** test.
+
+    **Autouse, after QA's precondition matrix tripped on it.** `erase_account`
+    raises without a salt and there is deliberately no default
+    (`COMPLIANCE.md` §7 rows 3 and 24), so any test in any tree that erases an
+    account has to know to request a fixture it has no reason to know about —
+    and the failure it gets is a `RuntimeError` about a server-side secret,
+    which reads like a product defect rather than a missing fixture.
+
+    This weakens nothing. The no-default property is about **settings**, and it
+    is still asserted directly by
+    `test_erasure.py::test_erasure_refuses_when_no_salt_is_configured`, which
+    clears the setting and requires the refusal. Autouse makes the harness
+    usable; that test keeps the control honest.
 
     `erase_account` **raises** when the salt is unset (`COMPLIANCE.md` §7 rows
     3 and 24 — there is no default, because a shared default makes every
@@ -282,6 +288,31 @@ def privacy_notice(db):
     return NoticeVersion.objects.create(
         kind="PRIVACY", version="2026-11-01.1", locale="en",
         body_md="# Privacy\n\nTest notice.", sha256="0" * 64,
+    )
+
+
+@pytest.fixture
+def privacy_notice_ta(db, privacy_notice):
+    """A **published Tamil notice** — the condition the locale-gate tests need
+    and previously could not produce.
+
+    **REVIEW-S1 B4's second half.** The gate test passed while the bypass was
+    live, because no fixture published a `ta` row: `current_notice` fell back
+    to English for a reason that had nothing to do with the gate, so the
+    assertion was true by accident. *"A guard test whose fixture cannot produce
+    the condition"* is the defect class this project has now hit eight times,
+    and it is what `CLAUDE.md` rule 12 is about.
+
+    The body is deliberately distinctive so a test can assert on the **content
+    served** rather than only on a `locale` field — a response labelled `en`
+    carrying Tamil prose would satisfy the weaker assertion.
+    """
+    from apps.accounts.models import NoticeVersion
+
+    return NoticeVersion.objects.create(
+        kind="PRIVACY", version="2026-11-01.1", locale="ta",
+        body_md="# TAMIL-UNREVIEWED-BODY\n\nஇது மதிப்பாய்வு செய்யப்படாதது.",
+        sha256="1" * 64,
     )
 
 

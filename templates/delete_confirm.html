@@ -25,10 +25,58 @@
 
   `erase.confirm.retained` in the deck is one sentence with a `{list}`
   placeholder. It is rendered here as the sentence plus a real <ul>, because at
-  320px an inline comma-separated list of five record types is a wall, and
+  320px an inline comma-separated list of eight record types is a wall, and
   COPY-DECK §1.3 rule 5 is "one sentence per line, one idea per sentence". The
-  words are the deck's; only the list is lifted out of the sentence. Flagged to
-  design-director.
+  words are the deck's; only the list is lifted out of the sentence.
+
+  ====================================================================
+  "EVERYTHING ELSE GOES NOW" WAS REMOVED. IT WAS NOT TRUE.
+  ====================================================================
+  `erase.confirm.rest` used to close this card, and QA measured a real erasure
+  and found at least four categories of the student's own data surviving it:
+  the `users` row (campus, city, pseudonym, both verification booleans), the
+  salted `user_tombstones.email_hash`, `age_verification_events`, and one
+  `audit_log` row per action carrying `ip` and `user_agent`. The test is
+  `tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is`,
+  and it is written so it stays red for a cosmetic reword: it fails only while
+  the totality claim AND the survivors are both present.
+
+  **Every one of those retentions is lawful and none of them changed.** The
+  sentence was the defect — CLAUDE.md rule 9's shape in student-facing copy, on
+  the one screen the project calls the point of no return: a claim stronger
+  than the system behind it, with no test between them until QA wrote one.
+
+  The fix is four list items, not a longer paragraph, and there is now **no
+  totality claim in either direction**. "Nothing else is kept" would have been
+  the same defect mirrored — equally unfalsifiable from the screen, and wrong
+  the moment a ninth retention lands. What the card asserts is only what it
+  enumerates.
+
+  The email-hash item leads the new group deliberately: it is the one a
+  reasonable person accepts when told and resents when discovered, so it names
+  the mechanism (a code made from the address), the period (one year) and the
+  purpose (a banned account cannot sign up again). It does not reassure — no
+  "your data is safe", no "don't worry". Describing a mechanism and naming a
+  purpose is exactly what COPY-DECK §1.2 permits; a prediction about the
+  outcome would not be.
+
+  `repeat_infringer_records` is **deliberately not in this list**, and that is
+  recorded rather than overlooked. It survives deletion and is never purged
+  (AC-X1.4, r.5(5)), so on retention grounds it belongs — but the table lands
+  in S6 and no S1 student can have a row, and naming it on every student's
+  deletion screen reads as an accusation against a person, which COPY-DECK
+  §1.2 forbids outright. **Add it the slice the table ships**, phrased as a
+  conditional about accounts rather than about the reader. Recorded in
+  COPY-DECK's amendment log.
+
+  THE LIST IS NOT COLLAPSED BEHIND A <details>, AND THAT IS THE POINT.
+  Eight items is ~26 rendered lines at 320px and the obvious next idea is to
+  put them behind a disclosure summary. Do not. AC-X1.2 and J8 step 3 require
+  the student to learn this **here**, before the button, and a collapsed
+  <details> means most of them never open it — which would re-create the defect
+  this amendment fixed, just with the words technically present on the page. A
+  scannable <ul> of short items is the compromise: it is long, and it is the
+  one screen in the product where long is correct.
 
   Two steps: arriving here is step 1 and carries the disclosure; the
   destructive button is step 2. There is no confirmation checkbox — a checkbox
@@ -52,9 +100,12 @@
     <li>{% translate "Books that changed hands — kept without your name, under a code that cannot be turned back into you." context "erase.retained.transfers" %}</li>
     <li>{% translate "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation." context "erase.retained.chat" %}</li>
     <li>{% translate "Reports and problems, and what was decided about them." context "erase.retained.reports" %}</li>
+    <li>{% translate "A scrambled code made from your email address, kept for one year so that a banned account cannot sign up again. It is a code, not an address." context "erase.retained.email_hash" %}</li>
+    <li>{% translate "Your campus and city, and that your college email and your age were checked — under the same code, with no name or address attached." context "erase.retained.account" %}</li>
+    <li>{% translate "That BookHop checked you were 18 or over, and when. The date of birth you typed was never kept." context "erase.retained.age" %}</li>
+    <li>{% translate "One line for each action you took on BookHop, with the IP address and the browser you used." context "erase.retained.audit" %}</li>
     <li>{% translate "The record that you asked us to delete the account, and that we did." context "erase.retained.consents" %}</li>
   </ul>
-  <p>{% translate "Everything else goes now." context "erase.confirm.rest" %}</p>
 </div>
 
 <div class="actions--separated">

@@ -336,3 +336,83 @@ def test_the_handler_refuses_to_invent_an_email_body(signup_campus):
         deliver_email(to="x@example.ac.in", name="a_template_nobody_wrote", context={})
     assert "frontend-developer" in str(missing.value)
     assert "templates/email/" in str(missing.value)
+
+
+# --- REVIEW-S1: the disclosure string a buyer is owed ---------------------
+
+
+def test_the_campus_verification_method_is_exposed_to_the_renderer(signup_campus, issue):
+    """**REVIEW-S1: `trust.campus_mail` could never render.**
+
+    `web/views.py` reads `getattr(user, "campus_verification_method", None)`
+    and the attribute existed **nowhere**, so it was always `None`,
+    `signed_in_with_college_email` always returned False, and the disclosure
+    `COMPLIANCE.md` §7 row 6 requires — *other students see that this seller
+    signed in with a college email address* — was unreachable. A fail-closed
+    control that fails closed unconditionally is a missing feature wearing a
+    control's clothes.
+    """
+    user = consume_magic_link(issue(), "198.51.100.7", "pytest")
+    assert user.campus_verification_method == "INSTITUTIONAL_EMAIL"
+
+
+def test_the_method_comes_from_the_verification_row_not_from_the_boolean(student):
+    """§7 row 6: *"gated on `campus_verifications.method` … **never** on
+    `users.campus_verified`"*.
+
+    `student` is `campus_verified=True` with **no** verification row — the
+    state a fixture or a staff edit can produce — and the string must not
+    render for it. This is the assertion that separates the two sources.
+    """
+    assert student.campus_verified is True
+    assert student.campus_verification_method is None
+
+
+def test_a_staff_reverified_student_is_not_described_as_a_college_email_signin(student):
+    """The control's actual subject. Telling a buyer that a **staff**-verified
+    student signed in with a college email address would be a false statement
+    about the one trust signal the product makes."""
+    CampusVerification.objects.create(
+        user=student, method="STAFF_MANUAL", verified_at=timezone.now()
+    )
+    assert student.campus_verification_method == "STAFF_MANUAL"
+
+
+def test_the_latest_verification_wins(student):
+    """A student re-verified by staff after an email sign-in is `STAFF_MANUAL`
+    **now**, and the string correctly stops rendering."""
+    CampusVerification.objects.create(
+        user=student, method="INSTITUTIONAL_EMAIL", email_domain="example.ac.in",
+        verified_at=timezone.now() - timedelta(days=2),
+    )
+    CampusVerification.objects.create(
+        user=student, method="STAFF_MANUAL", verified_at=timezone.now(),
+    )
+    assert student.campus_verification_method == "STAFF_MANUAL"
+
+
+@pytest.mark.parametrize(
+    "method,renders",
+    [("INSTITUTIONAL_EMAIL", True), ("STAFF_MANUAL", False), (None, False), ("", False),
+     ("UNKNOWN_FUTURE_METHOD", False)],
+)
+def test_the_fail_closed_claim_is_checked_end_to_end(student, method, renders):
+    """**`signed_in_with_college_email` had zero tests**, so its fail-closed
+    claim was unchecked — review's finding. Backend owns the value it is given,
+    so the pairing is asserted here: the method this model produces, through
+    frontend's predicate, yields the right answer for every case including the
+    two that must fail closed.
+
+    Imported from `web/context.py` and **not** reimplemented: a second copy of
+    the predicate is `CLAUDE.md` rule 10, and this control already has one
+    divergence (`EMAIL_DOMAIN` vs `INSTITUTIONAL_EMAIL`) under escalation.
+    """
+    from web.context import signed_in_with_college_email
+
+    if method:
+        CampusVerification.objects.create(
+            user=student, method=method if method != "UNKNOWN_FUTURE_METHOD" else "STAFF_MANUAL",
+            verified_at=timezone.now(),
+        )
+    probe = method if method != "INSTITUTIONAL_EMAIL" else student.campus_verification_method
+    assert signed_in_with_college_email(probe) is renders

@@ -24,15 +24,19 @@ API-CONTRACT §5.1 requires; nothing returns another person's.
 
 from datetime import date
 
+from django.views.decorators.http import require_safe
+
 from apps.core.api import endpoint, json_response
 from apps.core.errors import (
     EmailDomainNotRecognised,
+    NotAuthenticated,
     NotFound,
     RateLimited,
     ServiceError,
     Suspended,
     ValidationFailed,
 )
+from apps.core.i18n import allowed_locale
 from apps.core.ratelimit import ONE_DAY, ONE_HOUR, consume_quota, is_exempt
 
 from . import services
@@ -42,6 +46,61 @@ from .sessions import end_session, session_user, start_session
 
 def _actor(request):
     return session_user(request)
+
+
+def _signed_in(user):
+    """§2.5 precondition 1 only. For a **read**.
+
+    A read needs an identity and nothing else: `GET /account` must work for a
+    student who is mid-signup and has not consented yet, because that is the
+    screen telling them so.
+    """
+    if user is None:
+        raise NotAuthenticated("Please sign in first.")
+    return user
+
+
+def _stack_s(user):
+    """**Stack S** — authenticated, not tombstoned, idempotency. Nothing else.
+
+    The cto ruling after S1 escalated what the single stack cost: *"a right
+    that a precondition can switch off is not a right"*. Export, erasure,
+    consent withdrawal, correction and locale are here, and the case that
+    makes it a stack rather than an exception is not suspension at all — **a
+    student who never finished campus verification and wanted their data
+    deleted would have been refused erasure by a verification check.**
+
+    Implemented as `require_actor(..., checks=STACK_S)` rather than as a bare
+    `_signed_in`, because `require_actor` is where the unconditional
+    not-tombstoned refusal lives and a second path around it is how the two
+    would drift.
+    """
+    return services.require_actor(_signed_in(user), checks=services.STACK_S)
+
+
+def _may_write(user, *, purposes=(), checks=None):
+    """§2.5's standing preconditions, in order, for a **write**.
+
+    **REVIEW-S1 B3, and it was an authorization bypass rather than an omission.**
+    `services.require_actor` implemented §2.5 correctly and was called by
+    nothing — it appeared in one comment and one test docstring. Measured by
+    review: a **SUSPENDED** student could PATCH their profile, export and erase,
+    all 200; a student who had **withdrawn the required `account` consent** could
+    PATCH, 200. API-CONTRACT §2.5 specifies the check, JOURNEYS J1 step 5
+    promises it, and `withdraw_consent`'s own docstring claimed *"`require_actor`
+    is what then refuses the write"* — three documents describing a call that
+    did not exist.
+
+    So it is **one function, called by every write**, rather than a check each
+    handler remembers. `test_standing_preconditions` (QA's) and
+    `tests/api/test_preconditions.py` (backend's) both enumerate the writes, so
+    a new endpoint that forgets this is a red test rather than a silent hole —
+    which is what S2's listing writes and S4's offer writes inherit.
+    """
+    actor = _signed_in(user)
+    if checks is None:
+        return services.require_actor(actor, purposes=purposes)
+    return services.require_actor(actor, purposes=purposes, checks=checks)
 
 
 def _account_payload(user):
@@ -120,6 +179,13 @@ def consume(request, body, user):
 
 @endpoint(methods=["POST"], idempotent_write="POST /api/v1/auth/logout", actor=_actor)
 def logout(request, body, user):
+    """§5.1, and **Stack S** per §2.5's table.
+
+    Signing out is not a marketplace action, and refusing it would leave a
+    suspended student holding a live session they cannot end — the opposite of
+    every reason suspension exists.
+    """
+    _stack_s(user)
     end_session(request)
     return 200, {"signed_out": True}
 
@@ -141,10 +207,12 @@ def age_declaration(request, body, user):
     either, because the idempotency row keeps a **hash** of the body and never
     the body (`idempotency_keys.request_hash`).
     """
-    if user is None:
-        from apps.core.errors import NotAuthenticated
-
-        raise NotAuthenticated("Please sign in first.")
+    # **Stack M minus the two preconditions that would deadlock it.** This
+    # endpoint *is* precondition 3, so it cannot require `adult`; and §5.1 puts
+    # consent after age, so consent cannot be owed first. `status` and `campus`
+    # both stay — a student declares their age after their campus email is
+    # confirmed, and a suspended account has no business becoming verified.
+    _may_write(user, checks=("status", "campus"))
     raw = body.get("date_of_birth")
     try:
         declared = date.fromisoformat(str(raw))
@@ -169,11 +237,12 @@ def consents(request, body, user):
     screen to name *"the exact `notice_versions` version the student is agreeing
     to"*, and a client cannot name what it was not told.
     """
-    if user is None:
-        from apps.core.errors import NotAuthenticated
-
-        raise NotAuthenticated("Please sign in first.")
-    notice = services.current_notice("PRIVACY", user.locale)
+    _signed_in(user)
+    # The same gate: `users.locale` is a stored preference and API-CONTRACT
+    # §2.1 lets it win over the header, which means it is a second way to ask
+    # for a gated locale. A student whose `locale` is `ta` with the flag off
+    # gets English here, not an unreviewed notice.
+    notice = services.current_notice("PRIVACY", allowed_locale(user.locale))
     return 200, {
         "purposes": [
             {"purpose_key": key, "granted": granted}
@@ -193,10 +262,28 @@ def set_consent(request, body, user, purpose_key=None):
     one — the trigger in migration accounts/0002 makes that a property of the
     database, so this handler could not update one if it tried.
     """
-    if user is None:
-        from apps.core.errors import NotAuthenticated
-
-        raise NotAuthenticated("Please sign in first.")
+    # **Both stacks, chosen by direction — and the direction is the whole
+    # distinction the ruling draws.**
+    #
+    #   * **Withdrawing is Stack S.** The ruling names consent withdrawal, and
+    #     the principle is *a right that a precondition can switch off is not a
+    #     right*. A suspended or never-verified student must be able to
+    #     withdraw.
+    #   * **Granting is Stack M**, minus the consent limb this endpoint
+    #     establishes. Granting is not a right being exercised, it is
+    #     processing being **enabled**, and a suspended account enabling new
+    #     purposes is an action rather than a remedy.
+    #
+    # DPDP r.3(c)(i)'s *"as easy as granting"* is about **mechanism parity** —
+    # same route, same shape, same number of taps — and that is preserved
+    # exactly. It does not require the two directions to share an
+    # authorization, and reading it that way would make the easier direction
+    # the one that unlocks things.
+    #
+    # The consent limb is dropped from the grant stack because this endpoint
+    # *is* precondition 5: a student mid-signup has granted nothing yet, and
+    # requiring it here would deadlock J1 step 5.
+    _signed_in(user)
     if purpose_key not in CONSENT_PURPOSES:
         raise NotFound("No such consent purpose.")
     granted = body.get("granted")
@@ -205,10 +292,15 @@ def set_consent(request, body, user, purpose_key=None):
             "Say whether you are granting or withdrawing.",
             field_errors={"granted": ["true or false."]},
         )
+    # The stack, now that the direction is known. Declared as data in
+    # CONSENT_DIRECTION_STACKS so a reader sees both directions at once rather
+    # than inferring one from the absence of the other.
+    services.require_actor(user, checks=CONSENT_DIRECTION_STACKS[granted])
+
     ip = request.META.get("REMOTE_ADDR")
     agent = request.headers.get("User-Agent")
     if granted:
-        notice = services.current_notice("PRIVACY", user.locale)
+        notice = services.current_notice("PRIVACY", allowed_locale(user.locale))
         services.grant_consent(user, purpose_key, notice, "SETTINGS_TOGGLE", ip, agent)
     else:
         services.withdraw_consent(user, purpose_key, "SETTINGS_TOGGLE", ip, agent)
@@ -221,15 +313,54 @@ def set_consent(request, body, user, purpose_key=None):
 
 # --- profile, export, nominee, erase ---------------------------------------
 
+#: Which stack each direction of the consent toggle sits in. Granting is Stack
+#: M **minus the consent limb this endpoint establishes**; withdrawing is
+#: Stack S. Data rather than an `if`, because an authorization decision behind
+#: a boolean is the shape this slice has been bitten by twice.
+CONSENT_DIRECTION_STACKS = {
+    True: ("status", "adult", "campus"),
+    False: (),
+}
+
+#: Which stack each `PATCH /account` field sits in (cto's two-stack ruling).
+#: Data rather than a branch, so a new field has to declare its stack and
+#: cannot inherit whichever one the `if` happened to take.
+PROFILE_FIELD_STACKS = {
+    "display_name": "M",
+    "locale": "S",
+}
+
 
 @endpoint(methods=["GET", "PATCH"], idempotent_write="PATCH /api/v1/account", actor=_actor)
 def account(request, body, user):
-    """§5.1 `GET /account` and `PATCH /account` `{display_name?, locale?}`."""
-    if user is None:
-        from apps.core.errors import NotAuthenticated
+    """§5.1 `GET /account` and `PATCH /account` `{display_name?, locale?}`.
 
-        raise NotAuthenticated("Please sign in first.")
+    `GET` is **Stack S**: it is the screen that tells a student which step is
+    outstanding, so refusing it for an unmet precondition would hide the only
+    page that explains the refusal.
+
+    **`PATCH` is the one endpoint that spans both stacks**, per the ruling:
+
+      * **`display_name` is Stack M.** Correction is a statutory right, but it
+        is not a right to a public-facing handle while suspended — changing
+        the name counterparties recognise is an evasion vector after a safety
+        report. The right itself is served by a staff-reviewed correction
+        endpoint, which is Stack S.
+      * **`locale` is Stack S.** Which language the product speaks to you in
+        is not a marketplace action and cannot be a lever.
+
+    So the stack is chosen **by the fields present in the body**, and the
+    stricter one wins when both are. That is a branch, which is the thing this
+    slice has been bitten by twice — so it is written as a derivation over a
+    declared field→stack map rather than as an `if`, and
+    `tests/api/test_preconditions.py` enumerates both fields and the
+    both-at-once case.
+    """
+    _stack_s(user)
     if request.method == "PATCH":
+        fields = [name for name in PROFILE_FIELD_STACKS if name in body]
+        if any(PROFILE_FIELD_STACKS[name] == "M" for name in fields):
+            _may_write(user)
         user = services.update_profile(
             user, display_name=body.get("display_name"), locale=body.get("locale")
         )
@@ -239,20 +370,34 @@ def account(request, body, user):
 @endpoint(methods=["GET"], actor=_actor)
 def export(request, body, user):
     """§5.1 `GET /account/export` — the s11 access right, generated live."""
-    if user is None:
-        from apps.core.errors import NotAuthenticated
-
-        raise NotAuthenticated("Please sign in first.")
+    # **Stack S** — the s11 access right. This is the escalation S1 raised and
+    # the ruling answered: it previously refused a suspended student, and would
+    # have refused an unverified one.
+    _stack_s(user)
     return 200, services.export_account(user)
 
 
 @endpoint(methods=["POST"], idempotent_write="POST /api/v1/account/nominee", actor=_actor)
 def nominee(request, body, user):
     """§5.1 `POST /account/nominee` — the s14 nomination."""
-    if user is None:
-        from apps.core.errors import NotAuthenticated
-
-        raise NotAuthenticated("Please sign in first.")
+    # **Stack S. `API-CONTRACT.md` §2.5 line 176 lists `POST /account/nominee`
+    # (s14) in the Stack S row**, between consent withdrawal and correction.
+    #
+    # Recorded because the mistake is the instructive part, and because an
+    # earlier version of this comment got the *correction* wrong too. I placed
+    # it in S by analogy with s11/s12 and flagged that as an inference; when
+    # QA's matrix had no derived reason for it I moved it to M. Both moves were
+    # reasoning about a question the contract had already answered: **I had
+    # read the ruling's prose summary, which names five examples, rather than
+    # the table, which is the normative list.** The table did not change.
+    # Nothing here needed an analogy.
+    #
+    # The lesson is not about nominations. **My own tests enumerate the code's
+    # stacks, so they agree with the code by construction** — which is why they
+    # were green through both wrong placements and QA, deriving membership from
+    # the table, found it in one pass. A test written from the implementation
+    # cannot discover that the implementation read the wrong document.
+    _stack_s(user)
     row = services.record_nomination(user, body.get("nominee") or body)
     return 201, {"recorded": True, "kind": row.kind, "nominee_name": row.nominee["name"]}
 
@@ -267,10 +412,10 @@ def erase(request, body, user):
     cannot drift; the two-step confirmation is L3's and the second step is what
     calls this.
     """
-    if user is None:
-        from apps.core.errors import NotAuthenticated
-
-        raise NotAuthenticated("Please sign in first.")
+    # **Stack S** — the s12 erasure right, and the clearest case in the
+    # ruling: a student who never finished campus verification and wants their
+    # data deleted must not be refused by a verification check.
+    _stack_s(user)
     if not is_exempt(user):
         consume_quota("account.erase", user.id, limit=3, window=ONE_DAY)
     services.erase_account(user)
@@ -311,16 +456,29 @@ NOTICE_SLUGS = {
 }
 
 
+@require_safe
 def notice(request, kind=None):
     """§5.1 `GET /api/v1/notices/{kind}` — **public, unauthenticated.**
 
     Not wrapped in `endpoint`: it takes no body, needs no key and no actor, and
     a reader with no account must be able to reach it (r.4(2)).
+
+    `require_safe` **is** `require_http_methods(["GET", "HEAD"])`, so the pair
+    cannot be split by someone editing one of the two names — the same
+    guarantee `endpoint` derives for the wrapped handlers, and the same one
+    frontend used for this omission in its tree. Without it this route answered
+    every method including POST, which for a public unauthenticated page is a
+    write surface that does not need to exist.
     """
     requested = NOTICE_SLUGS.get(str(kind))
     if requested is None:
         return json_response({"error": {"code": "NOT_FOUND", "message": "No such notice."}}, 404)
-    locale = "ta" if request.headers.get("Accept-Language", "").startswith("ta") else "en"
+    # **REVIEW-S1 B4 — this line was the bypass.** It re-derived the locale
+    # from the raw `Accept-Language` header, so it ignored the decision
+    # `LocaleGateMiddleware` had already made one layer above and served an
+    # unreviewed Tamil legal notice with the flag off. The gate now has one
+    # definition and this is a reader of it (`CLAUDE.md` rule 10).
+    locale = allowed_locale(request.headers.get("Accept-Language"))
     try:
         row = services.current_notice(requested, locale)
     except ServiceError as exc:  # pragma: no cover - current_notice does not raise today
