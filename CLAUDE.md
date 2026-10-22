@@ -127,6 +127,22 @@ the prompt — do not collapse the role into the main context.
     granting any exemption, **name the other layer that still catches it** —
     if none does, it is a widening, not a clarification.
 
+    **And measure that layer, in the same pass, on the exemption you are
+    granting.** A named layer is a hypothesis. Three consecutive contract
+    amendments satisfied this rule by naming one and never testing it, and
+    **all three times the named layer was the part that was false**: a review
+    queue that reviews listings was named as the layer over a *global
+    catalogue* it never sees; a cache was named as the thing a per-viewer body
+    would break, when the responses were already per-viewer and already
+    `private`. The exemption shipped each time, and the gap was invisible
+    precisely because the amendment said a layer covered it.
+
+    *Corollary:* **when two successive narrowings each break on first contact,
+    the control is at the wrong layer.** Stop narrowing. The question after
+    the second round is not "which shape next?" but "why is this surface
+    unguarded at all?" — asked once, it moved a filter on four text fields to
+    a gate on the column that already existed to hold it.
+
     **Never remove a remedy before its replacement is green.** The new one
     goes in beside the old; the old comes out in the commit that turns the new
     one green. **An upgrade that leaves a gap between the two is a downgrade

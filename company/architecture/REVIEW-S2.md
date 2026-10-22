@@ -1014,3 +1014,348 @@ no scan. It terminates on all of them and reads nothing it does not own.
 **QA has not independently verified this rework.** The behavioural assertions
 cited above are the authors' own tests, read and run by me; nothing in this
 section implies coverage test-qa has signed.
+
+---
+
+# SECOND REWORK PASS — `81e8f60..8fbb63e` (2026-10-22, code-review)
+
+Scoped to the A-29 / A-30 fix. The original verdict and the first rework pass
+above are untouched. I authored no line of this diff, including A-29 and A-30,
+which are cto's.
+
+Suite, SQLite, once: **1768 passed, 132 skipped, 1 xfailed, 2 failed.** 132 is
+SQLite's expected skip count. Both reds are pre-existing findings routed
+elsewhere — `test_the_backup_scope_and_the_restore_test_cover_the_same_things`
+(F44's surviving half, an `INFRA.md` §3.3 amendment) and
+`test_the_migration_round_trips_forward_reverse_forward` (`listings/0003`'s
+reverse on SQLite). This diff contains no migration and nothing under
+`INFRA.md`, so neither is its. **That is reasoning from the failure text, not a
+bisect.**
+
+## Blocking
+
+### S2-R2-B1 · The gate is not the single place the question is asked. `book_requests` serves raw catalogue text to a non-author — `web/views.py:1813`, `apps/listings/api.py:56`
+
+`apps/catalog/services.py:12–17` claims *"`served_book_text` is the only place
+that decision is made, and every read path goes through it."* It is not, and
+the path that does not is the one QA already measured, on a second route.
+
+The journey, end to end, all of it live in S2:
+
+1. Student A calls `create_book` with `title = "Engineering Mathematics
+   wa.me/919840012345"`. `staff_verified_at` is NULL; A-29 §3 removed every
+   text rule, correctly.
+2. Student B opens `/wanted` and types the same ISBN. `web/views.py:1761`
+   calls `find_book_by_isbn`, which is `Book.objects.filter(isbn13=…)` with
+   **no verification filter and no tenant scope** (`apps/catalog/services.py:223`)
+   — correctly, because `books` is global.
+3. `create_request(book=book)` stores the FK. `free_text_title` is **not**
+   used, because the book was found.
+4. `_request_row` (`web/views.py:1813`) does
+   `getattr(book, "title", None) or getattr(req, "free_text_title", None)`
+   and `templates/wanted.html:61` renders it — and `:67` renders it a second
+   time inside the close button's visually-hidden text.
+5. `GET /api/v1/requests` does the same at `apps/listings/api.py:56`:
+   `{"id": row.book_id, "isbn13": row.book.isbn13, "title": row.book.title}`.
+
+No reviewer is between any of this: `review_queue` queues **listings**, and
+`book_requests` has no review step at all. Student B is not the author, so
+A-30's "the author is the one reader whose protection is pointless" does not
+cover them. This is **F47-Q2's measured defect, surviving A-29 on a route A-29
+did not look at** — and it is the fourth time this control has been found
+missing at a boundary a document said it held (`CLAUDE.md` rule 9).
+
+**What would fix it.** Route both through `served_book_text`. `_request_row`
+has the reader already — `my_requests(user)` at `web/views.py:1784` is an
+own-rows read, so pass `user` down as `_listing_row` now does. `_request_payload`
+needs the reader threaded exactly as `listing_payload` was at
+`apps/listings/api.py:100`. The withheld form is already specified and already
+built: `ISBN <isbn>` from `_book_of`, plus `{% include "_withheld.html" %}` in
+`wanted.html`. `free_text_title` is untouched — those are the requester's own
+words about their own row.
+
+### S2-R2-B2 · `--verify-book` can stamp a book without printing one word of it — `apps/listings/management/commands/review_listings.py:115–125`
+
+The flag's own help text (`:37–47`) says the stamp happens *"after reading the
+title, authors, publisher and edition printed by `--listing`"*. In the
+invocation it describes, nothing is printed.
+
+`_show` is called at `:142`, and **only inside `if not options["action"]`**.
+The verify block at `:115` runs before it. So:
+
+    review_listings --staff X --listing N --verify-book \
+                    --action REVIEW_PASS --reason "…" --legal-basis "…"
+
+stamps `staff_verified_at`, passes the listing to `LIVE`, and serves the
+seller's four strings to every student of that ISBN — with the title, authors,
+publisher and edition never reaching the terminal. Both audit rows are written
+and both look correct. A-29's entire layer is *"a named human having looked at
+it"*; this is a path where the human looked at a listing id.
+
+Even `--verify-book` alone has the order backwards: stamp first (`:116`),
+print second (`:142`).
+
+A named control that is not there in the invocation its own documentation
+describes is `CLAUDE.md` rule 9, and it is the same shape as A-28's named
+layer.
+
+**What would fix it.** Move `self._show(listing)` so it runs for every
+`--listing` invocation, immediately after `listing_for_review` and before the
+`--verify-book` block — one line moved, one `if` removed. It also puts the
+condition claim and the asking price in front of a reviewer who decides in a
+single command, which is Red Team **F50**'s point.
+
+**To test-qa:** no test asserts the text precedes the stamp.
+`test_the_review_command_prints_authors_and_can_check_the_book` runs `--listing`
+and `--verify-book` as two separate commands, which is the safe ordering and
+not the one at risk.
+
+## Required
+
+### S2-R2-R1 · A-30's reasoning does not hold, and it is the half that makes the ruling "right rather than merely narrower" — `API-CONTRACT.md:810–819`
+
+A-30's conclusion is correct. Its stated ground is not, and A-30 says so
+itself: *"The argument that makes this right rather than merely narrower …
+is not in the escalation."* That argument is the `Vary` paragraph, and it
+fails three ways.
+
+1. **R-R4 was a request-header defect, not a viewer defect.** An HTTP cache
+   keys on the URL plus the headers named in `Vary`. It never keys on session
+   identity. The remedy for a body that varies by viewer is
+   `Cache-Control: private` — and `web/views.py:221` already sets
+   `private, no-cache` on every `_page` response, with the reasoning written
+   out at `:212–220`: *"never a shared cache, and revalidate every time … a
+   shared cache could show one student's signed-in page to another."* The
+   precondition of R-R4 cannot arise on these pages however the body varies.
+2. **These pages already vary by viewer.** `_page` injects `signed_in`
+   (`:197`), the flash, and `listing.html`'s owner-only controls. If
+   per-viewer variation rebuilt R-R4, it was rebuilt several slices ago.
+3. **The diff itself varies three bodies by viewer.** `/sell`,
+   `/sell/{id}/photos` and `/listing/{id}` all pass `user` into `_book_of`
+   (`web/views.py:1176`, `:1461`, `:1682`). A-30's argument, read at face
+   value, condemns the code A-29 §1 required.
+
+A-30's *second* ground — the author wrote the string, so withholding it from
+them protects nothing — is sound, sufficient on its own, and the one the
+implementation actually rests on. Rule 9's corollary: **when an explanation
+and a measurement disagree, delete the explanation.** Strike the `Vary`
+paragraph, or re-point it at the real distinction, which is about ownership
+and not about caching: an identity read reaches a global row through nothing
+anybody owns, so there is no reader to pass. Nothing in the code changes.
+
+Recorded plainly, because the brief asked for it: this is the fifth ruling on
+this question. The **outcome** holds for the first time. The **reasoning** is
+the fourth consecutive one that does not survive being measured — and in all
+four the unmeasured sentence was the one asserting that some other layer or
+property made the narrowing safe.
+
+### S2-R2-R2 · The code's `reader` is the viewer; A-30's is the listing's owner. The difference lands on S3's one-line swap — `web/views.py:1682`
+
+`_listing_row(listing, user)` passes the **request user**. A-30 says a listing
+read passes *"the actor whose listing it is"*. They coincide in S2 only
+because `listing_detail` reads `get_own_listing` (`:1671`), and that view's own
+docstring (`:1645–1656`) promises S3 *"swaps one line"* to
+`discovery.get_listing`. After that swap `reader` is the buyer, `/listing/{id}`
+becomes a shared URL whose body varies by viewer, and the code contradicts
+both halves of A-30 at once.
+
+No data leaks either way — the only viewer served raw text is the one who
+typed it — which is why this is Required and not Blocking.
+
+**What would fix it.** Pass the listing's own seller rather than the request
+user, so the swap in S3 changes nothing here; or leave a test that goes red
+the day `listing_detail` stops being an own-rows read. The second is cheaper
+and is a guard for a guard, which `CLAUDE.md` rule 10's corollary already
+asks for on a forward-dated control.
+
+### S2-R2-R3 · A docstring still describes a caller and a refusal that no longer exist — `apps/core/contact.py:112–118`
+
+> *"`apps/catalog` applies `("addressed",)` alone under API-CONTRACT A-28,
+> because `linked` fires on `Physics/Chemistry Combined` …"*
+
+A-29 §3 deleted that caller. The paragraph describes a refusal that cannot
+happen and cites a superseded amendment as live — rule 9's corollary, and the
+same check the brief's item 4 asks for.
+
+**On the `kinds` parameter itself: keeping it is the right call.** It is eight
+lines; its two raising branches (`KeyError` on an unknown limb, `ValueError`
+on an empty-but-not-`None` selector) are earned findings with their own tests
+at `tests/contract/test_display_name_is_not_a_channel.py:128–132`; and
+deleting the parameter would delete those guards to save nothing. Rewrite the
+paragraph to say that — a declared ceiling with no current caller — rather
+than naming one.
+
+## Suggestions
+
+- **S2-R2-S1** — A withheld listing page carries two no-check sentences in two
+  places: `trust.book.withheld` above the section (`templates/listing.html:56`)
+  and `trust.not_checked` inside it (`:240`). Not a contradiction, so §3.2 is
+  not breached, but the scopes blur — one is about the catalogue entry, the
+  other about the physical copy, and a reader meets them as the same sentence
+  twice. For design-director, not for this slice.
+- **S2-R2-S2** — `prescribed_for_course` (`apps/catalog/services.py:437`)
+  returns `Book` rows ordered by `book__title` and has no caller in S2. Its S3
+  caller will read `.title`. One line in that docstring pointing at
+  `served_book_text` costs nothing now.
+- **S2-R2-S3** — The withheld biblio line prints `ISBN 978…` in the heading and
+  the bare ISBN again below (`templates/listing.html:78`, `sell.html:52`).
+  Known and out of frontend's scope; `_book_of` is the single place to fix it,
+  either by suppressing `isbn` when `withheld` or by dropping the prefix from
+  the heading value.
+
+## Two rulings the brief asked for
+
+**`COPY-DECK.md` §3.2 — satisfied, not waived.** The clause at issue is *"no
+trust sentence appears outside the block whose scope it names"*, and
+`trust.book.withheld` renders above `<h2>About this book</h2>`. I rule it
+satisfied on the clause's purpose rather than its letter: §3.2 exists to stop
+an **unscoped** sentence colliding with a neighbouring positive claim —
+"nothing here is checked" beside "signed in with a college email address".
+This sentence scopes itself in its own first four words ("this entry", "their
+words", "the ISBN"), and the thing it scopes — the `<h1>`, which on a withheld
+row *is* the bibliographic identity — is also outside that section. There is
+no positive claim adjacent to it to contradict. §3.2's actual mechanism is
+*"scope plus adjacency, not separation"*, and adjacency to the h1 is what
+frontend built. Frontend's own argument (a disclosure inside a heading wrecks
+the heading list and the browser tab) is correct but answers a different
+question; the ruling stands on the paragraph above, not on that one. The
+unconsidered third option — inside the section, straight after the `<h2>` —
+would also satisfy §3.2 and is further from what it scopes, so it is not an
+improvement.
+
+**`COPY-DECK.md` §1.2, six rows, on `trust.book.withheld`.** Predicts? No —
+present tense throughout, no "yet", no timescale. Judges a person? No: "A
+student typed this entry" is the `"Priya wrote this 3 days ago"` shape, a
+person-subject with a bare factual predicate, which row 6 passes explicitly.
+Judges a book? No. Implies we checked? States the opposite. Implies recourse?
+No. Subject a person who isn't us? Yes, and permitted per row 6. **Passes all
+six.** None of the eight forbidden words appears; "read" rather than "checked"
+or "verified" is the mechanism named at the act `staff_verified_at` actually
+records. Also checked: no "Price" anywhere in the diff's copy, and
+`price.label.full` is unchanged.
+
+## Escalation to cto — not a review comment
+
+`locale/ta/BLOCKING_CLASSES.toml` was edited, and my charter item 10a makes
+any diff to that file an escalation rather than a comment, because adding a
+hash is granting a reviewer's sign-off. **What I verified, so this is a
+notification and not an approval:** `[classes]` and `[exceptions]` are
+byte-identical to the parent; no `reviewer` field, no name and no hash was
+added anywhere; no class was narrowed and no exception created; the whole diff
+is one comment block plus three counter keys
+(`*_at_A29_label` = 90 / 62 / 263) which reproduce the parent's instrument
+exactly and record `+1 string, +1 blocking, +0 without a draft`.
+`locale/ta/REVIEWED.toml` and `locale/FORBIDDEN_EXCEPTIONS.toml` are
+untouched. `i18n.ta_enabled` is still seeded false
+(`apps/core/management/commands/seed_demo.py:72`) and nothing in the diff
+flips it, so no blocking-class string ships unreviewed. EN and TA rows are
+byte-identical outside `msgstr` — same `#:` reference, same
+`#. BLOCKING CLASS B2` comment, same `msgctxt`, same `msgid`. Non-substantive
+in my reading; recorded here rather than passed over in silence.
+
+Also for the record: **A-29 and A-30 are cto's own rulings and are in this
+diff.** S2-R2-R1 is a finding against A-30's text, raised here because the
+brief asked for exactly that and not because the ruling's outcome is wrong.
+
+## Gate completeness — the paths I cleared, so the next reader knows what was checked
+
+- **Templates never touch the model.** Every `{{ book.title }}` in
+  `listing.html`, `sell.html`, `sell_find.html`, `sell_photos.html` reads
+  `_book_of`'s dict, `{% block title %}` included — so a withheld page's
+  `document.title` is the ISBN, not the seller's string.
+- **`queue_rows` (`apps/listings/staff.py:196`) and `_show`
+  (`review_listings.py:156–159`) read raw, deliberately.** `review_queue`
+  refuses a non-staff actor before any row is read, which is the clause
+  `may_read_unverified_text` asks for. Correct.
+- **`apps/catalog/services.py:385`** writes the title into the `audit_log`
+  after-dict. Correct: that is the record of what was written.
+- **`apps/catalog/models.py:111` `__str__`** — admin and log only.
+- **Layer 1 cannot be bypassed by a service path.** Three `_transition`
+  callers exist (`apps/listings/services.py:780`, `:818`, `:868`) and nothing
+  else writes `listings.status`, except `apps/accounts/services.py:1474`,
+  which writes `WITHDRAWN` during erasure — not buyer-reachable, so the
+  condition is not evaded.
+- **Layer 1's guard measures the condition, not the flag.**
+  `test_an_unverified_book_keeps_a_listing_off_the_list_with_the_flag_off` sets
+  `LISTING_REVIEW_ALL = False` explicitly, and
+  `test_no_buyer_reachable_status_is_reachable_on_an_unverified_book` is
+  parametrized over `BUYER_REACHABLE_STATUSES` and drives `_transition`
+  directly from a `from_status` derived out of `LISTING_TRANSITIONS`, so it
+  asserts the property rather than the map's current shape.
+- **Layer 2's guard cannot pass by refusing everybody.** Three readers —
+  stranger refused, seller served, stranger served after `verify_book` — which
+  is rule 10's "where a rule splits a set, both sides are rows".
+- **`verify_book` is staff-only and audited** (`apps/catalog/services.py:415–433`:
+  `_require_staff`, one transaction, `record_audit` inside it). The command
+  resolves `--staff` through `staff_actor`. The defect is the ordering in
+  S2-R2-B2, not the authorisation.
+- **The deletion is a deletion.** `CATALOGUE_CHANNEL_KINDS`,
+  `_CATALOGUE_REFUSAL` and `_refuse_contact_channel` have no reference
+  anywhere outside `tests/unit/test_catalog.py:450`, which asserts they stay
+  gone.
+
+## What this pass could not see
+
+- **The withheld branch has never been through an accessibility sweep.** QA's
+  fixtures use the verified `book`, so no a11y test has rendered
+  `_withheld.html` at all. The heading on a withheld row becomes
+  `ISBN 9789387432147`, which is a different heading-list entry and a
+  different `document.title`; the `.meta` paragraph is new markup in three
+  page shapes. Structurally unmeasured, and the instrument does not currently
+  assert it reached that branch — rule 10's fourth disguise. **To test-qa.**
+- **`tests/conftest.py`'s `book` fixture now stamps `staff_verified_at`.**
+  That is the right default and the docstring argues it well, but it means
+  every pre-existing test now exercises the verified branch, and the
+  unverified branch is covered only by the new tests named in that docstring.
+  Any guard that previously depended on `staff_verified_at` being NULL would
+  now pass for a different reason. I found none that does; I did not prove it
+  exhaustively.
+
+## Praise
+
+- **`_needs_review`'s new comment** (`apps/listings/services.py:790–796`)
+  explaining why the `staff_verified_at` clause must *not* be deleted as
+  redundant now that `_transition` refuses the same condition — remove it and
+  the layers collide into "unpublishable" instead of "pending". That is a
+  comment that stops a correct-looking future simplification, which is the
+  only kind of comment worth its line count.
+- **`BUYER_REACHABLE_STATUSES` is the whole set, with the reason given**: a
+  test on `LIVE` alone would assert the transition map, not the property.
+  The guard is written the way the rule asks and not the way the code happens
+  to be.
+- **Message text asserted, not exception class**, in both new guards — rule
+  10's sixth disguise, applied without being told.
+- **`_withheld()` is built per call**, with the two reasons written down (a
+  `None` `authors` crashing only on the branch nobody exercises by hand; one
+  shared list one `append` from a cross-request leak).
+- **`PLTE` removed from `_PNG_KEEP_ANCILLARY`** with a test asserting every
+  remaining entry is genuinely ancillary — a dead list entry turned into a
+  property, which is rule 11 applied to a list that had already been declared
+  as unavoidable.
+- **The deletion is real, and guarded.** An empty tuple would have invited the
+  next limb; `test_catalog.py:450` makes the absence a measured fact.
+
+## Verdict line (second rework)
+
+# CHANGES REQUIRED
+
+**Blocking:** S2-R2-B1 (`book_requests` serves raw catalogue text to a
+non-author — F47-Q2 on a second route), S2-R2-B2 (`--verify-book` can stamp a
+book whose text is never printed).
+
+**Required:** S2-R2-R1 (A-30's `Vary` argument does not hold and is the
+sentence that justifies the narrowing), S2-R2-R2 (`reader` is the viewer, not
+the listing's owner — breaks on S3's promised one-line swap), S2-R2-R3 (a
+docstring citing a deleted caller).
+
+**The thing checked last and most carefully**, recorded although this is not
+an approval: every read of `Book.title`, `.authors`, `.publisher` and
+`.edition_label` in `apps/**`, `web/**` and `templates/**`, by grep and then
+by reading each site, against the claim that `served_book_text` is the only
+place the question is asked. The claim is false in two places and both are in
+`book_requests`, which A-29 never looked at because `books` and `listings`
+were the two tables in front of it.
+
+**QA has not verified this rework.** The behavioural assertions cited above are
+the authors' own tests, read and run by me; nothing here implies coverage
+test-qa has signed, and the withheld page has no accessibility evidence at all.

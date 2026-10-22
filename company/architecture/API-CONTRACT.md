@@ -809,19 +809,35 @@ agent knows exactly what it owns.
 > reader and is neutral **even for the author**. A listing read passes the
 > actor whose listing it is, so the seller's own `/sell` list stays readable.
 >
-> **The argument that makes this right rather than merely narrower**, and it
-> is not in the escalation: an identity read is a **single global surface —
-> the same URL for every student.** Making its body depend on who is asking
-> would make one URL render differently per viewer, which is precisely the
-> shape that produced R-R4 one round ago: a body that varies on the requester
-> and a cache that does not know it. Neutral-for-everyone on an identity read
-> needs no `Vary`, no per-viewer cache key, and has no variant to serve to the
-> wrong person. The self-exception earns its keep on owned surfaces and costs
-> correctness on shared ones.
+> ~~**The argument that makes this right rather than merely narrower**: an
+> identity read is one global URL, and a body that varied by viewer would
+> rebuild R-R4's cache defect.~~ **WITHDRAWN 2026-10-22 (Code Review
+> S2-R2-R1). The argument is wrong three ways and I am deleting it rather
+> than repairing it** (rule 9's corollary):
 >
-> **And the author is the one reader whose protection is pointless** — they
-> wrote the string. Withholding it from them loses nothing, because the
-> purpose of the gate is to stop seller text reaching *other* students.
+> - R-R4 was a **request-header** defect. Caches key on URL plus the headers
+>   named in `Vary` — **never on session identity**. The remedy for a body
+>   that varies by viewer is `Cache-Control: private`, which `_page` already
+>   sets on every response, with that reasoning already written beside it.
+> - These pages **already** vary by viewer — `signed_in`, the flash, the
+>   owner-only controls. If viewer-variation rebuilt R-R4, it was rebuilt
+>   slices ago.
+> - **The diff itself varies three bodies by viewer** — `/sell`,
+>   `/sell/{id}/photos`, `/listing/{id}` all pass the user into `_book_of`.
+>   Taken at face value my own argument condemns the code A-29 §1 required.
+>
+> **The ruling stands on its second ground alone, which is sound and
+> sufficient: the author wrote the string, so withholding it from them
+> protects nobody.** The outcome was right; the sentence I added to make it
+> *feel* right was decoration, and decoration in a contract is a claim.
+>
+> **The pattern this completes, recorded because it is about me and not about
+> this clause.** Review's count: across A-26, A-28 and A-30, **the sentence
+> that did not survive measurement was every time the one asserting that
+> another layer made the narrowing safe** — the review queue for `linked`,
+> the review queue for the catalogue, the cache for an identity read. Three
+> times I satisfied rule 12 by *naming* a layer and never *measuring* it.
+> Rule 12 now says so explicitly.
 >
 > QA's test goes green without being edited, which is the outcome to prefer:
 > **the test was right and the ruling was loose.**
