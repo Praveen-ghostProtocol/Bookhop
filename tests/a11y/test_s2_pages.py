@@ -186,3 +186,143 @@ def test_the_banned_vocabulary_check_is_recorded_as_english_only():
         "them, that is CLAUDE.md rule 1 — fabricated evidence — and "
         "THREAT-MODEL §6.1's residual risk A10 realised."
     )
+
+
+# --------------------------------------------------------------------------
+# the withheld branch — A-29 §1's other half, which had no a11y evidence
+# --------------------------------------------------------------------------
+#
+# Code Review's "what this pass could not see": *"QA's fixtures use the
+# verified `book`, so no a11y test has rendered `_withheld.html` at all."*
+# True, and it is rule 10's fourth disguise in this harness for the **third**
+# time — the sweep above asserted it reached five pages and every one of them
+# was the verified branch, which is a different heading, a different
+# `document.title` and a `.meta` paragraph that does not exist on the other
+# side.
+#
+# The withheld branch needs a reader who is **not** the catalogue entry's
+# author, and `conftest.py`'s `seller` *is* `student`, who is
+# `unverified_book`'s author. So the fixture is a second actor. Five page
+# shapes, which is Review's four plus `/wanted`.
+
+
+@pytest.fixture
+def withheld_pages(
+    db, client_as, unverified_book, signup_campus, privacy_notice, seller_terms_notice
+):
+    """Five S2 page shapes rendering a row whose text is withheld from its reader.
+
+    `unverified_book` is written by `student`; this is somebody else, so
+    `served_book_text` withholds. `is_seed=True` for the same reason the rest
+    of the suite's actors are — ADR-002 §4.1(c) refuses a non-seed actor on a
+    campus whose gate is lawfully closed, and a 403 would measure the gate
+    while reporting coverage of the withheld branch.
+
+    The listing stays **DRAFT**: A-29 §2 refuses to put a listing of an
+    unverified book in front of a buyer, and `listing_detail` is an own-rows
+    read, so the page is reachable by its lister and by nobody else. That is
+    the only state in which these three page shapes exist at all.
+    """
+    from apps.accounts.models import User
+    from apps.accounts.services import accept_seller_terms, grant_consent
+    from apps.listings.services import create_listing, create_request
+
+    lister = User.objects.create(
+        email="arjun@example.ac.in", display_name="Arjun K",
+        campus=signup_campus, city_id=signup_campus.city_id,
+        status="ACTIVE", adult_verified=True, campus_verified=True, is_seed=True,
+    )
+    grant_consent(lister, "account", privacy_notice, "SIGNUP_FORM", None, "pytest")
+    grant_consent(
+        lister, "listing_publication", privacy_notice, "SIGNUP_FORM", None, "pytest"
+    )
+    accept_seller_terms(lister, seller_terms_notice, None)
+    lister.refresh_from_db()
+
+    listing = create_listing(
+        lister, book=unverified_book, asking_price_paise=30000, condition="GOOD",
+        annotation_level="LIGHT_PENCIL", damage_flags=["COVER_DAMAGE"],
+        language="en", category="PRESCRIBED_TEXTBOOK",
+    )
+    create_request(lister, book=unverified_book, free_text_title=None, course_code=None)
+
+    return client_as(lister), unverified_book, [
+        ("/sell", "the seller's own listings, withheld row"),
+        (f"/sell/find-book?isbn={unverified_book.isbn13}",
+         "the book finder on an unverified ISBN — passes no reader at all"),
+        (f"/listing/{listing.id}", "the listing page, withheld biblio in the h1"),
+        (f"/sell/{listing.id}/photos", "the photo upload step, withheld row"),
+        ("/wanted", "the want list, the fifth reader added by S2-R2-B1"),
+    ]
+
+
+def test_every_withheld_page_shape_passes_the_structural_a11y_rules(withheld_pages):
+    """The sweep, on the branch that had no evidence — **and it proves it got there.**
+
+    Two assertions before any a11y rule is applied, because a fixture that
+    stopped producing a withheld row would otherwise make this file report
+    coverage of a branch it never rendered (rule 10's third and fourth
+    disguises, which is how this branch came to be missed in the first place):
+
+    1. the disclosure sentence from `_withheld.html` is in the body, so the
+       page is on the withheld side;
+    2. the seller's raw title is **nowhere** in the body — `<title>` included,
+       since `{% block title %}` reads the same dict.
+
+    The count actually reached is asserted at the end, so "five page shapes"
+    is a measurement and not a sentence in a report.
+    """
+    client, subject, pages = withheld_pages
+    violations, unreached, not_withheld, reached = {}, [], [], 0
+
+    for path, why in pages:
+        response = client.get(path, headers={"accept-language": "en"})
+        if response.status_code != 200 or not _is_html(response):
+            unreached.append((path, why, response.status_code,
+                              response.headers.get("Content-Type")))
+            continue
+        html = response.content.decode()
+        if "no BookHop staff member has read it" not in html:
+            not_withheld.append((path, why))
+            continue
+        if subject.title in html:
+            not_withheld.append((path, f"{why} — RAW TITLE SERVED"))
+            continue
+        reached += 1
+        found = check_html(html, expect_lang="en")
+        if found:
+            violations[f"{path} ({why})"] = [str(v) for v in found]
+
+    assert unreached == [], (
+        f"these withheld page shapes were not reached, so they were not "
+        f"checked: {unreached}"
+    )
+    assert not_withheld == [], (
+        "these pages did not render the withheld branch, so this test "
+        "measured the verified branch twice and would have reported it as "
+        f"withheld-branch coverage: {not_withheld}"
+    )
+    assert violations == {}, f"withheld-branch a11y violations: {violations}"
+    assert reached == len(pages) == 5, (
+        f"checked {reached} of {len(pages)} withheld page shapes; any number "
+        "quoted in QA-S2 must be this one"
+    )
+
+
+def test_no_withheld_page_serves_tamil_while_the_locale_is_closed(withheld_pages):
+    """The charter's standing rule, on A-29's new string.
+
+    `trust.book.withheld` is a new blocking-class string with a Tamil draft
+    nobody has read (`locale/ta/BLOCKING_CLASSES.toml`'s own counter records
+    `+1 string, +1 blocking`). The only check available is that it is not
+    reachable, so that is the check.
+    """
+    client, _subject, pages = withheld_pages
+    assert "ta" not in _served_locales()
+    for path, why in pages:
+        response = client.get(path, headers={"accept-language": "ta"})
+        assert response.status_code == 200, (path, why, response.status_code)
+        assert 'lang="en"' in response.content.decode(), (
+            f"{path} ({why}) served a Tamil-tagged page carrying an unreviewed "
+            "blocking-class string (THREAT-MODEL §6.1 risk A9, WCAG SC 3.1.1)"
+        )

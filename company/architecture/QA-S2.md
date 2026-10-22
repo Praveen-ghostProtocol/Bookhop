@@ -1519,3 +1519,495 @@ quiet. **Verified.**
 | Date | Change | By |
 |---|---|---|
 | 2026-10-22 | **Rework pass `2af14de..81e8f60`. DOES NOT PASS: two blocking, one required, all three against A-28 and none against the build.** EXIF stripper verified by running on Motion Photo, MPF-with-GPS, progressive-with-metadata-between-scans and an EXIF-embedded thumbnail, plus 395 truncations and 3,200 mutations, at the function and at the row. Backfill refusal verified clause by clause with the printed recovery executed. P15's sweep verified as an age across the boundary and on an early failure, with the forbidden side of the name rule asserted for the first time. The `Vary` ceiling measured and the exemption narrowed from QA's tree. cto's F44 narrowing endorsed and guarded by an inverted test; the same shape found in one other instrument and closed additively. Baseline reproduced exactly on both engines; two full-suite runs per engine and no more | test-qa |
+
+---
+
+# SECOND REWORK PASS — `8fbb63e..81b9153` (2026-10-22, test-qa)
+
+Scoped to the A-29/A-30/A-31 rework fix. The original verdict, v2.0 and the
+first rework pass above are untouched. **The instrument backend wrote is now
+the control, so this pass audited the instrument by mutation rather than by
+reading it** — every claim below has a mutation or a measurement behind it.
+
+## VERDICT
+
+# S2 PASSES — second rework
+
+**Blocking: none.** Nothing measured in this pass serves seller-written
+catalogue text to a reader who is not its author, on any of the five surfaces
+that exist, on either engine.
+
+**Three holes in the control were found and closed in QA's own tree**, one of
+them live-and-unmeasured; **one behaviour nobody specified** was measured and
+is handed to cto and product; the pre-existing F44/F46 reds are confirmed and
+unchanged.
+
+### Suite, once per engine, as the brief required
+
+| Engine | Passed | Failed | Skipped | xfail | Wall |
+|---|---|---|---|---|---|
+| **SQLite** (no `.env`) | **1803** | **2** | **133** | 1 | 50.65s |
+| **PostgreSQL** (`.env` sourced) | **1875** | **1** | **61** | 2 | 59.17s |
+
+**cto's baseline is confirmed, arithmetically and by name.** The brief measured
+SQLite 1794/2/132 and PostgreSQL 1866/1/60 on this commit. This pass adds nine
+passing tests and one named skip, so 1794+9 = 1803 / 132+1 = 133 and
+1866+9 = 1875 / 60+1 = 61. Both engines land exactly there, which is a stronger
+confirmation than re-running the same number would have been.
+
+The reds are the two already routed elsewhere, and they are the same two:
+`test_the_backup_scope_and_the_restore_test_cover_the_same_things` (**F44**,
+both engines, an `INFRA.md` §3.3 amendment) and
+`test_the_migration_round_trips_forward_reverse_forward` (**F46**, SQLite only,
+`listings/0003`'s reverse). Neither is this diff's — it contains no migration
+and nothing under `INFRA.md`. **That is reasoning from the failure identity,
+not a bisect**, same caveat as Code Review's.
+
+---
+
+## 22. The instrument — audited by mutation. It holds, and it has three holes.
+
+`tests/unit/test_catalogue_text_gate_is_enforced.py` (543 lines, 26 tests with
+the order test). The brief's question was *"can it be satisfied while a leak
+exists?"* The answer is yes, three ways, **none of which has an instance in the
+tree today**, and all three now have a test.
+
+### 22.1 What the walk does catch — measured, not read
+
+Three mutations, each applied to the clean tree at `81b9153` and reverted
+(`git status` clean after each):
+
+| Mutation | Result |
+|---|---|
+| inject `_leak = req.book.title` into `web/views._request_row` | **RED**, by name: `web/views.py:1814 in _request_row() — req.book.title` |
+| rename the pinned receiver `_listings()` → `_svc` at `web/views.py:1559`, same object | **RED** twice: unknown receiver `_svc` **and** the stale-pin assertion for `_listings()` |
+| inject `Book.objects.values_list("title", flat=True)` into `web/views.wanted` | **GREEN. All 25 tests passed.** |
+
+So: the two defects' own shapes are caught with file, line and receiver; the
+pin is genuinely keyed on receiver *spelling* and reddens on a changed receiver
+even when the object is identical; and the third row is the hole.
+
+**The declared ceilings are real.** `SEALED` is imported from
+`SELLER_WRITTEN_TEXT`, and `test_catalog.py::test_every_seller_written_column_on_books_is_behind_the_gate`
+forces any new text column on `books` into either that tuple or a declared
+exempt set — so "a fifth column is sealed the same day with no edit to this
+file" is a closed chain and not a hope. `title_norm` is exempt **and** is a
+derived copy of `title`; the exemption is correct (`normalise_title`, never
+typed) and I checked it is not served anywhere. The syntax narrowing
+(`kind.title()` is a method, not a read) is asserted on seven read shapes and
+five non-read shapes, both sides as rows.
+
+**`ALLOWED` cannot go stale into a false exemption**, by construction and in
+one measured case: it is keyed on the *enclosing function*, not the file, and
+`test_every_allowance_matches_a_live_access` is parametrized per entry so an
+entry matching nothing fails by name. I verified the equivalent staleness
+assertion on the dynamic pin empirically (mutation 2 above fired it); the
+`ALLOWED` one I verified by construction only.
+
+### 22.2 Hole 1 · The ORM naming the column as a string — **declared, unmeasured, and the one I would have shipped**
+
+The instrument's own docstring declares it: *"`values()` / `values_list()`
+naming the columns as strings. Nothing in the tree does … Not covered here,
+and no instance exists."* The first half is a claim about the repository and
+nothing asserted it. Mutation 3 above is the measurement: a `values_list("title")`
+in a student-facing view left **all 25 tests green**.
+
+Rule 12 as amended today is the exact test to apply — *before granting any
+exemption, name the other layer that still catches it; if none does, it is a
+widening*. There is no other layer. `F("book__title")` inside an `annotate` is
+the worse form: it reaches a payload with **no attribute access anywhere** for
+a name-based walk to see.
+
+**Closed, in QA's tree**, because tests are QA's and `tests/unit/**` is not:
+`tests/contract/test_catalogue_text_gate_blind_spots.py::test_no_sealed_column_is_named_as_a_string_to_the_orm`.
+It walks `apps/**`, `web/**` **and `bookhop/**`** for a sealed column named as
+a string literal to `values` / `values_list` / `only` / `defer` / `F` /
+`Value` / `annotate` / `aggregate`, matching `title` and `book__title` but not
+`title_norm` or `isbn13`. Re-run with the mutation in place: **RED**,
+`web/views.py:1747 values_list('title')`. Clean tree: **green, 0 rows.**
+
+`order_by` was in that list **for one run** and matched three live legitimate
+sites (`apps/catalog/services.py:293`, `:302`, `:456` — a search and
+`prescribed_for_course`, ordered by `title` / `book__title`). Ordering by a
+column does not put it in the result set, so the match was *wrong* rather than
+inconvenient, and rule 13 says the answer is to narrow my own guard, not to
+leave a red on correct code. Narrowed to the calls that carry a value out, with
+the removal and its reason recorded in the file.
+
+### 22.3 Hole 2 · Roots the walk never opens — **undeclared**
+
+The walk's scope is `apps/**` and `web/**`. `bookhop/**` — the URLconf, the
+settings package, the WSGI entry point — is walked by nothing and is not among
+the three declared holes. No instance exists (I grepped it for all four sealed
+names: zero hits), and an L2 handler is conventionally under `apps.`, which is
+what `_route_exists` relies on. But an undeclared scope gap is the same shape
+as the two misses.
+
+Closed by `test_no_sealed_attribute_is_read_in_a_root_the_instrument_does_not_walk`,
+which **reuses backend's `_sealed_reads`** rather than restating what a read is
+(rule 11: if backend widens the definition this moves with it; if the function
+is deleted this errors on import instead of passing quietly) and asserts its
+own reach — `bookhop/**` must yield at least one parsed module or the clean run
+means nothing.
+
+### 22.4 Hole 3 · `Book.__str__`'s allowance names a surface that is not installed
+
+`ALLOWED[("apps/catalog/models.py", "Book.__str__")]` reads *"`__str__` reaches
+the Django admin and the logs, both of which are staff surfaces."*
+
+**Measured: `django.contrib.admin` is not in `INSTALLED_APPS` at all** — zero
+hits across `bookhop/settings/*.py`. And the logs half is thinner than it
+sounds: the one log line in `apps/**` that touches a book logs `book.id`
+(`apps/catalog/services.py:248`). So the allowance permits a read whose named
+consumers are one non-existent surface and one that does not use it — while
+every call site it *could* acquire (`str(book)`, `f"{book}"`, `{{ book }}`,
+`"%s" % book`) is invisible to a walk keyed on attribute names. From outside,
+*"nobody stringifies a `Book`"* and *"the allowance is covering a leak"* are
+indistinguishable, which is rule 10's fifth disguise.
+
+Inverted rather than argued:
+`test_nothing_stringifies_a_book_while_str_returns_seller_written_text` reddens
+the day a `str(book)` / f-string / `{{ book }}` lands in `apps/**`, `web/**`,
+`bookhop/**` or `templates/**`, and
+`test_the_admin_named_in_the_str_allowance_is_still_absent` reddens the day the
+admin is installed. **Ceiling declared in the file:** rows 1 and 3 match source
+text, so a column named through a variable or a `Book` stringified through an
+alias gets through, and the layer above that is a human reading the diff —
+stated as the honest ceiling rather than papered over with a second
+instrument.
+
+**To backend, not blocking:** the allowance's reason should say what is true —
+that `__str__` has **no call site** — rather than naming the admin.
+
+### 22.5 The sixth read path — what I looked for and did not find
+
+Ruled out by grep and then by reading each hit, across `apps/**`, `web/**`,
+`bookhop/**`, `templates/**`:
+
+- **Templates.** All six include sites of `_withheld.html` and every
+  `{{ …title }}` / `.authors` / `.publisher` / `.edition` read in
+  `listing.html`, `sell.html`, `sell_find.html`, `sell_photos.html`,
+  `wanted.html` read `_book_of`'s or `_request_row`'s **dict**, never a model.
+  **And this is now measured behaviourally, not just read** — see §23: the raw
+  title's absence is asserted in the rendered body of all five page shapes,
+  `<title>` included. That is a stronger instrument for templates than an AST
+  walk could be, and it closes the one declared hole whose only evidence was
+  *"Code Review verified"* (rule 9: a document's claim is not evidence).
+- **Serializers.** There is no DRF, no pydantic, no ninja `Schema`, no
+  `from_orm`, no `ModelSerializer`, **no `ModelForm`** — `web/forms.py` is
+  hand-written. A `ModelForm` bound to a `Book` would render the title into an
+  `value=` attribute with no attribute read in our source; that vector is
+  empty, and it is empty because the project has no model-bound forms at all.
+- **Stringification and reflection.** No `str(book)`, no `f"{book}"`, no
+  `model_to_dict`, no `vars()`, no `operator.attrgetter`. The two `__dict__`
+  uses are `apps/core/logging.py`'s on a `LogRecord`.
+- **Computed attribute names.** Two sites in the tree, both pinned, both
+  verified live by the pin's own staleness assertion (`web/views._transition`
+  on the services **module**; `open_discovery.checklist` on a `legal_entities`
+  row). Neither receiver can be a `Book`.
+
+### 22.6 One stale sentence inside the control — rule 9's corollary
+
+`test_the_walk_does_not_fire_on_these` still carries the parametrize reason
+`'x = getattr(book, name)'` → **"a computed name — covered by
+test_forbidden_source"**. That is precisely the claim the same file's docstring
+withdraws four paragraphs earlier, and the one backend self-caught. The
+docstring is right and the parametrize id is the withdrawn version, printed in
+test output. **Delete the explanation** (rule 9's corollary); the shape still
+belongs in that list, the reason is now the pin below it. Not blocking — the
+behaviour is correct and the pin is real — but a withdrawn claim left live in
+the file whose job is to stop withdrawn claims.
+
+---
+
+## 23. The withheld branch — a11y evidence, five of five page shapes
+
+Code Review's gap: *"QA's fixtures use the verified `book`, so no a11y test has
+rendered `_withheld.html` at all."* Correct, and it was rule 10's fourth
+disguise in **QA's own harness for the third time** — the S2 sweep asserted it
+reached five pages and every one of them was the verified branch.
+
+Closed, not skipped. `tests/a11y/test_s2_pages.py` gains a `withheld_pages`
+fixture and two tests. The branch needs a reader who is **not** the catalogue
+entry's author, and `conftest.py`'s `seller` *is* `student`, who wrote
+`unverified_book` — so the fixture is a second seed actor who lists and wants
+Priya's row. The listing stays **DRAFT**, because A-29 §2 is the reason no other
+status exists for it.
+
+**Count actually reached: 5 of 5**, asserted in the test rather than quoted in
+this report:
+
+| Page shape | Reached | Withheld sentence | Raw title in body |
+|---|---|---|---|
+| `/sell` | yes | yes | **no** |
+| `/sell/find-book?isbn=…` | yes | yes | **no** |
+| `/listing/{id}` | yes | yes | **no** |
+| `/sell/{id}/photos` | yes | yes | **no** |
+| `/wanted` | yes | yes | **no** |
+
+**Structural WCAG 2.2 AA violations on the withheld branch: 0** (SQLite and
+PostgreSQL). Two guard assertions run *before* any a11y rule, so a fixture that
+stopped producing a withheld row fails loudly instead of reporting verified-branch
+coverage twice: the `trust.book.withheld` sentence must be present, and the
+seller's raw title must be absent from the whole body — which covers
+`document.title`, since `{% block title %}` reads the same dict. The final
+assertion is `reached == len(pages) == 5`, so the number in this table is a
+measurement.
+
+Tamil: `test_no_withheld_page_serves_tamil_while_the_locale_is_closed` asserts
+all five answer `Accept-Language: ta` with `lang="en"`. `trust.book.withheld`
+is a **new blocking-class string with an unread Tamil draft**
+(`locale/ta/BLOCKING_CLASSES.toml`'s own counter records `+1 string, +1
+blocking`), so the only check available is that it is unreachable, and that is
+the check. **This is not Tamil a11y verification and must not be reported as
+any.**
+
+**Still not verified, same as every pass:** the keyboard-only walkthrough. No
+browser automation exists on this machine; `test_pages.py`'s skip names the
+slice and this file does not weaken it. **Automated structural checks alone are
+not an accessibility pass**, and the withheld branch's new `.meta` paragraph has
+not been met by a screen reader.
+
+---
+
+## 24. `--verify-book` — the order assertion reddens, and nothing else can stamp
+
+**Mutation: `self._show(listing)` moved back inside `if not options["action"]`,
+after the verify block — the exact pre-fix shape.**
+
+- `test_the_review_command_prints_the_text_before_it_stamps_the_book` → **RED**:
+  `'Higher Engineering Mathematics' never reached the terminal`. The captured
+  output of the one-command invocation was two lines — the stamp confirmation
+  and `listing 1 is now LIVE` — with **none of the four strings printed.** The
+  defect was real and the order test is the test that sees it.
+- `test_the_review_command_prints_authors_and_can_check_the_book` → **PASSED on
+  the broken code**, which confirms Code Review's reasoning for writing an
+  order assertion instead of a presence one: the sibling test runs `--listing`
+  and `--verify-book` as two commands, which is the safe ordering.
+
+**No other path can stamp.** Measured: `verify_book` has exactly **one** caller
+in `apps/**` + `web/**` (`review_listings.py:129`), `staff_verified_at` is
+assigned in exactly **one** place (`apps/catalog/services.py:437`), `_show` now
+runs unconditionally for every `--listing` invocation *before* that block, and
+there is no API endpoint and **no Django admin** through which the column could
+be written. The order assertion covers the only path that exists.
+
+---
+
+## 25. The dynamic-`getattr` gap — confirmed closed, and confirmed it was open
+
+Backend's self-correction is accurate and I verified both halves independently.
+
+- **The gap was real.** `tests/unit/test_forbidden_source.py::test_apps_contains_no_dynamic_attribute_construction`
+  matches `node.func.id in ("setattr", "delattr")` and nothing else. A *read*
+  through a computed name was outside every control in the repository.
+- **It is closed.** `test_a_dynamic_attribute_name_is_pinned_to_a_non_book_receiver`
+  walks `web/**` **and** `apps/**`, flags any `getattr` whose second argument is
+  not a string literal, and its stale-pin assertion proves both pinned sites are
+  live (it would fail if either had moved).
+- **It reddens on a changed receiver.** Mutation 2: `_listings()` → `_svc`, same
+  module object, same call. Two failures — the unknown receiver and the now-stale
+  pin. The key really is the receiver's source text, as documented.
+
+This is `CLAUDE.md` rule 12's amended shape found inside the file whose job is to
+prevent it, and self-caught before QA arrived. Recorded as the control working.
+
+---
+
+## 26. The S3 forward guard — written, with its failure branch exercised now
+
+Nobody owned it. `apps.discovery` is S3's, it is the first listing read where
+the reader is a **buyer** rather than the row's own actor — so it is the first
+place A-29 §1 is the **only** layer — and nothing obliged its author to ask the
+gate. `test_listing_detail_is_still_an_own_rows_read` reddens on the promised
+one-line swap, which tells the author the *reader* changed and says nothing
+about whether the new module asks the gate at all.
+
+Written in `tests/contract/test_future_stack_placements.py`, which is where this
+shape already lives, as three tests:
+
+1. `test_the_discovery_listing_read_asks_a29s_gate_the_day_the_app_exists` —
+   **inverted** per rule 10's fifth disguise. While `apps.discovery` is absent it
+   skips *naming the app and the slice*; once it is in `INSTALLED_APPS`, three
+   things become failures: the app has no Python, nothing in it calls
+   `served_book_text` / `book_block` / `_book_of`, or the gate has been renamed
+   out from under the spelling this guard matches. It deliberately does **not**
+   predict which function reads the listing or what the payload is called — S3 is
+   not designed, and a guard that predicts shape is the one that gets edited
+   (rule 13).
+2. `test_the_failure_branch_of_the_discovery_guard_still_exists` — **the guard
+   for the forward-dated guard.** The predicate is a pure function of source
+   text, so both sides run **today**, on three synthetic modules: one that serves
+   `row.book.title` raw (must be False), one that keeps its **own copy** of the
+   `staff_verified_at` condition instead of asking (must also be False — that is
+   the rule 11 defect and the one a reviewer waves through), and one that calls
+   `book_block` (must be True). Without this, *"skipping until S3"* and *"a
+   predicate that cannot return False"* are indistinguishable.
+3. `test_the_discovery_app_is_still_absent_so_the_skip_is_honest` — absence
+   checked **two** ways, `INSTALLED_APPS` and the directory. A half-landed
+   `apps/discovery` on disk but not installed would make guard 1 skip during
+   exactly the commits it exists for.
+
+Status on this commit: **2 passed, 1 skipped with its reason naming app and
+slice** (`apps.discovery does not exist yet (S3) — engine-independent`), on both
+engines.
+
+---
+
+## 27. A-29, A-30, A-31 — the sixth ruling, measured
+
+The brief asked for this plainly, so plainly: **A-31 holds. Both halves. This is
+the first of the six I could not find a way to break.**
+
+**A-31(a) — `text_withheld` on the requests `book` sub-object.** Exercised on
+both engines, both branches — **by backend's own test, which QA ran rather than
+wrote**, and that provenance is stated because running the author's test is not
+independent verification:
+`GET /api/v1/requests` returns `text_withheld: true` with
+`title: "ISBN 9789387432147"` on the unverified row and `text_withheld: false`
+with the real title on the verified one, and the raw string appears nowhere in
+the unverified response body. The ruling's reason is the right one and is
+testable as stated: without the key a client renders a book *called*
+`ISBN 978…`, which is the gate producing a falsehood instead of a silence.
+
+**A-31(b) — the viewer-form is strictly tighter than the owner-form.** This is
+the claim to attack, because it is the one that overrules the contract with the
+code. I attacked it and it holds. Construct the S3 case: `discovery.get_listing`,
+buyer reading a listing whose seller **is** the book's author, layer 1 regressed.
+Owner-form passes the seller → `may_read_unverified_text` is true → **the raw
+string reaches the buyer.** Viewer-form passes the buyer → withheld. The two
+differ exactly where it matters and the code's choice is the safe one, so the
+wording yielding to the code is correct, and *"my wording would have made this
+page depend on one layer where the code makes it depend on two"* is the
+accurate statement of it.
+
+**A-30, as it now stands.** The `Vary` paragraph is struck through in
+`API-CONTRACT.md` with the three measurements that killed it, and the surviving
+ground — the author wrote the string, so withholding it from them protects
+nobody — is the one the code rests on. I checked the strike-through is a strike
+and not a rewrite, and that A-30's live text no longer asserts an unmeasured
+layer. It does not.
+
+**A-29 §1's narrowing, re-checked against QA's own test.**
+`test_a_poisoned_catalogue_row_reaches_a_student_without_any_listing` fetches
+`/sell/find-book?isbn=` as the author and passes **without being edited**, which
+is the outcome to prefer and the one A-30 predicted.
+
+So: of six rulings on this question, the outcome has held twice (A-29 §1–§3,
+A-31) and the reasoning now survives measurement for the first time, because the
+sentence that did not survive has been deleted rather than repaired. The pattern
+cto recorded about itself — *three times rule 12 was satisfied by naming a layer
+and never measuring it* — did not recur in A-31. **It recurred once in this
+diff, in backend's file, and backend caught it itself** (§25). That is the
+control working rather than the pattern continuing.
+
+---
+
+## 28. Behaviour no document specifies — **measured, and handed over**
+
+### F51 · A student's own typed title is discarded when their ISBN matches somebody else's unverified row
+
+Not a leak, not a regression of this diff's fix, and **nobody's defect** — it is
+two correct decisions composing into a page the product never described.
+
+Measured end to end through the real form, as a second student (`/wanted`,
+POST `isbn=9789387432147`, `title="Higher Engineering Mathematics"`,
+`course_code=MA8151`):
+
+| What | Measured |
+|---|---|
+| HTTP | `200` |
+| `book_requests.free_text_title` stored | **`None`** |
+| `book_requests.book_id` stored | `1` |
+| the title the student typed, anywhere on `/wanted` | **absent** |
+| what the row shows instead | `ISBN 9789387432147` + the withheld sentence |
+| occurrences of the bare ISBN in the page | **3** |
+
+The cause is `web/views.py:1779` — `free_text_title=None if book is not None
+else (title or isbn)` — which predates this diff and was invisible while
+`_request_row` served the book's raw title. A-29 §1 is what makes it visible:
+the student now has a want list whose row has **no title at all, although they
+typed one**, and their own words are not withheld but were never stored.
+
+**The remedy is available and the schema already permits it.**
+`DATA-MODEL.md` §3's CHECK is `(book_id IS NOT NULL OR free_text_title IS NOT
+NULL)` — an **OR**, so storing both is legal, and the two clauses that key on
+`free_text_title` requests (§ lines 1273, 1576) key on `book_id IS NULL`, which
+a both-stored row does not satisfy. So `_request_row` could fall back to the
+requester's own words when the catalogue text is withheld — which is exactly
+what its docstring already says the gate does not touch.
+
+**One consequence to decide with it, so the fix is not naive:**
+`create_request`'s idempotency-by-shape filters on `free_text_title=title`, so
+storing the typed title would make two submissions with different typed titles
+for the same book two rows instead of one, and *"the match rate counts people
+rather than taps"* is that filter's stated purpose.
+
+**No test written for it**, deliberately: there is no specified answer to assert,
+and inventing one in QA's tree would be QA ruling on product copy. **To cto and
+product-manager.**
+
+### F52 · A seller cannot see the title of their own listing
+
+Same mechanism, different surface, and this one is A-29 §1 working exactly as
+ruled. A student who finds an existing catalogue row by ISBN and lists their copy
+is **not** that row's author, so `/sell`, `/sell/{id}/photos` and `/listing/{id}`
+show them `ISBN 9789387432147` for a book they are selling. Measured on all three
+in §23's fixture — that is what the five green page shapes are green *on*.
+
+Correct per the ruling and per A-30's second ground. Whether it is the product
+anybody wants is not in `PRD`, `JOURNEYS` or `COPY-DECK`, and the seller has no
+way to learn why or to ask for the row to be checked. **To product-manager and
+design-director**; the ISBN-twice duplication on `/wanted` is the fifth instance
+of Code Review's S2-R2-S3 and is now also created on this surface.
+
+---
+
+## 29. What was NOT verified in this pass
+
+- **Keyboard-only walkthrough of the withheld branch.** No browser automation on
+  this machine. Structural HTML checks only, and they are not an accessibility
+  pass.
+- **Tamil, on anything.** The locale is closed and the test written is that it is
+  closed. `trust.book.withheld`'s Tamil draft is unread by any native speaker.
+  The banned-vocabulary check remains **English only** (THREAT-MODEL §6.1,
+  accepted risk A9): **a Tamil string that warrants would pass this green suite**,
+  and nothing in this pass changes that.
+- **Performance.** No p75 LCP, no p95 search latency this pass; the withheld
+  branch adds one paragraph and removes four strings, so no measurement was taken
+  and none is claimed.
+- **F44 and F46** — confirmed red, not diagnosed. Routed to `INFRA.md` §3.3 and
+  backend respectively, as before.
+- **`ALLOWED`'s staleness assertion** — verified by construction and by reading;
+  only the dynamic pin's equivalent was verified by mutation.
+- **`create_book`'s allowance is function-scoped**, so any future read added
+  inside `create_book` inherits an exemption written for one `audit_log` line.
+  No instance; worth one clause in that entry's reason. Suggestion only.
+- **A whole-tree bisect** of either pre-existing red.
+
+## 30. Findings index · second rework
+
+| ID | Where | What | To |
+|---|---|---|---|
+| **F51** | `web/views.py:1779` | the requester's own typed title is discarded when the ISBN matches another student's unverified row; the want row shows no title at all. Schema already permits storing both | cto, product-manager |
+| **F52** | A-29 §1, three surfaces | a seller is shown `ISBN …` for their own listing when they did not type the catalogue row; unspecified, no recourse path | product-manager, design-director |
+| **F53** | `tests/unit/test_catalogue_text_gate_is_enforced.py` | hole 1 — the ORM naming a sealed column as a string was declared and unmeasured; an injected `values_list("title")` left all 25 tests green. **Closed in QA's tree** | backend (fyi) |
+| **F54** | same file | hole 2 — `bookhop/**` is walked by nothing and the gap is undeclared. **Closed in QA's tree** | backend (fyi) |
+| **F55** | same file, `ALLOWED` | hole 3 — `Book.__str__`'s allowance names the Django admin, which is **not installed**, and the permitted read has no call site. Tripwires written; the reason should say what is true | backend |
+| **F56** | same file | the parametrize reason `"a computed name — covered by test_forbidden_source"` is the claim the same file's docstring withdraws. Delete the explanation | backend |
+
+**Nothing above is blocking.** F53–F56 are findings against the control's text
+and scope, each with a test now behind it; F51 and F52 are behaviours no
+document specifies, which is the finding the charter asks for by name.
+
+## Amendment log — second rework
+
+| # | Change | Reason |
+|---|---|---|
+| 1 | verdict **S2 PASSES — second rework**, no blocking | three mutations on the control and five behavioural journeys found no reader served text they did not write |
+| 2 | §22 added — the instrument audited by mutation, three holes, all closed in QA's tree | the brief: *"That instrument is now the control. So audit the instrument"* |
+| 3 | §23 added — withheld-branch a11y, **5 of 5** reached, 0 violations | Code Review's *"the withheld branch has never been through an accessibility sweep"* |
+| 4 | §24 added — the order assertion reddens on the old ordering; the sibling presence test passes on it | the brief's item 2, and it is the reason the order shape was the right one |
+| 5 | §26 added — S3's forward guard, with its failure branch exercised on synthetic sources today | the brief's item 5, rule 10's fifth disguise |
+| 6 | §27 — A-31 attacked on its own terms and holds | the brief: *"If the sixth is wrong, say so with the measurement"* |
+| 7 | F51, F52 recorded with measurements and handed to cto and product rather than tested | no document specifies either; QA does not rule on product copy |

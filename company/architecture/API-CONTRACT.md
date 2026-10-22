@@ -794,6 +794,58 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-32 — store what the student typed, and show them their own words (2026-10-22, cto)
+>
+> QA handed over two behaviours no document specifies. **They are one defect
+> and one remedy**, which is why this is a single amendment.
+>
+> **F51, measured: a student's own typed title is silently discarded** when
+> their ISBN happens to match somebody else's unverified catalogue row.
+> `web/views.py:1779` reads
+> `free_text_title=None if book is not None else (title or isbn)`. It predates
+> the A-29 work and was harmless while `_request_row` served the raw
+> catalogue title — the student saw *a* title, just not theirs. The gate made
+> it visible: the want row now has **no title at all, although they typed
+> one.** Confirmed: `STORED free_text_title = None`, typed title absent from
+> `/wanted`, the ISBN rendered three times in its place.
+>
+> **F52: a seller cannot see the title of their own listing** when they found
+> the row by ISBN rather than typing it. This is A-29 §1 working exactly as
+> ruled — another student wrote that text and we are not repeating it — and
+> it is still a bad screen. The seller knows which book they are selling; the
+> product is simply unable to say it back to them.
+>
+> **Ruling: `free_text_title` is stored whenever the student typed one, book
+> FK or not. A student's own words are served back to that student in place
+> of a withheld row's text.**
+>
+> The constraint permits it today — `DATA-MODEL.md` §3's CHECK is an **OR**,
+> not an exclusive one — and every rule keyed on free-text requests keys on
+> `book_id IS NULL`, which a both-stored row does not satisfy, so nothing
+> downstream changes meaning. QA checked that before proposing it.
+>
+> **Why this is the right shape and not a patch:** the gate's purpose is to
+> stop **one student's unread words reaching another student.** It was never
+> to stop a student seeing *their own*. Discarding what they typed was the
+> gate overreaching into their own data, and showing it back to them is not
+> an exemption from A-29 — there is no second reader, so there is nothing to
+> withhold from. F52's screen stops being bare the moment F51 stops throwing
+> the words away, which is why one change closes both.
+>
+> **One consequence, decided here rather than left to the implementer:**
+> `create_request`'s idempotency-by-shape filters on `free_text_title=title`,
+> so storing it would make two differently-typed submissions for the same
+> book two rows. **Idempotency for a request carrying a book FK keys on
+> `book_id` and `course_code`, never on the typed label.** The request means
+> *"I want this book"*; the label is how one student wrote it down, and two
+> spellings of one want are one want.
+>
+> **Still open and not mine:** a seller whose listing shows a withheld row
+> has **no way to ask for the edition to be checked**, and no copy explaining
+> why their screen is bare. That is product-manager and design-director, and
+> it is a real gap — the gate creates a state the student cannot act on or
+> understand. It does not block S2; it must not reach the pilot.
+
 > #### A-31 — `text_withheld` on requests, and A-30's wording yields to the code (2026-10-22, cto)
 >
 > Two escalations from backend on the A-29 rework, both decided here.
@@ -1343,6 +1395,7 @@ four contract guarantees:
 | **A-29** | 2026-10-22 | **The named layer did not exist; the defect was never textual.** `books` is global and live at `create_book` - the queue reviews listings, not books - so a poisoned title is served from `/sell/find-book` with nothing waiting for review, and `authors` was shown to no reviewer at all. `staff_verified_at` becomes a **gate**: unverified seller text is served only to its author, a listing on an unverified book cannot reach a buyer, and **every limb comes off catalogue text**. A filter was being tuned on a surface that should not publish unreviewed text | QA rework F47-Q1/Q2/Q3 | cto |
 | **A-30** | 2026-10-22 | **A-29 §1 narrowed and ratified**: `reader` is the actor the row was reached *through*, so a catalogue-identity read passes none and is neutral **even for the author**, because the author wrote the string and withholding it from them protects nobody. ~~A second ground about caches~~ **withdrawn by S2-R2-R1** - it was wrong three ways, including that the diff itself varies three bodies by viewer. **QA's test was right and the ruling was loose** | backend escalation on A-29 §1 | cto |
 | **A-31** | 2026-10-22 | **(a)** `text_withheld` added to the `book` sub-object on `GET`/`POST /api/v1/requests` - without it a client renders a book *called* `ISBN 978...`, so the key is the difference between withholding and **lying**. **(b)** A-30 said a listing read passes the listing's owner; the code passes the viewer, which is **tighter** - the owner-form is safe only while A-29 §2 holds. **The wording yields to the code**, the first of five corrections where the contract was the wrong one | backend escalation | cto |
+| **A-32** | 2026-10-22 | **`free_text_title` is stored whenever the student typed one, book FK or not; a student's own words are served back to that student.** QA measured a typed title being silently discarded when the ISBN matched somebody else's unverified row - harmless until the gate made the row bare. The CHECK is an OR and every free-text rule keys on `book_id IS NULL`, so nothing downstream shifts. Request idempotency keys on `book_id`+`course_code`, never the typed label. **The gate was never meant to stop a student seeing their own words** | QA rework F51/F52 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

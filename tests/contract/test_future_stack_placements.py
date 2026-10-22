@@ -803,3 +803,200 @@ def test_the_module_attribution_the_pattern_rests_on_is_the_current_one():
         "`apps.`, which is what separates a real L2 handler from web/urls.py's "
         "catch-all 404"
     )
+
+
+# --------------------------------------------------------------------------
+# A-29 §1 on S3's buyer-facing listing read — the clause nobody owns yet
+# --------------------------------------------------------------------------
+#
+# Every other A-29 §1 control in the repository is retrospective: it holds
+# because somebody found a missed read path and closed it. There are now five
+# — `/sell`, `/sell/find-book`, `/sell/{id}/photos`, `/listing/{id}`,
+# `/wanted` — and four of them were found by a human reading code rather than
+# by anything failing.
+#
+# **The sixth has not been written yet.** `apps.discovery` is S3's, it is the
+# first read where the reader is a *buyer* rather than the row's own actor,
+# and nothing in the tree obliges whoever writes it to ask the gate. Backend
+# flagged it; `web/views.listing_detail`'s docstring promises S3 *"swaps one
+# line"* to `discovery.get_listing`, and
+# `tests/unit/test_catalogue_text_gate_is_enforced.py::test_listing_detail_is_still_an_own_rows_read`
+# reddens on that swap — which tells the author that the *reader* changed and
+# says nothing about whether the new module asks the gate at all.
+#
+# This is `CLAUDE.md` rule 10's fifth disguise, so it is written inverted, in
+# this file because this file is where that shape already lives: while the app
+# does not exist the assertion skips with its reason, and **the moment the app
+# is installed a read that does not resolve through the gate is a failure.**
+# The failure branch is exercised below on synthetic sources, because a
+# forward-dated guard whose red path has never run is indistinguishable from
+# one that cannot go red.
+
+#: The spellings that mean "the gate was asked". **Not a list of allowed call
+#: sites** — these three are the gate, the single wrapper every payload uses,
+#: and the view-layer mapper, and rule 11's point is that there is one
+#: definition with many readers. A module serving listing text without any of
+#: these three in it has either forgotten the gate or has its own copy of the
+#: condition, and both are the defect.
+GATE_CALLS = ("served_book_text", "book_block", "_book_of")
+
+#: A-29 §1's unowned clause, in the same shape as `RULED` above.
+A29_DISCOVERY = {
+    "app": "apps.discovery",
+    "slice": "S3",
+    "read": "the buyer-facing listing read that `/listing/{id}` swaps to",
+    "why": (
+        "A-29 §1: *'A book row with `staff_verified_at IS NULL` has its "
+        "seller-written free text served only to the actor who created it. "
+        "Every other reader is served the ISBN and a neutral, BookHop-voiced "
+        "label.'* A-29 §2 keeps such a listing away from a buyer today, so "
+        "this read is the first place where §1 is the **only** layer — "
+        "A-31(b) is explicit that the viewer-form is correct without §2 and "
+        "the owner-form is correct only because of it"
+    ),
+}
+
+
+def _asks_the_gate(sources):
+    """Do these module sources ask A-29 §1's gate anywhere? `(bool, which)`.
+
+    A pure function of text so that **both** branches can be exercised now,
+    while the app it is about does not exist. A predicate only ever run on
+    the green side is rule 10's first disguise with a slice-long fuse.
+    """
+    hits = sorted({call for text in sources for call in GATE_CALLS if call in text})
+    return bool(hits), hits
+
+
+def test_the_discovery_listing_read_asks_a29s_gate_the_day_the_app_exists():
+    """Inverted, so it cannot skip forever.
+
+    While `apps.discovery` is absent this skips **naming the app and the
+    slice**, which is the only legitimate reason to skip. Once it is
+    installed, three things become failures rather than absences: the app has
+    no Python at all, the app serves listing data without one of
+    `GATE_CALLS`, or the gate module it would import has been renamed out
+    from under it.
+
+    It deliberately does **not** assert which function reads the listing or
+    what the payload is called. S3 has not been designed, and a guard that
+    predicts the shape would be the thing that gets edited (rule 13). What it
+    asserts is the property A-29 §1 fixes regardless of shape: the decision
+    is asked, in that app, through the one place that makes it.
+    """
+    if not _app_installed(A29_DISCOVERY["app"]):
+        pytest.skip(
+            f"{A29_DISCOVERY['app']} does not exist yet ({A29_DISCOVERY['slice']}) — "
+            "engine-independent. A-29 1's clause on "
+            f"{A29_DISCOVERY['read']} is unowned until it does, and this "
+            "assertion inverts the day it lands."
+        )
+
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2] / A29_DISCOVERY["app"].replace(
+        ".", "/"
+    )
+    files = sorted(root.rglob("*.py"))
+    assert files, (
+        f"{A29_DISCOVERY['app']} is in INSTALLED_APPS but has no Python "
+        "modules, so this guard would pass on an empty package"
+    )
+
+    asked, which = _asks_the_gate([p.read_text(encoding="utf-8") for p in files])
+    assert asked, (
+        f"{A29_DISCOVERY['app']} is installed and nothing in it calls any of "
+        f"{GATE_CALLS}, so {A29_DISCOVERY['read']} is serving seller-written "
+        "catalogue text without asking A-29 §1's gate — or asking it with a "
+        "copy of the condition, which rule 11 makes the same defect.\n\n"
+        f"{A29_DISCOVERY['why']}\n\n"
+        "The reader to pass is the **buyer**, not the listing's seller: "
+        "A-31(b) ruled the viewer-form is the tighter of the two and the "
+        "owner-form is safe only while A-29 §2 holds. Route the read through "
+        "`apps.catalog.services.served_book_text` (or `book_block`, which "
+        "calls it) and thread the viewer down to it."
+    )
+
+    from apps.catalog import services as catalog
+
+    assert hasattr(catalog, "served_book_text"), (
+        "the gate has been renamed, so the spelling this guard matches on no "
+        "longer identifies it. Update `GATE_CALLS` in the same commit."
+    )
+
+
+def test_the_failure_branch_of_the_discovery_guard_still_exists():
+    """The guard for the forward-dated guard (rule 10's corollary).
+
+    The test above cannot have run its red path — the app it is about does
+    not exist — so from outside, *"skipping until S3"* and *"a predicate that
+    cannot return False"* look identical. This runs both sides on synthetic
+    sources now, so the day `apps/discovery` lands the inversion is known to
+    work rather than hoped to.
+
+    Both sides are rows (rule 10's corollary): a module that asks the gate
+    passes, a module that serves the same text without asking fails, and the
+    near-miss — a module that keeps its **own copy** of the
+    `staff_verified_at` condition instead of asking — fails too, which is the
+    case rule 11 is about and the one a reviewer is most likely to wave
+    through.
+    """
+    serves_without_asking = (
+        "def get_listing(viewer, listing_id):\n"
+        "    row = Listing.objects.get(id=listing_id)\n"
+        '    return {"title": row.book.title}\n'
+    )
+    own_copy_of_the_condition = (
+        "def get_listing(viewer, listing_id):\n"
+        "    row = Listing.objects.get(id=listing_id)\n"
+        "    if row.book.staff_verified_at is None:\n"
+        '        return {"title": None}\n'
+        '    return {"title": row.book.title}\n'
+    )
+    asks_the_gate = (
+        "from apps.listings.services import book_block\n"
+        "def get_listing(viewer, listing_id):\n"
+        "    row = Listing.objects.get(id=listing_id)\n"
+        '    return {"book": book_block(row.book, viewer)}\n'
+    )
+
+    assert _asks_the_gate([serves_without_asking]) == (False, []), (
+        "the predicate reports the gate asked by a module that reads "
+        "`row.book.title` raw, so the guard above cannot go red"
+    )
+    assert _asks_the_gate([own_copy_of_the_condition]) == (False, []), (
+        "a module with its own copy of the `staff_verified_at` condition is "
+        "reported as asking the gate. That is the rule 11 defect — three "
+        "hand-made copies of one legal rule disagreed once already — and it "
+        "must fail here, not pass"
+    )
+    asked, which = _asks_the_gate([asks_the_gate])
+    assert (asked, which) == (True, ["book_block"]), (
+        "the predicate does not recognise a module that does ask the gate, "
+        "so the guard above would be red on correct code and would be edited "
+        f"rather than obeyed (rule 13): {which}"
+    )
+
+
+def test_the_discovery_app_is_still_absent_so_the_skip_is_honest():
+    """The skip's own precondition, asserted rather than trusted.
+
+    A skip is legitimate only while the app genuinely does not exist. A
+    half-landed `apps/discovery` — a package on disk, not yet in
+    `INSTALLED_APPS` — would make the guard above skip while the code it is
+    about was being written, which is the worst moment for it to be silent.
+    So absence is checked **two** ways, and this test inverts into a one-line
+    deletion the day S3 starts.
+    """
+    import pathlib
+
+    installed = _app_installed(A29_DISCOVERY["app"])
+    on_disk = (
+        pathlib.Path(__file__).resolve().parents[2] / "apps" / "discovery"
+    ).is_dir()
+    assert installed == on_disk, (
+        f"`apps/discovery` exists on disk ({on_disk}) but installed is "
+        f"{installed}. While those disagree the guard above skips on an app "
+        "that is being written right now. Add it to `INSTALLED_APPS` in the "
+        "same commit as the package, or delete the package."
+    )
