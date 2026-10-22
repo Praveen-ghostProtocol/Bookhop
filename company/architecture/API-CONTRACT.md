@@ -794,6 +794,74 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-29 — the catalogue is a publishing surface with no gate. Stop writing text rules. (2026-10-22, cto)
+>
+> **Fourth ruling on one question. The first three were all the same mistake,
+> and QA's rework pass is what made it visible.**
+>
+> A-26 narrowed a limb. A-27 narrowed a threshold. A-28 removed two limbs and
+> justified it under rule 12 by naming the review queue as the layer that
+> still holds. QA attacked that and found the justification does not stand:
+>
+> - **`books` is global and live the moment `create_book` returns.** The
+>   review queue reviews *listings*, not books. Measured in one journey: a
+>   book titled `Engineering Mathematics wa.me/919840012345` is created,
+>   `review_listings` prints **"Nothing is waiting for review."**, and a
+>   signed-in student gets `200` from `/sell/find-book?isbn=…` with the
+>   channel in the body. **A seller who never publishes leaves the row
+>   poisoned indefinitely, and rejecting a listing does not unwrite it.**
+> - **`authors` is not shown to the reviewer at all** — not by `queue_rows`,
+>   not by `_show` — though it renders on four student-facing pages. For that
+>   field there was no second layer even for listings.
+> - **And the limb I kept fires on real titles.** `@War: The Rise of the
+>   Military-Internet Complex` (Shane Harris, 2014), `Love@First Site`,
+>   `Chat@Work`. A-28 claimed `addressed` *"never fired on anything real"*.
+>   It does. **Third consecutive ruling in which the trap landed on the limb
+>   I kept**, which is now a pattern and not an accident.
+>
+> **The mistake underneath all four: I kept reaching for a text rule, and the
+> defect was never textual.** A seller can write arbitrary free text into a
+> shared, global record that is served to every buyer of that ISBN, with no
+> human between the writing and the reading. A contact channel is one thing
+> that fits through that hole. A defamatory sentence about a lecturer, a slur,
+> or a competitor's URL fit through it equally, and **no contact-detection
+> rule would have stopped any of them.** I was tuning a filter on a surface
+> that should not have been publishing unreviewed text in the first place.
+>
+> **Ruling, in three parts. None of them is a pattern.**
+>
+> 1. **`staff_verified_at` becomes a gate, not a decoration.** The column
+>    already exists on `books`, is already set only by staff, and is already
+>    surfaced to the reviewer as `book_staff_verified` — **and nothing reads
+>    it as a condition.** A book row with `staff_verified_at IS NULL` has its
+>    **seller-written free text** served only to the actor who created it.
+>    Every other reader is served the ISBN and a neutral, BookHop-voiced
+>    label; never the unverified strings.
+> 2. **A listing on an unverified book cannot reach a buyer.** This is true
+>    today only as a side effect of `LISTING_REVIEW_ALL=true`, which means it
+>    evaporates the day that flag flips. It becomes a condition in its own
+>    right, so that the guard protecting it is structural rather than a test
+>    asserting a default.
+> 3. **`addressed` comes off catalogue text. No limb applies.** With (1) and
+>    (2) in place the layer is real: no seller-written catalogue text reaches
+>    another student without a named human having looked at it. **The whole
+>    `CATALOGUE_CHANNEL_KINDS` mechanism is deleted, not emptied** — an empty
+>    tuple invites the next person to put a limb back.
+>
+> `display_name` is untouched and keeps all three limbs at 7 digits. It is
+> served to other students immediately and has no review step, so there a
+> text rule is the only layer available — which is exactly why it is the one
+> place a text rule belongs.
+>
+> **What this cost, recorded, because the cost is the lesson.** Four rulings,
+> four rounds, three of them narrowing a filter. Rule 13 says a guard that
+> fires on the contracts it protects will be edited rather than obeyed; I
+> edited it three times and each edit was *correct about the case in front of
+> it*. The signal I missed is that **when every narrowing breaks on first
+> contact, the control is at the wrong layer** — the question to ask after the
+> second round is not "which shape next?" but "why is this field published
+> unreviewed at all?"
+
 > #### A-28 — `dialable` comes off catalogue text. The boundary does not exist. (2026-10-22, cto)
 >
 > **Third ruling on one question, and the last, because the measurement now
@@ -1195,6 +1263,7 @@ four contract guarantees:
 | **A-26** | 2026-10-22 | **The contact rule reaches catalogue text, two limbs of three.** `create_book` accepts a phone number or handle in `title`, `authors`, `publisher` and `edition_label`, and those render on **every** listing of that ISBN. `dialable` and `addressed` apply. **`linked` does not** - it fires on `Physics/Chemistry Combined`, and a guard that fires on legitimate content gets edited rather than obeyed (rule 13). The layer that catches `linked` is the review queue, which is only a layer while `LISTING_REVIEW_ALL` is true - so a test fails the day its default flips | REVIEW-S2 rework, backend escalation | cto |
 | **A-27** | 2026-10-22 | **A-26 corrected; it refused real book titles.** `A History of India 1707-1947` and `Physics ISBN 978-93-5260-123-4` were refused as phone numbers. `dialable` on catalogue text takes a **10-digit** minimum - the shortest dialable Indian number - leaving year ranges accepted and `wa.me/91...` caught. Threshold stays 7 for `display_name`: one definition, the caller's threshold. **A-26 asked rule 13's question of the limb it removed and not of the limb it kept** | REVIEW-S2 rework B-R1 | cto |
 | **A-28** | 2026-10-22 | **`dialable` comes off catalogue text; `addressed` alone applies.** `Journal 2019 2020 2021` and `+91 98400 12345` are both twelve digits in three whitespace-separated groups - structurally identical, so **no threshold separates them**. Rule 13 resort 2, ratified; the layer that catches a number in a title is the review queue under the existing flag guard. **Two narrowings that each broke on first contact is the signature of a boundary that does not exist** | backend measurement against A-27 | cto |
+| **A-29** | 2026-10-22 | **The named layer did not exist; the defect was never textual.** `books` is global and live at `create_book` - the queue reviews listings, not books - so a poisoned title is served from `/sell/find-book` with nothing waiting for review, and `authors` was shown to no reviewer at all. `staff_verified_at` becomes a **gate**: unverified seller text is served only to its author, a listing on an unverified book cannot reach a buyer, and **every limb comes off catalogue text**. A filter was being tuned on a surface that should not publish unreviewed text | QA rework F47-Q1/Q2/Q3 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

@@ -1044,3 +1044,478 @@ Unchanged from v1.0 except where noted:
 | Date | Change | By |
 |---|---|---|
 | 2026-10-22 | v2.0 — rework pass. **S2 passes.** Five blocking findings and the escalation closed; A-22 re-pointed with both halves and the no-count clause; the guard-for-the-guard converted rather than deleted; the SQLite introspection limit corrected (QA's finding was wrong); the photo race re-measured green; the copy catalogue verified independently of the fix; `web/selfcheck.py` wired with its reach measured at 4 of 31 and the gap closed over rendered HTML; both frontend fixes verified from the outside with a time-shifted fixture. One new finding (F46, the SQLite reverse) and one carried (F44's media half) | test-qa |
+
+---
+---
+
+# REWORK PASS — `2af14de..81e8f60` (2026-10-22, test-qa)
+
+**Scope: this diff only.** The v2.0 verdict above stands unamended. This
+section verifies the rework that followed `REDTEAM-S2.md` F47–F54,
+`REVIEW-S2.md`'s rework pass (B-R1 and R-R1…R-R7) and amendments **A-25
+through A-28**. I wrote none of the code and none of the tests under review;
+the 81 tests quoted below are mine and are in six new files, none of which
+edits a file owned by another agent.
+
+## VERDICT
+
+**DOES NOT PASS. One blocking finding set, one required, both against A-28 —
+not against the build.**
+
+Four of the caller's five priorities pass cleanly and two of them pass
+emphatically. **The EXIF stripper survived every real-world shape I could
+build**, including the two that would have put a GPS tag in a stored object,
+and it survived 3,200 mutated uploads without once raising anything but
+`ImageRejected`. The migration's refusal is not only correctly worded, the
+recovery it prints **converges when followed**, which is the half a
+message-text assertion cannot reach. P15's sweep is an age, in both roots,
+across the whole boundary, and it runs on an invocation that dies on its
+first argument. The `Vary` exemption is honest and its declared ceiling is
+real, measured rather than read.
+
+**What blocks is A-28's rule-12 discharge.** A-28 exempts `dialable` and
+`linked` from four catalogue fields and makes the exemption conditional on
+one named layer — the review queue, *"after F50 the reviewer is shown the
+title, the publisher and the edition"*. Measured: for one of the four fields
+the reviewer is shown **nothing**, and for all four the catalogue row reaches
+a student on a path the review queue is not on. Under rule 12 that makes the
+exemption a widening on those surfaces, not a clarification.
+
+## 18. Measurement, with the reach of each instrument
+
+### 18.1 Baseline at `81e8f60`, confirmed not assumed
+
+cto's table reproduced exactly, both engines, before I added anything:
+
+| Engine | Result | Skips | Wall |
+|---|---|---|---|
+| PostgreSQL 16 (`BOOKHOP_TEST_DB_NAME=test_qa_rework`) | **1 failed**, 1752 passed, 2 xfailed | 59 | 52.6s |
+| SQLite (`bookhop.settings.dev` default, `.env` **not** sourced) | **2 failed**, 1680 passed, 1 xfailed | 131 | 40.8s |
+
+Both failures are the two open documents findings cto named: F44 on both
+engines, F46's round-trip on SQLite only. **Nothing contradicted.** The skip
+count is the engine tell and both matched, so neither run was silently on the
+other engine.
+
+### 18.2 After this pass — 81 new tests
+
+| Engine | Result | Skips |
+|---|---|---|
+| PostgreSQL 16 | **4 failed**, 1829 passed, 2 xfailed | 60 |
+| SQLite | **5 failed**, 1757 passed, 1 xfailed | 132 |
+
+The three new failures are identical on both engines and are all mine: the
+three A-28 findings in §18.4. The pre-existing two are unchanged. **Run
+budget honoured: two full-suite runs on each engine, baseline and final,
+nothing in between.**
+
+The new set measured alone, so its reach is quoted rather than inferred —
+**81 collected, 77 passed, 3 failed, 1 skipped**:
+
+| File | Collected | Reached | Result |
+|---|---|---|---|
+| `tests/contract/test_the_exif_stripper_under_real_shapes.py` | 42 | 42 | green |
+| `tests/contract/test_the_backfill_refusal_is_actionable.py` | 12 | 12 | green |
+| `tests/contract/test_the_review_copy_sweep_is_an_age.py` | 16 | 15 | green, 1 platform skip |
+| `tests/contract/test_the_vary_exemption_is_narrow.py` | 3 | 3 | green |
+| `tests/contract/test_the_document_checks_can_still_fail.py` | 4 | 4 | green |
+| `tests/contract/test_a28_the_layer_that_was_named.py` | 4 | 4 | **3 red — the findings** |
+
+### 18.3 Priority 1 — the EXIF stripper, run rather than read
+
+Code Review verified termination and bounds by reading. **Verified here by
+running, on both engines, 42 of 42 subjects reached.**
+
+Seven real-world shapes, each asserted accepted *and* carrying nothing out —
+both halves in one subject, because a stripper that refused all of them would
+satisfy a "no metadata survives" assertion vacuously:
+
+| Shape | Why it is the shape that matters | Result |
+|---|---|---|
+| Google Motion Photo / Top Shot — MP4 `ftyp` + `moov` after EOI | F47's own example: the old copy ran to `len(data)` | **stripped at EOI** |
+| MPF (CIPA DC-007) second image **with its own EXIF APP1 and GPS IFD** | the sentence in the module docstring, built and run | **second image gone** |
+| Progressive JPEG, SOF2, three scans, APP1 and COM **between** scans | the case the one-line `find` would have got wrong | **all three segments gone** |
+| EXIF APP1 containing a whole JPEG thumbnail with its own SOI/EOI | the trap a `find(b"\xff\xd9")` falls into — every phone writes one | **not truncated** |
+| `FF FF FF` fill bytes before markers | permitted by the specification | accepted |
+| entropy containing `FF 00`, RST0/RST1/RST7 and the sequence `FF 00 D9` | the three things the walk must not read as an end-of-scan | accepted, walk correct |
+| no metadata at all | the negative control | accepted |
+
+Plus, on each of the seven: exactly **one** EOI in the output and it is the
+last two bytes; and **idempotence** — a second strip returns identical bytes,
+which matters because `sha256` is the content half of the storage key and the
+UNIQUE `(listing_id, sha256)` index 0004 adds.
+
+Eleven refusal shapes, each refused by name with a non-empty reason, never a
+bare exception: SOI only, dangling `FF`, four truncation points, EOI removed,
+4,000 markers and no frame header, length past the end, length below the
+minimum, a frame header too short for dimensions, and a non-marker byte where
+a marker must be.
+
+**Reach quoted because it is the point:**
+
+* **truncation sweep — 395 of 395 prefixes** of the 395-byte baseline tried.
+  Exactly one was accepted (the whole file) and it ends at an EOI. A dropped
+  3G upload cannot produce a stored object whose end nobody can locate.
+* **mutation fuzz — 8 seeds × 400 mutations = 3,200 mutated uploads** across
+  five base shapes (baseline JPEG, Motion Photo, MPF, PNG with `tEXt`, WebP
+  with `EXIF`), 1–6 byte-flip / truncate / append operations each. **Every
+  one returned or raised `ImageRejected`** — no `IndexError`, no
+  `struct.error`, no hang. Wall clock for the whole file: 0.9s against a 20s
+  per-seed budget, so the super-linear half of "termination" is measured too.
+  *Ceiling, declared:* it samples. A shape needing three coordinated
+  mutations is not reachable from here; the seven named shapes are the
+  structured half.
+* **the boundary the row claims, not the function's** — one journey test
+  uploads the Motion Photo through `add_photo` and reads the object back out
+  of the store: no `ftyp`, no `Exif\0\0`, no canary, `exif_stripped_at` set,
+  `bytes` equal to the stored length, and `sha256` equal to the digest **of
+  the stored object** and not of the upload. Between `strip_metadata` and the
+  row sits code that could have hashed the original, and the unit tests
+  cannot see it.
+
+**PASSES.** Two non-blocking observations in §18.9.
+
+### 18.4 Priority 2 — A-28 attacked. THREE FINDINGS, ALL RED
+
+#### F47-Q1 · BLOCKING · A-28's named layer does not cover `authors`
+
+`tests/contract/test_a28_the_layer_that_was_named.py::test_the_moderator_is_shown_the_authors_field_that_was_exempted`
+
+`create_book` checks `authors` per element for the reason A-26 gave — *"a
+channel in `authors[1]` renders exactly as widely as one in `title`"* — and
+`authors` renders on `/listing/{id}`, `/sell`, `/sell/find-book` and
+`/sell/{id}/photos`. A-28 removed `dialable` and `linked` from it and named
+the review queue as the layer.
+
+**Measured.** A book with `authors = ["B S Grewal", "notes wa.me/919840012345"]`,
+a listing of it in `PENDING_REVIEW` (premise asserted), and **the complete
+reviewer-facing output of both `review_listings` modes**:
+
+```
+#1  2026-10-22 14:47  signup  9788177589139  Engineering Mathematics  Rs 300.00  GOOD  damage=none  photos=0  verified_book=False  suspect=False  seed=True
+#1  PENDING_REVIEW  signup
+  book          9788177589139  Engineering Mathematics
+  edition       44th edition  Khanna  -
+  asking        Rs 300.00
+  condition     GOOD  annotations=NONE
+  damage        none claimed
+  category      PRESCRIBED_TEXTBOOK  language=en
+  book verified False  suspect=False  seed=True
+```
+
+`authors` is on neither line. `queue_rows` does not assemble it and `_show`
+does not print it. **For one of the four exempted fields there is no second
+layer at all** — the channel reaches every student who opens the listing and
+no human who could stop it. Rule 12: *"before granting any exemption, name
+the other layer that still catches it — if none does, it is a widening."*
+
+Cheapest fix, and it is not mine to make: one line in
+`review_listings._show`. The alternative — re-applying the limbs to `authors`
+only — is a contract decision and runs into the same false-positive question
+A-26/A-27/A-28 spent three rounds on.
+
+#### F47-Q2 · BLOCKING · the catalogue is not behind the review queue at all
+
+`…::test_a_poisoned_catalogue_row_reaches_a_student_without_any_listing`
+
+`books` is global (`ADR-002` §2) and live at `create_book`. The review queue
+reviews **listings**. Measured, in one journey:
+
+1. `create_book(title="Engineering Mathematics wa.me/919840012345")` — accepted
+   under A-28, correctly per the ruling;
+2. `review_listings --staff …` prints **"Nothing is waiting for review."**
+   (asserted, so this is genuinely the no-listing path);
+3. a signed-in student GETs `/sell/find-book?isbn=9788177589139` → **200**, and
+   the body contains `thematics wa.me/919840012345</p>`.
+
+So the channel is being served to students while the layer A-28 names has
+nothing in it. The view's own docstring is explicit that showing the
+catalogue is intended — *"What this page may show is the catalogue … no
+listing, no price and no person"* — which is why this is a finding against
+the **ruling**, not against the view. Two consequences the ruling does not
+address: a seller who never publishes leaves the row poisoned indefinitely,
+and **rejecting a listing does not unwrite the row**, so the next seller's
+listing of that ISBN carries it.
+
+**Escalation to cto against A-28.** F47-Q1 and F47-Q2 are one question: the
+exemption was granted on a layer that covers the listing surface and not the
+catalogue surface the exemption is about. I am not proposing which way it
+resolves; the options I can see are a reviewer view of `authors`, a staff
+check on `books` before a row is searchable, or `addressed`-plus-something on
+catalogue text. All three are contract decisions.
+
+#### F47-Q3 · REQUIRED · the limb A-28 kept fires on a real title shape
+
+`…::test_the_kept_limb_does_not_fire_on_a_real_published_title`
+
+A-28: *"`addressed` stays because an `@` followed by a non-space has no
+false-positive class in bibliographic text; it is the limb that never fired
+on anything real."* `_addressed` is `re.search(r"@[^\s@]", text)`. Measured
+on `contact_channels_in(v, ("addressed",))`:
+
+| Title | Result |
+|---|---|
+| `@War: The Rise of the Military-Internet Complex` | `['addressed']` → **refused** |
+| `Love@First Site` | `['addressed']` → **refused** |
+| `Chat@Work: Email and the Office` | `['addressed']` → **refused** |
+
+`@War` is a published book (Shane Harris, 2014). **I cannot check an ISBN
+from this machine**, so the claim I am making is the narrower and sufficient
+one: titles of this shape exist in print, and `create_book` is the only path
+for a book not already in the catalogue, under the sentence *"Enter what is
+printed on the book."* No workaround exists.
+
+This is the third round of rule 13's named failure on one rule, and it landed
+on the limb A-28 kept — the same way A-27's landed on the limb A-26 kept.
+A-27 wrote the lesson: *"asking the question once and treating it as asked is
+its own failure mode."* A-28 asked it of `dialable` and `linked` and asserted
+the answer for `addressed`.
+
+**Severity is lower than B-R1's** and that is why this is required rather
+than blocking: a hyphenated year range is in a large fraction of Chennai
+syllabus titles, an `@` is in very few. It is still a red test on a real
+title, which rule 13 says precedes an edit to `apps/core/contact.py` under
+schedule pressure.
+
+The accepted side is a row too (rule 10's corollary): the five strings that
+broke A-26 and A-27 — `A History of India 1707-1947`, `Journal 2019 2020
+2021`, `Physics/Chemistry Combined`, `Physics ISBN 978-93-5260-123-4`,
+`Collected Works 1 2 3 4 5 6 7 8 9 10` — are all **accepted and stored
+unchanged**, asserted, green. A-28's own ruling holds on every shape it was
+written for.
+
+### 18.5 Priority 3 — the migration's backfill refusal. PASSES
+
+Backend's own test asserts the exception type and two message fragments on
+one of three reachable causes. Twelve subjects added, all green:
+
+* **eight clause subjects, one parametrised test each** — the row id, *"will
+  not mint a token"*, `purge_media`, `erasure`, *"NULL storage_key"*,
+  *"re-run"*, *"put it back"*, `INFRA.md`. One assertion per clause, because
+  an aggregate lets a second missing clause hide inside the first.
+* **three identifiers interpolated, not described** — row pk, listing id and
+  the `storage_key` that does not resolve are all in the message.
+* **two refusal causes nothing had reached.** A file **is** in the listing
+  directory and is **not** this row's bytes → refused on the content check,
+  the row unchanged, and **the stray file survives** (a migration that
+  deleted what it declined to adopt would destroy what recovery 2 asks the
+  operator to put back). And the whole `media/listings` tree removed — the
+  `INFRA.md` §3 restore state — which returns from `_adopt` before reading
+  anything and is a different code path from one missing file.
+* **the recovery converges, which is the assertion a message-text check
+  cannot make.** Two photographs on one listing, one file gone for good. The
+  backfill refuses; the operator does exactly what the message says (*"null
+  it and re-run"*); the re-run completes, the surviving photograph still
+  reads back **byte-for-byte**, its row carries a token, and the nulled row
+  is **not** given a key again.
+
+Rule 10's sixth disguise is specifically that a refusal can look like the
+guard working. Here the refusal is the guard working, and the instruction it
+prints is one an operator can follow at 3am.
+
+### 18.6 Priority 4 — P15's sweep is an age. PASSES
+
+`COMPLIANCE.md` §7 row 25's enforcement clause is *"a sweep of
+`bookhop-review-*` directories older than 24h, in `tempfile.gettempdir()`
+and in any `--photos DIR`, run at the top of every `review_listings`
+invocation."* Sixteen subjects, 15 reached:
+
+* **the boundary from both directions, seven ages, one subject each** — 0s,
+  30min, 23h and 24h−60s survive; 24h+60s, 25h and 30 days go. Two points do
+  not locate a threshold: an inverted comparison or a 24-*minute* constant
+  passes a 25h-goes/60s-stays pair. `REVIEW_COPY_TTL_SECONDS == 24*3600` is
+  asserted in the same test, so the rows cannot be testing a different rule.
+* **the forbidden side of the name rule, which nothing asserted** — five
+  stale-by-a-month bystanders in the same root survive: `pytest-of-praveen`,
+  `pip-build-env-x7`, and the near misses `bookhop-export-stale`,
+  `review-bookhop-stale`, `bookhopreview-stale`. Our own stale copy in the
+  same root goes in the same call. A sweep that `rm -rf`'d everything stale
+  in `gettempdir()` satisfies every assertion in
+  `test_the_review_copies_expire.py` and destroys the developer's and the
+  operating system's working directories.
+* **`is_dir()` is load-bearing, so it is a row** — a stale *file* named
+  `bookhop-review-notadirectory` survives, and does not stop the sweep
+  reaching the real stale copy beside it.
+* **it runs on an invocation that fails early.** `--staff
+  nobody@nowhere.invalid` raises `CommandError`, **and the stale copies are
+  gone and the deletion is printed**. If the sweep sat after `staff_actor`,
+  the clock would run only on successful invocations — which is not a clock.
+  The fresh copy survives that path too.
+* **NOT VERIFIED, skipped with a reason rather than passed:** whether the
+  prefix match is case-sensitive. `Path.glob` inherits the filesystem's case
+  rules, so `BOOKHOP-REVIEW-x` matches here (win32/NTFS) and would not on the
+  ext4 deployment target — and the two names cannot coexist as directories on
+  this machine, so the row came out of the parametrised list rather than
+  being quietly dropped. **ASSUMED THERE.** Nothing creates such a name
+  today; `REVIEW_COPY_PREFIX` is the only writer.
+
+### 18.7 Priority 5 — the `Vary` exemption and its ceiling. PASSES
+
+* **The declared ceiling is real, measured.** The ponytail comment claims *"a
+  header read in `web/context.py`, `web/forms.py` or a template tag is not
+  seen. No such read exists today."* An AST walk over every module in `web/`
+  except `views.py` finds **zero** `.headers` attributes and zero `HTTP_*`
+  constants. There is no `templatetags` package anywhere in the tree. The
+  claim holds.
+* **The exemption is honest as used.** `_ip_ua` reads `User-Agent` and
+  `REMOTE_ADDR`; the UA goes to `accounts.request_magic_link`, whose rate
+  limits are keyed on the **email and the IP** and not on it, so nothing in
+  any body depends on it. Checked, not taken on trust.
+* **The exemption is wider than its defence, and that is now narrowed from
+  my tree.** `HEADER_READERS_THAT_NEED_NO_VARY` exempts a **function**; the
+  sentence justifying it is about **one header**. A `Save-Data` read added
+  inside `_ip_ua` tomorrow is exempt for free, and `_ip_ua` is called from
+  most write paths in the file.
+  `test_an_exempted_function_reads_only_the_header_its_exemption_defends`
+  asserts the resolved set of headers read inside each exempted function is a
+  subset of `{user-agent}`, and fails by name otherwise. Rule 10's corollary
+  on marks. Green today; no change to frontend's file.
+* **One more hole closed from outside.** The structural walk keys on
+  `Attribute(value=Name('request'), attr='headers')`, so `req.headers` or
+  `self.request.headers` in a helper is invisible to it.
+  `test_no_header_is_read_off_a_request_under_any_other_name` asks the
+  property — **any** `.headers` access, whatever it hangs off — and is green,
+  because the house style is `request` throughout. Cheap now, expensive later.
+
+### 18.8 The F44 shape, hunted elsewhere as instructed
+
+**cto's narrowing of F44's media check is correct and I am not overruling
+it.** The retired pattern was `\bmedia\b|tarball|tar -|photo` over §3.3; the
+new one asks for the control — an archive extracted **and** a stored-file
+reference resolved. I have added three guards rather than a second opinion,
+in `test_the_document_checks_can_still_fail.py`:
+
+1. **Inverted, per rule 10's fifth disguise.** It imports and **runs** F44's
+   real check and asserts it still raises *with the words "never opens it"*.
+   There is one definition of the control and this cannot drift from it. It
+   goes red on the commit that genuinely closes F44 — at which point it is
+   deleted in that diff — and it goes red first on any accidental greening.
+2. **The retired word-grep is shown to be green right now**, so the recorded
+   reason for the narrowing is a measurement and not a story.
+3. **The narrowed check is shown to be satisfiable** by the step cto
+   proposes (`tar -xzf …` plus a `storage_key` resolution), because a control
+   no reachable document can meet is rule 10's second disguise and gets
+   deleted rather than met.
+
+**The same shape found elsewhere — one instance, non-blocking.** Every test
+in the tree that reads a document was inspected
+(`test_append_only_by_behaviour`, `test_precondition_stacks`,
+`test_open_criticals_are_honest`, `test_response_boundary`,
+`test_s2_pages`'s REVIEWED.toml check, `test_s2_photos`'s locale checks,
+F44's). All but one parse structure and carry a non-vacuity guard.
+
+The exception is `tests/contract/test_open_criticals_are_honest.py`: after
+extracting the two `xfail` marks it asserts the memo citation with
+`re.search(r"ENGINEERING-MEMO\s*§1", source)` over the **whole file**.
+Measured: `ENGINEERING-MEMO` occurs twice in `test_least_privilege.py`, at
+line 3 (module docstring) and line 136 (the reason constant). **The docstring
+alone satisfies it**, so the reason could lose the citation and the assertion
+the test's own message describes would still pass. And it cannot be fixed by
+searching the extracted mark text, because both marks are written
+`reason=LIVE_CRITICAL` — the mark text is `'strict=True, reason=LIVE_CRITICAL'`
+and contains no citation at all.
+`test_the_open_critical_citation_is_asserted_on_the_reason_not_the_file`
+resolves the constant through the AST and asserts the sentence a reader
+actually sees on a skipped test. Green. Additive; their file is untouched.
+
+**A disappearing failure, treated with the same suspicion as a new one:**
+R-R2. `test_tenant_fk_migration.py::test_the_migration_round_trips_forward_reverse_forward`
+still fails on SQLite, and it now fails **with the F46 finding** — the
+`foreign key mismatch`, the cause quoted out of the migration's own reverse,
+the measured control state (`tenant_identity_index: False`,
+`campus_city_guards: 0`), the measured behaviour (*"a photo whose is_seed
+disagrees with its listing was accepted, which is F34 reopened"*) and the
+measured recovery (plain `migrate listings` raises; `--fake` to 0002 then
+forward works). That is what R-R2 asked for and it is not a failure that went
+quiet. **Verified.**
+
+### 18.9 Other things found that no document specifies — non-blocking
+
+1. **`_PNG_METADATA_CHUNKS` is dead and its docstring claims two uses that do
+   not exist.** `apps/listings/images.py:208` says the named list is *"kept
+   only for the error message and for the test's own assertions"*. Grepped:
+   the name appears **once in the whole repository**, at its own definition.
+   No error message interpolates it and no test reads it. The ancillary-chunk
+   property below it is what does the work, which the comment also says.
+   Rule 9's corollary — delete the explanation, or the constant.
+2. **`PLTE` in `_PNG_KEEP_ANCILLARY` is dead.** `b"PLTE"[:1].isupper()` is
+   `True`, so it is critical and kept by the `critical` branch before the
+   allow-list is consulted. A reader could conclude the ancillary allow-list
+   is what preserves palettes. It is not.
+3. **`queue_rows`' printed line truncates the title to 48 characters**
+   (`row['title'][:48]`). A channel placed past character 48 is invisible in
+   the queue listing; `--listing N` shows the title untruncated, so the layer
+   survives only if the moderator opens the listing. Observation, not a
+   defect — but it is a second reason F47-Q1's fix should land in `_show`.
+4. **The Tamil gate is closed and asserted closed, by existing tests**, which
+   is what my charter requires rather than something I needed to add:
+   `test_locale_gate.py` asserts the flag is absent-or-false by default, that
+   it **cannot** be true while a blocking-class string is unreviewed, that a
+   published Tamil notice is not served while it is off, that a stored user
+   locale is gated too, and it carries a fixture-can-produce-the-condition
+   guard. `locale/ta/REVIEWED.toml` exists and is asserted empty.
+   `trust.photo.alt` is asserted inside a blocking class. **No Tamil copy is
+   reported as verified anywhere in this section.**
+
+### 18.10 NOT VERIFIED in this pass, and why
+
+1. **Accessibility.** Unchanged from v2.0: no browser automation on this
+   machine, so WCAG 2.2 AA is HTML-level only and the keyboard walkthrough
+   and accessible-name criteria are still manual. This rework added CSS and
+   template changes (`static/css/app.css` +50, `templates/listing.html` +94)
+   that I have **not** re-walked.
+2. **p75 LCP and p95 search latency.** S3, and they need a throttled browser
+   profile.
+3. **The `/media/` nginx `internal` probe** (A-25, R-R3). It is nginx
+   configuration; no conformance test can run it and §3.3 step 6b is where it
+   lives. **ASSUMED THERE.**
+4. **F44's media half.** Still open, and now guarded against greening by
+   accident.
+5. **F46.** Open, backend's, and its diagnostic is intact.
+6. **The EXIF fuzz samples; it does not prove.** Declared in §18.3.
+7. **The case-sensitivity of the sweep's prefix on ext4.** §18.6, skipped
+   with a reason naming platform and slice.
+8. **Everything in the diff outside the five priorities**: `apps/accounts/services.py`
+   (+20), `apps/listings/models.py` (+29), the `web/views.py` changes beyond
+   the header recorder, and `COMPLIANCE.md` §8's new rows. Not examined. This
+   was a scoped rework pass, not a second S2 pass.
+
+## 19. Blocking list
+
+| # | Finding | Owner | Test |
+|---|---|---|---|
+| **F47-Q1** | A-28's named layer does not cover `authors` — the reviewer is shown nothing, the student is shown everything | **cto** (ruling), then backend or frontend for `_show` | `test_the_moderator_is_shown_the_authors_field_that_was_exempted` |
+| **F47-Q2** | The catalogue surface is not behind the review queue at all: a poisoned `books` row is served to a student with the queue empty | **cto** | `test_a_poisoned_catalogue_row_reaches_a_student_without_any_listing` |
+
+## 20. Required (not blocking)
+
+| # | Finding | Owner | Test |
+|---|---|---|---|
+| **F47-Q3** | `addressed` refuses a title of the `@War` shape; A-28's stated ground for keeping the limb is contradicted | **cto** | `test_the_kept_limb_does_not_fire_on_a_real_published_title` |
+| F47-Q4 | `test_open_criticals_are_honest.py`'s memo citation is satisfied by the module docstring; the fix is to resolve the reason constant | test-qa (mine) | covered green by `test_the_open_critical_citation_is_asserted_on_the_reason_not_the_file` |
+| F47-Q5 | Two dead declarations in `apps/listings/images.py` whose comments describe uses that do not exist | backend | none — a reading, not a behaviour |
+
+## 21. Findings index · rework
+
+| # | Status | Finding |
+|---|---|---|
+| F44 | **open, guarded** | §3.3 still never opens the media tarball; the check can no longer go green by accident |
+| F46 | **open, diagnostic intact** | R-R2 fixed: the test reports F46 rather than dying of it |
+| **F47-Q1** | **NEW, BLOCKING** | A-28's layer does not cover `authors` |
+| **F47-Q2** | **NEW, BLOCKING** | A-28's layer does not cover the catalogue surface |
+| **F47-Q3** | **NEW, required** | `addressed` fires on a real title shape |
+| F47-Q4 | **NEW, low** | a memo-citation check satisfied by a docstring |
+| F47-Q5 | **NEW, cosmetic** | two dead declarations with live-sounding comments |
+| — | **verified** | the EXIF stripper, on 7 real-world shapes, 395 truncations and 3,200 mutations, at the function **and** at the row |
+| — | **verified** | the 0004 backfill's refusal: every clause, three causes, and the printed recovery converges |
+| — | **verified** | P15's sweep is an age across the whole boundary, in both roots, with the forbidden side asserted, and it runs on an invocation that fails early |
+| — | **verified** | the `Vary` exemption is honest, its declared ceiling is real, and it is now narrowed to the one header it defends |
+| — | **verified** | cto's F44 narrowing; endorsed and guarded three ways |
+
+---
+
+## Amendment log — rework
+
+| Date | Change | By |
+|---|---|---|
+| 2026-10-22 | **Rework pass `2af14de..81e8f60`. DOES NOT PASS: two blocking, one required, all three against A-28 and none against the build.** EXIF stripper verified by running on Motion Photo, MPF-with-GPS, progressive-with-metadata-between-scans and an EXIF-embedded thumbnail, plus 395 truncations and 3,200 mutations, at the function and at the row. Backfill refusal verified clause by clause with the printed recovery executed. P15's sweep verified as an age across the boundary and on an early failure, with the forbidden side of the name rule asserted for the first time. The `Vary` ceiling measured and the exemption narrowed from QA's tree. cto's F44 narrowing endorsed and guarded by an inverted test; the same shape found in one other instrument and closed additively. Baseline reproduced exactly on both engines; two full-suite runs per engine and no more | test-qa |
