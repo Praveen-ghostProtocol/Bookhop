@@ -79,8 +79,15 @@ ALLOWED = {
         "would make the audit row describe a different write"
     ),
     ("apps/catalog/models.py", "Book.__str__"): (
-        "`__str__` reaches the Django admin and the logs, both of which are "
-        "staff surfaces. No student-facing template renders a model instance"
+        "no call site. Nothing in the tree stringifies a `Book`: no "
+        "`str(book)`, no `f\"{book}\"`, no `{{ book }}`, and the one log line "
+        "touching one logs `book.id`. The reason used to name the Django "
+        "admin, which is not in `INSTALLED_APPS` — a permitted read whose "
+        "stated consumer does not exist (F55). The allowance is legitimate "
+        "exactly while it stays unreached, which "
+        "`tests/contract/test_catalogue_text_gate_blind_spots.py::"
+        "test_nothing_stringifies_a_book_while_str_returns_seller_written_text`"
+        " is what measures"
     ),
     ("apps/listings/staff.py", "queue_rows"): (
         "a staff reader. `review_queue` refuses a non-staff actor before any "
@@ -98,6 +105,21 @@ ALLOWED = {
 #: The two functions whose allowance rests on a refusal rather than on being
 #: harmless. Named here so the measurement below cannot drift from the reason.
 STAFF_READERS = ("queue_rows", "Command._show")
+
+#: `(path, qual) -> the sealed attributes that allowance covers`. An absent key
+#: means the whole function, which is every allowance that is a *surface*
+#: judgement — a staff reader is a staff reader whatever it prints.
+#:
+#: `create_book`'s is not a surface judgement. Its reason is one `audit_log`
+#: after-dict line about `title`, and a function-scoped allowance would cover a
+#: future read of `authors`, `publisher` or `edition_label` in the same
+#: function for free — the aggregate-mark failure of `CLAUDE.md` rule 10's
+#: corollary, one scope up from the file-level one the `ALLOWED` comment
+#: already names. QA raised it with no instance in the tree; this is the clause
+#: rather than a note saying a clause would help.
+ALLOWED_ATTRS = {
+    ("apps/catalog/services.py", "create_book"): frozenset({"title"}),
+}
 
 
 def _sealed_reads(source):
@@ -179,7 +201,16 @@ def test_no_sealed_catalogue_attribute_is_read_outside_the_gate():
     the difference between a control and a grep somebody has to remember to
     run.
     """
-    unknown = {k: v for k, v in _tree_reads().items() if k not in ALLOWED}
+    assert set(ALLOWED_ATTRS) <= set(ALLOWED), (
+        "`ALLOWED_ATTRS` narrows a key that is not in `ALLOWED`, so the "
+        "narrowing is never consulted and reads as coverage it does not give"
+    )
+    unknown = {}
+    for key, reads in _tree_reads().items():
+        covered = ALLOWED_ATTRS.get(key, SEALED) if key in ALLOWED else frozenset()
+        extra = [r for r in reads if r[1] not in covered]
+        if extra:
+            unknown[key] = extra
     assert not unknown, (
         "A-29 §1: these read a `SELLER_WRITTEN_TEXT` attribute outside "
         "`served_book_text` and the staff readers, so unverified text a "
@@ -217,6 +248,17 @@ def test_every_allowance_matches_a_live_access(path, qual):
         f"entry is not harmless: it silently exempts the next function "
         f"somebody gives that name in that file. Delete the entry."
     )
+    # And the same question of a narrowed allowance's attribute list: a pinned
+    # attribute nobody reads any more is the same stale exemption one scope
+    # smaller, and the pin is what would hide it from the assert above.
+    pinned = ALLOWED_ATTRS.get((path, qual))
+    if pinned is not None:
+        dead = pinned - {attr for _lineno, attr, _recv in reads}
+        assert not dead, (
+            f"`ALLOWED_ATTRS[({path!r}, {qual!r})]` pins {sorted(dead)}, which "
+            f"{qual}() no longer reads. Narrow the pin to what it does read, "
+            f"or delete the entry and let the allowance cover the function."
+        )
 
 
 @pytest.mark.parametrize(
@@ -247,7 +289,7 @@ def test_the_walk_sees_each_read_shape(snippet, why):
         ('x = kind.replace("_", " ").title()', "`str.title()` is a method, not a read"),
         ('x = {"title": t}', "a dict key is not an attribute"),
         ('x = form.cleaned_data["title"]', "a subscript is not an attribute"),
-        ('x = getattr(book, name)', "a computed name — covered by test_forbidden_source"),
+        ('x = getattr(book, name)', "a computed name — the declared hole, pinned below"),
         ('x = text["title"]', "`_book_of` reading the gate's own answer"),
     ],
 )
@@ -255,8 +297,10 @@ def test_the_walk_does_not_fire_on_these(snippet, why):
     """Both sides are rows (rule 10's corollary). A walk that flagged every
     `.title()` in the tree would be edited rather than obeyed (rule 13), and
     `x = getattr(book, name)` is listed here as the **declared hole**, not as
-    a safe shape: it is `test_forbidden_source`'s to catch, and that is the
-    other layer rule 12 asks me to name."""
+    a safe shape. The layer that catches it is
+    `test_a_dynamic_attribute_name_is_pinned_to_a_non_book_receiver` below —
+    not `test_forbidden_source`, which this module's docstring withdraws by
+    measurement, and which the reason on that row said until F56."""
     assert not _sealed_reads(snippet), f"the walk fires on {why}: {snippet!r}"
 
 
@@ -540,4 +584,175 @@ def test_listing_detail_is_still_an_own_rows_read():
         "docstring, decide which actor this page passes, and change this test "
         "to assert that decision. Do not simply delete it: A-29 §2 is the "
         "only reason the difference is not a leak today."
+    )
+
+
+# --- A-32: a student's own words, and only on the surface they are theirs ---
+
+#: A typed title that cannot be confused with `unverified_book`'s own
+#: ("Higher Engineering Mathematics"). A test that typed the same words could
+#: not tell *their title was shown* from *the other student's title leaked*,
+#: which is rule 10's vacuous pass wearing the right assertion.
+MY_WORDS = "Grewal maths, 43e, the big green one"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("typed", [True, False], ids=["typed-a-title", "typed-nothing"])
+def test_the_wanted_page_serves_a_student_their_own_words_and_withholds_the_rows(
+    requester, unverified_book, typed
+):
+    """A-32, F51 and F52 — through the POST that threw the words away.
+
+    **Both sides are rows** (rule 10's corollary). *Typed:* what they wrote is
+    stored and rendered, and the catalogue row's title still is not. *Typed
+    nothing:* the row stays withheld as the `ISBN 978…` identity, which is
+    A-29 §1 unchanged. A view that served the catalogue title to anyone who
+    had typed anything would pass the first half and fail the second; a view
+    that still discarded the typed title would pass the second and fail the
+    first.
+
+    Driven through `POST /wanted` and not `create_request`, because the defect
+    was the view's: `free_text_title=None if book is not None else …` threw
+    the words away before the service saw them, so a service-level test was
+    green while the page was bare.
+    """
+    from apps.accounts.sessions import SESSION_USER_KEY
+    from apps.catalog.services import served_book_text
+    from apps.listings.models import BookRequest
+    from django.test import Client
+
+    assert served_book_text(unverified_book, requester)["withheld"] is True, (
+        "the fixture no longer produces the condition this test is about"
+    )
+
+    client = Client()
+    session = client.session
+    session[SESSION_USER_KEY] = requester.id
+    session.save()
+    posted = client.post(
+        "/wanted",
+        {
+            "isbn": unverified_book.isbn13,
+            "title": MY_WORDS if typed else "",
+            "course_code": "MA8151",
+        },
+    )
+    assert posted.status_code == 302, posted.content
+
+    row = BookRequest.all_objects.get(requester_pseudonym=requester.person_pseudonym)
+    assert row.book_id == unverified_book.id, (
+        "the ISBN no longer matches the unverified row, so this test is about "
+        "a free-text want and not about F51"
+    )
+    assert row.free_text_title == (MY_WORDS if typed else None), (
+        "F51: what the student typed is stored whether or not the ISBN "
+        "matched somebody else's catalogue row"
+    )
+
+    body = client.get("/wanted").content.decode()
+    assert unverified_book.title not in body, (
+        "A-29 §1: the title on that row is another student's words, and no "
+        "amount of the reader's own typing unlocks it"
+    )
+    if typed:
+        assert MY_WORDS in body, "F52: their own words, served back to them"
+        assert f"ISBN {unverified_book.isbn13}" not in body, (
+            "the ISBN-only form is what a bare row reads as; this row is not "
+            "bare, so the substitution did not happen"
+        )
+    else:
+        assert f"ISBN {unverified_book.isbn13}" in body, (
+            "a student who typed nothing has no words of their own, and the "
+            "row must stay withheld rather than borrow the catalogue's"
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("second_post", "rows", "why"),
+    [
+        ({"title": "the big green maths book"}, 1, "two spellings of one want are one want"),
+        ({"course_code": "MA8251"}, 2, "a different course is a different want"),
+    ],
+    ids=["another-spelling", "another-course"],
+)
+def test_a_want_carrying_a_book_fk_is_idempotent_on_the_book_and_the_course(
+    requester, unverified_book, second_post, rows, why
+):
+    """A-32's one consequence, decided in the amendment rather than here.
+
+    Storing the typed label would otherwise split one want into two rows,
+    because the shape filter keyed on it. **Both sides are rows:** a second
+    spelling of the same want for the same course collapses, and the same book
+    for a different course does not — so the key is `book_id` and
+    `course_code` rather than the broader *one open want per book*, which
+    would pass the first case and swallow a real second want.
+    """
+    from apps.accounts.sessions import SESSION_USER_KEY
+    from apps.listings.models import BookRequest
+    from django.test import Client
+
+    client = Client()
+    session = client.session
+    session[SESSION_USER_KEY] = requester.id
+    session.save()
+    first = {"isbn": unverified_book.isbn13, "title": MY_WORDS, "course_code": "MA8151"}
+    assert client.post("/wanted", first).status_code == 302
+    assert client.post("/wanted", {**first, **second_post}).status_code == 302
+
+    open_rows = BookRequest.all_objects.filter(
+        requester_pseudonym=requester.person_pseudonym, status="OPEN"
+    )
+    assert open_rows.count() == rows, (
+        f"{why} — stored: "
+        f"{list(open_rows.values_list('free_text_title', 'course_code'))}"
+    )
+
+
+@pytest.mark.django_db
+def test_the_substitution_is_the_requests_and_cannot_reach_a_listing(
+    requester, unverified_book
+):
+    """A-32's boundary: a seller who typed nothing has no words to show.
+
+    `listings` has no free-text column, so a listing surface has nothing to
+    fall back **to** — which is a property of the schema today, not a control.
+    The control is in two clauses: the helper every listing template reads
+    (`_book_of`, through `sell.html`, `sell_photos.html`, `listing.html` and
+    `sell_find.html`) still answers with the withheld form, and the request's
+    column has exactly one reader in `web/views.py`. The second is what fails
+    the day somebody wires the fallback into `_book_of` or `_listing_row` and
+    makes the leak possible — at which point a seller would be shown either
+    another student's typed title or the catalogue row A-29 §1 withholds.
+    """
+    from web.views import _book_of
+
+    served = _book_of(unverified_book, requester)
+    assert served["withheld"] is True
+    assert served["title"] == f"ISBN {unverified_book.isbn13}", (
+        "the shared listing/request helper has started serving something "
+        "other than the identity for a row its reader did not write"
+    )
+
+    source = (ROOT / "web" / "views.py").read_text(encoding="utf-8")
+    readers = {
+        node.name
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(
+            (isinstance(child, ast.Attribute) and child.attr == "free_text_title")
+            or (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id == "getattr"
+                and len(child.args) >= 2
+                and isinstance(child.args[1], ast.Constant)
+                and child.args[1].value == "free_text_title"
+            )
+            for child in ast.walk(node)
+        )
+    }
+    assert readers == {"_request_row"}, (
+        "A-32 substitutes a student's own words on the **request** surface "
+        f"only, and these functions read `free_text_title`: {sorted(readers)}"
     )

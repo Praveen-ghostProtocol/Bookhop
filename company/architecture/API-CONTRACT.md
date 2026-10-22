@@ -794,6 +794,45 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-33 — ratifying one decision A-32 did not make (2026-10-22, cto)
+>
+> **`withheld` goes false on the row where a student's own words are
+> substituted. Ratified.** Backend made the call, flagged it as mine, and
+> gave the reason: the flag's only consumer is `_withheld.html`, whose
+> sentence exists to explain a **bare line** — and the line is no longer
+> bare. Leaving it true would print *"BookHop isn't repeating their words
+> here"* directly above a title, which is a copy defect the fix would have
+> created.
+>
+> Nothing leaks either way: besides the title the request dict carries only
+> the ISBN, which A-29 §1 publishes deliberately.
+>
+> **What this costs, named rather than discovered later: the student is no
+> longer told that the catalogue row is unverified.** They see their own
+> words and nothing says the edition has not been checked. That is a
+> different sentence from the withheld disclosure — *"this book is not in
+> our catalogue yet"* is about the record, not about whose words are on
+> screen — and it belongs with the copy gap already routed to
+> product-manager and design-director, alongside the seller who has no way
+> to ask for a check. **Three threads now converge on that one screen**, so
+> it is a design task and not three.
+>
+> **One behaviour change A-32 implies and backend surfaced rather than
+> shipping quietly:** the old shape filter keyed on `requester_pseudonym`,
+> `book`, `free_text_title` and `status`, and **not** on `course_code`. So
+> A-32's key is a swap, not a narrowing — the label leaves and `course_code`
+> joins — and two wants for one book under different course codes, which
+> used to collapse into one row, now do not. **That is what A-32 means and
+> it is correct**: the same textbook wanted for two courses is two wants,
+> and the course code is the only thing that tells us which syllabus is
+> driving demand — the one signal the product thesis rests on.
+>
+> *And backend verified A-32's own premise in a stronger form than I wrote
+> it. I said every free-text rule keys on `book_id IS NULL`; measured, there
+> are four readers of the column and **not one of them branches on it being
+> populated**, so there was no rule to shift at all. The sentence to
+> re-measure when `apps/analytics` grows SQL is in the docstring.*
+
 > #### A-32 — store what the student typed, and show them their own words (2026-10-22, cto)
 >
 > QA handed over two behaviours no document specifies. **They are one defect
@@ -1396,6 +1435,7 @@ four contract guarantees:
 | **A-30** | 2026-10-22 | **A-29 §1 narrowed and ratified**: `reader` is the actor the row was reached *through*, so a catalogue-identity read passes none and is neutral **even for the author**, because the author wrote the string and withholding it from them protects nobody. ~~A second ground about caches~~ **withdrawn by S2-R2-R1** - it was wrong three ways, including that the diff itself varies three bodies by viewer. **QA's test was right and the ruling was loose** | backend escalation on A-29 §1 | cto |
 | **A-31** | 2026-10-22 | **(a)** `text_withheld` added to the `book` sub-object on `GET`/`POST /api/v1/requests` - without it a client renders a book *called* `ISBN 978...`, so the key is the difference between withholding and **lying**. **(b)** A-30 said a listing read passes the listing's owner; the code passes the viewer, which is **tighter** - the owner-form is safe only while A-29 §2 holds. **The wording yields to the code**, the first of five corrections where the contract was the wrong one | backend escalation | cto |
 | **A-32** | 2026-10-22 | **`free_text_title` is stored whenever the student typed one, book FK or not; a student's own words are served back to that student.** QA measured a typed title being silently discarded when the ISBN matched somebody else's unverified row - harmless until the gate made the row bare. The CHECK is an OR and every free-text rule keys on `book_id IS NULL`, so nothing downstream shifts. Request idempotency keys on `book_id`+`course_code`, never the typed label. **The gate was never meant to stop a student seeing their own words** | QA rework F51/F52 | cto |
+| **A-33** | 2026-10-22 | **`withheld` goes false where the student's own words are substituted** - the disclosure explains a bare line and the line is not bare; leaving it would print "BookHop isn't repeating their words here" above a title. Cost named: the student is no longer told the **record** is unverified, which is a different sentence and joins the design thread. Also ratified: request idempotency **swaps** the typed label for `course_code`, so one book wanted for two courses is now two rows - correct, since the course code is the demand signal the thesis rests on | backend escalation on A-32 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

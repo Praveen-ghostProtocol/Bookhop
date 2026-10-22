@@ -1776,7 +1776,11 @@ def wanted(request):
             _listings().create_request(
                 user,
                 book=book,
-                free_text_title=None if book is not None else (title or isbn),
+                # A-32: what the student typed is stored whether or not the
+                # ISBN matched a catalogue row. The ISBN is the label only
+                # when they typed no title and we found no book — then it is
+                # all we have, and DATA-MODEL §3's CHECK needs one of the two.
+                free_text_title=title or (None if book is not None else isbn),
                 course_code=form.cleaned_data["course_code"] or None,
             )
         except errors.ServiceError as exc:
@@ -1820,10 +1824,23 @@ def _request_row(req, reader=None):
     is threaded down here rather than left to the template.
 
     `free_text_title` is untouched by the gate: those are the requester's own
-    words about their own row, and no `books` row exists for them at all.
+    words about their own row, and **A-32 is why a row can now have both.**
+    When the catalogue row is withheld and the student typed a title, theirs
+    is what the page shows, and `withheld` goes false with it: there is no
+    second reader here, so there is nothing to withhold from, and the
+    disclosure in `_withheld.html` explains a bare line that is not bare.
+    Nothing of the other student's text is served either way — the only
+    catalogue value this dict carries besides the title is the ISBN, which
+    A-29 §1 publishes deliberately.
+
+    **This substitution is the request's and not the listing's.** A seller who
+    typed nothing has no words of their own, and `_listing_row` has no
+    `free_text_title` to fall back to — `listings` has no such column, so the
+    fallback cannot reach a listing even by accident.
     """
     book = getattr(req, "book", None)
     text = _book_of(book, reader) if book is not None else None
+    mine = getattr(req, "free_text_title", None)
     status = getattr(req, "status", None)
     word = {
         "OPEN": ("wanted.status.OPEN", "Still looking"),
@@ -1831,11 +1848,17 @@ def _request_row(req, reader=None):
         "WITHDRAWN": ("wanted.status.WITHDRAWN", "You closed this"),
         "EXPIRED": ("wanted.status.EXPIRED", "Closed at the end of term"),
     }.get(status)
+    if text is None:
+        title = mine
+    elif text["withheld"]:
+        title = mine or text["title"]
+    else:
+        title = text["title"]
     return {
         "id": getattr(req, "id", None),
-        "title": text["title"] if text else getattr(req, "free_text_title", None),
+        "title": title,
         "isbn": text["isbn"] if text else None,
-        "withheld": bool(text and text["withheld"]),
+        "withheld": bool(text and text["withheld"] and not mine),
         "course_code": getattr(req, "course_code", None),
         "status": status,
         "status_word": pgettext(*word) if word else None,

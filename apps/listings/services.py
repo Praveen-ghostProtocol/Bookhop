@@ -1221,6 +1221,20 @@ def create_request(actor, *, book=None, free_text_title=None, course_code=None) 
     — an ISBN we do not recognise — lands in `free_text_title`, and that is one
     of the few places the product tells staff something about the syllabus we
     did not know.
+
+    **A-32: the CHECK is an `OR` and not an exclusive one, so a row may carry
+    both**, and `web/views.wanted` now passes both whenever the student typed
+    a title.
+
+    A-32 says every rule about a free-text want keys on `book_id IS NULL`, so
+    a both-stored row shifts nothing. **Measured here rather than believed:**
+    `free_text_title` has four readers in `apps/**` and `web/**` — the CHECK
+    above it (the `OR`), this function, `api._request_payload` (which
+    publishes it as its own key beside `book`) and `views._request_row`. Not
+    one of them branches on it being populated, so there is no rule to shift;
+    the claim holds in a stronger form than it was written in. `apps/analytics/`
+    has no SQL yet, so it is not a reader at all — when it becomes one, this
+    is the sentence that has to be re-measured.
     """
     require_actor(actor)
     assert_campus_write(actor)
@@ -1233,17 +1247,31 @@ def create_request(actor, *, book=None, free_text_title=None, course_code=None) 
         )
     code = " ".join(str(course_code or "").split()).upper() or None
 
+    # Idempotent by shape as well as by key: a student who submits the same
+    # want twice has one want, not two, and the match rate counts people
+    # rather than taps.
+    #
+    # **A-32 decides what "the same want" is when a book FK is present:
+    # `book_id` and `course_code`, never the typed label.** Before A-32 the
+    # label was always `None` on that branch, so keying on it was free; now
+    # that it carries what the student typed, keying on it would make two
+    # spellings of one want two rows. `course_code` joins the key in its
+    # place — it is the only other thing the request means.
+    #
+    # A free-text want has no FK to key on, so there the label **is** the
+    # identity and the shape is unchanged.
+    shape = (
+        {"book": book, "course_code": code}
+        if book is not None
+        else {"book": None, "free_text_title": title}
+    )
     with transaction.atomic():
         existing = BookRequest.all_objects.filter(
             requester_pseudonym=actor.person_pseudonym,
-            book=book,
-            free_text_title=title,
             status="OPEN",
+            **shape,
         ).first()
         if existing is not None:
-            # Idempotent by shape as well as by key: a student who submits the
-            # same want twice has one want, not two, and the match rate counts
-            # people rather than taps.
             return existing
         row = BookRequest.all_objects.create(
             requester=actor,
