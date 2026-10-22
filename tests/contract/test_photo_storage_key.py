@@ -498,26 +498,116 @@ def test_the_backfill_renames_an_existing_object_and_reverses_it(
     assert read_object(derivable) == original
 
 
-def test_the_backfill_tolerates_a_row_whose_file_is_already_gone(
-    photo_on_a_live_listing,
-):
-    """A restore that carried the database and not the media directory is a
-    real state (`INFRA.md` §3's backup scope, and QA's open F44 is that the
-    restore test never opens the media tarball). A migration that died on it
-    is a migration an operator cannot run."""
+def _backfill_module():
     import importlib
 
+    return importlib.import_module("apps.listings.migrations.0004_photo_storage_token")
+
+
+def test_the_backfill_refuses_a_row_whose_file_is_genuinely_gone(
+    photo_on_a_live_listing,
+):
+    """**This test used to assert the branch that lost the photographs.**
+
+    It asserted that a row whose file is missing is re-keyed anyway — a
+    fresh token, a `storage_key` pointing at a path that has never existed.
+    On the state that actually produces a missing file in practice (an
+    earlier run of this migration that moved the objects and then rolled
+    back), that silently orphaned every photograph under a token recorded
+    nowhere: unreachable by the app, invisible to `purge_media`, and out of
+    reach of `COMPLIANCE.md` §7 row 9's deletion obligation. Review R-R5.
+
+    A restore that carried the database and not the media directory
+    (`INFRA.md` §3's backup scope) is still a real state, and the migration
+    still tells the operator what to do about it — but it says so, rather
+    than writing a row that claims bytes that do not exist. The message is
+    asserted, not the exception type: a refusal whose text does not reach
+    the person running it is a refusal that gets worked around (rule 10's
+    sixth disguise).
+    """
     from django.apps import apps as live_apps
 
+    from apps.listings.models import ListingPhoto
     from apps.listings.storage import delete_object
 
     _listing, photo = photo_on_a_live_listing
-    migration = importlib.import_module(
-        "apps.listings.migrations.0004_photo_storage_token"
-    )
+    before_key = photo.storage_key
     delete_object(photo.storage_key)
+    # Pre-migration state: the column exists but this row has not been
+    # through the backfill.
+    ListingPhoto.all_objects.filter(id=photo.id).update(storage_token=None)
 
-    migration.forward(live_apps, None)
+    with pytest.raises(RuntimeError) as caught:
+        _backfill_module().forward(live_apps, None)
+
+    message = str(caught.value)
+    assert "will not mint a token" in message
+    assert "NULL storage_key" in message, "the recovery must be in the message"
+    photo.refresh_from_db()
+    assert photo.storage_token is None and photo.storage_key == before_key, (
+        "the refusal must leave the row exactly as it found it"
+    )
+
+
+def test_the_backfill_adopts_the_bytes_an_earlier_rolled_back_run_moved(
+    photo_on_a_live_listing,
+):
+    """**The rollback that R-R5 is about, reconstructed and measured.**
+
+    The renames are filesystem operations inside a transaction. When a later
+    operation in the migration fails, the database reverts to the old
+    `storage_key` values and the files stay at their new random paths — and
+    nothing in the database records those paths. This is the second run.
+
+    Content addressing is what makes it recoverable: the row carries the
+    `sha256`, so the orphan is identifiable as *this* row's bytes. The
+    photograph survives the rollback, which is the whole point of the
+    finding.
+    """
+    from django.apps import apps as live_apps
+
+    from apps.listings.models import ListingPhoto
+    from apps.listings.storage import object_path, read_object
+
+    _listing, photo = photo_on_a_live_listing
+    original = read_object(photo.storage_key)
+    old_key = photo.storage_key
+
+    # Exactly what a rolled-back apply leaves behind: the bytes at a random
+    # token, the row still at its pre-migration key and with no token.
+    abandoned = f"listings/{photo.listing_id}/{'ab' * 16}.jpeg"
+    target = object_path(abandoned)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    object_path(old_key).replace(target)
+    ListingPhoto.all_objects.filter(id=photo.id).update(storage_token=None)
+
+    _backfill_module().forward(live_apps, None)
 
     photo.refresh_from_db()
-    assert photo.storage_token, "the row was still re-keyed"
+    assert photo.storage_key == abandoned, (
+        "the backfill minted a fresh token instead of adopting the bytes "
+        "the previous run moved — the photograph is now orphaned"
+    )
+    assert photo.storage_token == "ab" * 16
+    assert read_object(photo.storage_key) == original
+
+
+def test_the_backfill_is_a_no_op_on_a_row_it_has_already_done(
+    photo_on_a_live_listing,
+):
+    """Idempotence, asserted on the thing that must not move twice.
+
+    A second pass that re-keyed an already-keyed row would rename a file for
+    no reason and, on any run that did not complete, do it again.
+    """
+    from django.apps import apps as live_apps
+
+    _listing, photo = photo_on_a_live_listing
+    photo.refresh_from_db()
+    key, token = photo.storage_key, photo.storage_token
+    assert token, "the fixture must already be backfilled, or this proves nothing"
+
+    _backfill_module().forward(live_apps, None)
+
+    photo.refresh_from_db()
+    assert (photo.storage_key, photo.storage_token) == (key, token)

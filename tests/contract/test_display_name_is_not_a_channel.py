@@ -24,7 +24,7 @@ measures.
 
 import pytest
 
-from apps.core.contact import CHANNEL_KINDS, contact_channels_in
+from apps.core.contact import CHANNEL_KINDS, contact_channels_in, has_contact_channel
 from apps.core.errors import ValidationFailed
 
 pytestmark = pytest.mark.django_db
@@ -109,6 +109,29 @@ def test_every_limb_is_reachable_and_the_set_is_the_one_the_module_declares():
         f"these limbs of the rule have no must-fire row: "
         f"{sorted(set(CHANNEL_KINDS) - exercised)}"
     )
+
+
+@pytest.mark.parametrize("empty", [(), [], set(), frozenset(), ""])
+def test_selecting_no_limb_raises_rather_than_guarding_nothing(empty):
+    """**The second way to select nothing**, and it had no exception.
+
+    The docstring already promised that a *misspelled* limb raises rather
+    than matching nothing. An empty selector is the same guard by a different
+    typo: measured on the shipped code,
+    `has_contact_channel("wa.me/91 98400 12345 priya@x.com", ())` returned
+    `False` — a string carrying all three channels, read as carrying none,
+    by a caller that looks exactly like a caller that is guarding.
+
+    `None` is the only way to mean "all of them" (rule 10).
+    """
+    loud = "wa.me/91 98400 12345 priya@x.com"
+    assert contact_channels_in(loud) == sorted(CHANNEL_KINDS), (
+        "the fixture must carry every channel, or this proves nothing"
+    )
+    with pytest.raises(ValueError):
+        contact_channels_in(loud, empty)
+    with pytest.raises(ValueError):
+        has_contact_channel(loud, empty)
 
 
 @pytest.mark.parametrize(

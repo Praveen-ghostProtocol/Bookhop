@@ -273,6 +273,21 @@ def _create(student, **over):
         ("edition_label", "3rd ed., 2019 reprint", "a year is four digits"),
         ("edition_label", "Vol. I/II", "a slash in an edition label"),
         ("authors", ["H. K. Dass", "Dr. R. S. Aggarwal"], "initials and titles"),
+        # **A-27's rows.** Every one of these was *refused as a phone
+        # number* by A-26 as shipped, measured by Code Review, under the
+        # message "Enter what is printed on the book". Not one string in the
+        # list above carries a hyphenated digit run, which is how the
+        # accepted side of the split read as covered and was not — rule 10's
+        # second disguise, and these are the rows that close it.
+        ("title", "A History of India 1707-1947", "a date range: eight digits across one hyphen"),
+        ("publisher", "Cambridge 2020-2021", "a two-year range in a publisher line"),
+        ("edition_label", "2019-2020 reprint", "a reprint spanning two academic years"),
+        ("edition_label", "Vol. 1-2, 1998-2002", "two runs, four digits and eight"),
+        ("title", "Maths I/II 2021-2022", "a slash and a year range in one title"),
+        ("authors", ["Nilakanta Sastri 1892-1975"], "an author's dates, as a catalogue prints them"),
+        # The boundary itself, from below: `(` and `)` are separators too, so
+        # this is one run of **nine** digits — one short of A-27's ten.
+        ("title", "Tamil Nadu Gazetteer Vol. 1 (1901-1911)", "nine digits in one joined run"),
         # The declared gap, asserted as a gap so the suite cannot be read as
         # covering it. `apps/core/contact.py` lists it; A-26 names the review
         # queue as the layer that catches it, and the test below pins the
@@ -313,6 +328,125 @@ def test_a_contact_channel_in_catalogue_text_is_refused(student, field, channel,
     assert kind in caught.value.context["detail"], why
     assert field in caught.value.context["field_errors"]
     assert Book.objects.count() == before, "refused before the row exists"
+
+
+@pytest.mark.parametrize(
+    "value,why",
+    [
+        ("Grewal 9840012345", "a bare mobile — exactly ten digits, the boundary from above"),
+        ("Grewal 98400-12345", "ten digits across a hyphen"),
+        ("Grewal 9788177589139", "an ISBN-13 — refused deliberately, see the message test"),
+        ("Grewal wa.me/919840012345", "twelve digits; `linked` is exempt, `dialable` is not"),
+    ],
+)
+def test_ten_digits_is_still_refused_in_catalogue_text(student, value, why):
+    """**The boundary from above.** A-27 moved the catalogue threshold from
+    seven to ten; the rows above moved with it, and these did not."""
+    with pytest.raises(ValidationFailed) as caught:
+        _create(student, title=value)
+    assert "dialable" in caught.value.context["detail"], why
+
+
+def test_the_isbn_refusal_says_isbn_and_not_phone_number(student):
+    """A-27: *"An ISBN-13 in a `title` is still refused, and that is
+    correct — not a tolerated false positive. The ISBN has its own field;
+    one in the title is misfiled data. The refusal message for catalogue
+    fields must say that."*
+
+    **A refusal with the wrong explanation is what gets guards edited**
+    (rule 13). The guard here is right and its old sentence was not: a
+    student who typed the ISBN into the title was told they had typed a
+    phone number, which is a correct refusal that reads as a broken one.
+    """
+    with pytest.raises(ValidationFailed) as caught:
+        _create(student, title="Engineering Mathematics 9788177589139")
+    message = str(caught.value)
+    field_error = caught.value.context["field_errors"]["title"][0]
+    assert "ISBN" in message, f"the message does not mention the ISBN: {message}"
+    assert field_error.startswith("The ISBN goes in the ISBN field."), (
+        "the short error rendered beside the input must lead with the "
+        f"likely mistake, not the unlikely one: {field_error}"
+    )
+
+
+def test_every_catalogue_limb_has_a_sentence_of_its_own():
+    """**A guard for the guard.** `_refuse_contact_channel` looks its message
+    up by limb. A limb added to `CATALOGUE_CHANNEL_KINDS` without a row in
+    `_CATALOGUE_REFUSAL` would raise `KeyError` inside the refusal path — a
+    500 on the validation branch — and nothing else would say so."""
+    assert set(services.CATALOGUE_CHANNEL_KINDS) == set(services._CATALOGUE_REFUSAL)
+
+
+def test_the_catalogue_threshold_is_the_shared_limb_read_differently():
+    """A-27: *"the limb is shared, the threshold is the caller's"*.
+
+    Measured as the two readings of **one** definition rather than asserted
+    as two constants: the same eight-digit string is a channel for
+    `display_name` (7) and is not for a book title (10). If someone ever
+    makes this two copies of one rule, one of these two halves moves without
+    the other and this fails (rule 11).
+    """
+    from apps.core.contact import (
+        MIN_DIALABLE_DIGITS,
+        MIN_DIALABLE_DIGITS_CATALOGUE,
+        contact_channels_in,
+    )
+
+    year_range = "A History of India 1707-1947"
+    assert MIN_DIALABLE_DIGITS == 7 and MIN_DIALABLE_DIGITS_CATALOGUE == 10
+    assert contact_channels_in(year_range) == ["dialable"], (
+        "the default threshold must not have moved: `display_name` is where "
+        "a seven-digit run has no legitimate reading"
+    )
+    assert (
+        contact_channels_in(
+            year_range,
+            services.CATALOGUE_CHANNEL_KINDS,
+            min_dialable_digits=MIN_DIALABLE_DIGITS_CATALOGUE,
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "uncaught",
+    ["Grewal 1234567", "Grewal 123-456-789", "Grewal (98400) 1234"],
+)
+def test_the_widened_gap_is_asserted_as_a_gap(student, uncaught):
+    """**A-27's declared gap, pinned as a gap and not as safety.**
+
+    A 7-to-9 digit run in catalogue text is now accepted. The layer that
+    catches it is the review queue, under the `LISTING_REVIEW_ALL` guard the
+    test below pins. This is the opposite of a coverage claim: if a future
+    tightening starts catching these, A-27's text understates the control and
+    this says so.
+    """
+    assert _create(student, title=uncaught).title == uncaught
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "OPEN, ESCALATED TO CTO AGAINST A-27, measured not predicted. A-27 "
+        "raised the catalogue threshold to ten on the reasoning that *'a "
+        "two-year range is eight digits and passes'*. It asked how many "
+        "digits a date range has and did not ask **what else "
+        "`_NUMBER_SEPARATORS` joins** — and whitespace is a separator, so a "
+        "title carrying three years joins into one twelve-digit run and is "
+        "refused. Measured: `Journal 2019 2020 2021` -> ['dialable'], and "
+        "`Collected Works 1 2 3 4 5 6 7 8 9 10` -> ['dialable']. This is "
+        "A-26's defect one step along: the threshold moved, the joining rule "
+        "did not, and no threshold fixes it because a long enough list of "
+        "small numbers always reaches ten. The ruling needed is about the "
+        "*run*, not the count — e.g. ten digits in one unbroken group, or a "
+        "cap on how many separator groups one run may span. Not coded "
+        "around here: it is a contract decision (charter: never resolve a "
+        "contract conflict by coding around it). strict=True, so this goes "
+        "red the day cto rules and it must be de-xfailed then."
+    ),
+)
+def test_a_title_carrying_three_years_is_accepted(student):
+    assert _create(student, title="Journal 2019 2020 2021").title
 
 
 def test_the_authors_list_check_still_stands(student):

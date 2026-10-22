@@ -17,7 +17,7 @@ import unicodedata
 
 from django.db import IntegrityError, transaction
 
-from apps.core.contact import contact_channels_in
+from apps.core.contact import MIN_DIALABLE_DIGITS_CATALOGUE, contact_channels_in
 from apps.core.errors import DuplicateIsbn, NotFound, NotPermitted, ValidationFailed
 from apps.core.services import record_audit
 
@@ -61,6 +61,10 @@ TRIGRAM_THRESHOLD = 0.3
 #: `LISTING_REVIEW_ALL` is true*, so the exemption is conditional and
 #: `tests/unit/test_catalog.py::test_the_linked_exemption_rests_on_a_flag_that_is_still_true`
 #: goes **red**, not green and not skipped, in the diff that flips it.
+#:
+#: **And `dialable` is applied at ten digits, not seven** (A-27): the
+#: threshold is imported, not retyped, because a hand-copied `10` here would
+#: be the fourth copy of a rule this project has already paid for (rule 11).
 CATALOGUE_CHANNEL_KINDS = ("addressed", "dialable")
 
 
@@ -221,22 +225,53 @@ def search_books(q: str, limit: int = 20):
     return list(base.filter(title_norm__contains=needle).order_by("title")[:limit])
 
 
+#: The sentence each limb earns. **A refusal with the wrong explanation is
+#: the thing that gets guards edited** (A-27): a long digit run in a title is
+#: most often a misfiled ISBN, not a phone number, and telling that student
+#: they typed a phone number is how a correct guard acquires a reputation for
+#: being wrong. Keyed by limb so a limb added to `CATALOGUE_CHANNEL_KINDS`
+#: without a sentence fails loudly below rather than borrowing a wrong one.
+_CATALOGUE_REFUSAL = {
+    "dialable": (
+        "A ten-digit or longer number here. If that is the ISBN, it has its "
+        "own field — put it there, and enter only what is printed on the "
+        "cover. If it is a phone number, it does not belong on a catalogue "
+        "record: buyers and sellers arrange handovers through BookHop.",
+        "The ISBN goes in the ISBN field. No phone numbers.",
+    ),
+    "addressed": (
+        "An email address or a handle here would appear on every listing of "
+        "this ISBN, including listings by sellers who never typed it. Enter "
+        "what is printed on the book; buyers and sellers arrange handovers "
+        "through BookHop.",
+        "No email addresses or handles.",
+    ),
+}
+
+
 def _refuse_contact_channel(field, value):
-    """API-CONTRACT A-26. Raises if `value` addresses someone off-platform.
+    """API-CONTRACT A-26, as corrected by A-27. Raises on an off-platform
+    address — and on a misfiled ISBN, which is the same digit run and a
+    different mistake.
 
     **Worse than F49, which is why it is here and not only on
     `display_name`:** `books` is global (ADR-002 §2), so a channel typed into
     a title renders on *every* listing of that ISBN, including listings by
     sellers who never typed it.
     """
-    channels = contact_channels_in(value, CATALOGUE_CHANNEL_KINDS)
+    channels = contact_channels_in(
+        value,
+        CATALOGUE_CHANNEL_KINDS,
+        min_dialable_digits=MIN_DIALABLE_DIGITS_CATALOGUE,
+    )
     if channels:
+        # Sorted, so the sentence is stable when both limbs fire; `dialable`
+        # sorts first and is the one a real student hits.
+        message, field_error = _CATALOGUE_REFUSAL[channels[0]]
         raise ValidationFailed(
-            "Enter what is printed on the book. A phone number or an email "
-            "address here would appear on every listing of this ISBN, and "
-            "buyers and sellers arrange handovers through BookHop.",
+            message,
             detail=f"{field} carries a contact channel: {', '.join(channels)}",
-            field_errors={field: ["No phone numbers or email addresses."]},
+            field_errors={field: [field_error]},
         )
     return value
 

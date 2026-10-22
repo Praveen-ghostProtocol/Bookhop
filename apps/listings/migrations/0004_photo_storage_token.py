@@ -61,6 +61,7 @@ spelling of every file as well as the schema. Asserted by
 # once and the set it walks is bounded by a four-photo cap per listing.
 """
 
+import hashlib
 import secrets
 
 from django.db import migrations, models
@@ -74,14 +75,13 @@ def _key(listing_id, token, suffix):
 
 
 def _rename(old_key, new_key):
-    """Move one object, tolerating a row whose file is already gone.
+    """Move one object. `False` if the source is not there.
 
-    A missing file is not an error here: `purge_media` nulls `storage_key`
-    when it removes the bytes, but a half-finished purge or a restore that
-    carried the database and not the media directory both leave a row whose
-    object is absent — and `INFRA.md` §3's backup scope makes the second one
-    a real state. A migration that died on it would be a migration an
-    operator could not run.
+    **It reports the absence; it does not decide what the absence means.**
+    That decision moved to `forward`, because the two states it conflated —
+    a row whose bytes are genuinely gone, and a row whose bytes an earlier
+    rolled-back run already moved — need opposite answers, and tolerating
+    both in here is what lost the photographs.
     """
     from apps.listings.storage import object_path
 
@@ -94,13 +94,94 @@ def _rename(old_key, new_key):
     return True
 
 
+def _adopt(ListingPhoto, row):
+    """The bytes of `row`, found by content, under a token nothing records.
+
+    **This is the recovery path for a rolled-back apply**, and it exists
+    because the two halves of this migration do not roll back together. The
+    renames are filesystem operations inside a transaction: if anything later
+    in the migration fails — most plausibly the UNIQUE index, on a database
+    that already holds two rows with one `(listing_id, sha256)` — the
+    database reverts to the old `storage_key` values while the files sit at
+    their new random paths. Nothing in the database now records where they
+    are.
+
+    Without this, the re-run minted a **fresh** token, every affected row
+    pointed at a path that had never existed, and the real bytes were
+    orphaned under a token recorded nowhere: unreachable by the app and
+    invisible to `purge_media`, so `COMPLIANCE.md` §7 row 9's deletion
+    obligation could not be met for them either. The tolerant branch of
+    `_rename` was the branch that lost the photographs.
+
+    Content addressing is what makes the recovery possible: `sha256` is on
+    the row, so an orphan can be identified as *this* row's bytes rather than
+    guessed at. A file another row already claims is skipped, so two rows
+    sharing a hash on one listing cannot be collapsed onto one object.
+    """
+    from apps.listings.storage import media_root
+
+    directory = media_root() / "listings" / str(row.listing_id)
+    if not directory.is_dir():
+        return None
+    claimed = {
+        str(key).rsplit("/", 1)[-1]
+        for key in ListingPhoto.objects.filter(listing_id=row.listing_id)
+        .exclude(storage_key=None)
+        .values_list("storage_key", flat=True)
+    }
+    want = str(row.sha256).lower()
+    for candidate in sorted(directory.iterdir()):
+        if candidate.name in claimed or not candidate.is_file():
+            continue
+        if hashlib.sha256(candidate.read_bytes()).hexdigest().lower() == want:
+            return candidate.stem
+    return None
+
+
 def forward(apps, schema_editor):
+    """Re-runnable, and it refuses rather than inventing a path.
+
+    Three states, three outcomes, because a migration that cannot tell them
+    apart will guess wrong on the one that matters:
+
+      * **already backfilled** — `storage_token` is set: skipped, so a second
+        run converges instead of re-keying;
+      * **bytes present at the old path** — renamed and re-keyed, the
+        ordinary case;
+      * **bytes absent** — adopted by content hash if they are findable (a
+        rolled-back apply), and otherwise **refused**. The row is never
+        pointed at a path that has never existed.
+    """
     ListingPhoto = apps.get_model("listings", "ListingPhoto")
     for row in ListingPhoto.objects.exclude(storage_key=None).iterator():
+        if row.storage_token:
+            continue
         suffix = str(row.storage_key).rsplit(".", 1)[-1].lower()
         token = secrets.token_hex(16)
         new_key = _key(row.listing_id, token, suffix)
-        _rename(row.storage_key, new_key)
+        if not _rename(row.storage_key, new_key):
+            token = _adopt(ListingPhoto, row)
+            if token is None:
+                raise RuntimeError(
+                    f"listing_photos row {row.pk} says its bytes are at "
+                    f"{row.storage_key!r} and they are not there, and no "
+                    f"file under listings/{row.listing_id}/ hashes to its "
+                    f"sha256. This migration will not mint a token for a "
+                    f"file it cannot find: that would point the row at a "
+                    f"path that has never existed and orphan the real bytes "
+                    f"under a name nothing records, out of reach of "
+                    f"purge_media and of erasure. Two ways to get here. (1) "
+                    f"A restore that carried the database and not the media "
+                    f"directory (INFRA.md §3): the bytes are genuinely gone "
+                    f"and the correct state for that row is a NULL "
+                    f"storage_key, which is how purge_media records bytes "
+                    f"that no longer exist — null it and re-run. (2) An "
+                    f"earlier run of this migration moved the file and then "
+                    f"rolled back, and the media directory has since been "
+                    f"replaced or cleaned: find the object, put it back "
+                    f"under listings/{row.listing_id}/, and re-run."
+                )
+            new_key = _key(row.listing_id, token, suffix)
         row.storage_key = new_key
         row.storage_token = token
         row.save(update_fields=["storage_key", "storage_token"])

@@ -139,7 +139,11 @@ def test_the_staff_read_writes_a_personal_data_access_row(staff, pending):
     row = rows.first()
     assert row.staff_id == staff.id
     assert str(row.subject_pseudonym) == str(pending.seller_pseudonym)
-    assert "listing_photos.storage_key" in row.fields_accessed
+    # The **photograph**, not the key to it. After A-25 `storage_key` is a
+    # random token and is the one part of this row that is not personal
+    # data, so logging it named the field a DPDP r.6(1)(c) reader does not
+    # care about and omitted the one they do.
+    assert "listing_photos.image" in row.fields_accessed
     assert str(pending.id) in row.purpose
 
 
@@ -196,6 +200,49 @@ def test_the_command_writes_the_photos_where_a_human_can_open_them(
     for path in written:
         assert path.read_bytes().startswith(b"\xff\xd8")
         assert str(path) in out
+    # Review R-R6: these are a student's photographs outside the object
+    # store, so no automated path deletes them — not `purge_media`, not an
+    # erasure request, not `COMPLIANCE.md` §7 row 9's one-year clock. The
+    # deletion command goes out **with** the paths, because the person who
+    # has to run it is reading this output and nowhere else.
+    assert f"rm -rf {target}" in out
+    assert "retention clock" in out
+
+
+def test_photos_with_no_directory_lands_somewhere_disposable(
+    staff, pending, capsys
+):
+    """**The default moved** (review R-R6). `--photos DIR` with an operator-
+    chosen directory wrote plaintext copies of a student's photographs into
+    a working tree or a home directory, where they accumulate silently.
+
+    With no DIR the copies go to a fresh private temporary directory, which
+    is not a control — nothing enforces deletion — but it is the difference
+    between *somewhere the operating system clears* and *somewhere nobody
+    looks again*. The printed path is asserted so the reviewer can actually
+    find the files, and the deletion line with it.
+    """
+    import pathlib
+    import shutil
+    import tempfile
+
+    call_command(
+        "review_listings", "--staff", staff.email,
+        "--listing", str(pending.id), "--photos",
+    )
+    out = capsys.readouterr().out
+    written = [line.split()[2] for line in out.splitlines() if line.startswith("  photo ")]
+
+    assert len(written) == 2, out
+    target = pathlib.Path(written[0]).parent
+    assert target.parent == pathlib.Path(tempfile.gettempdir()), (
+        f"the default must be disposable, not {target}"
+    )
+    assert pathlib.Path(written[0]).read_bytes().startswith(b"\xff\xd8")
+    assert f"rm -rf {target}" in out
+
+    # The test runs the command it just asserted, on itself.
+    shutil.rmtree(target)
 
 
 def test_a_purged_photo_says_so_rather_than_crashing_the_queue(

@@ -33,9 +33,12 @@ class Command(BaseCommand):
                             help="seconds spent reviewing; recorded in audit_log")
         parser.add_argument("--limit", type=int, default=50)
         parser.add_argument(
-            "--photos", metavar="DIR",
-            help="with --listing: write that listing's photos into DIR and "
-                 "print the paths, so the reviewer can open them",
+            "--photos", metavar="DIR", nargs="?", const="", default=None,
+            help="with --listing: write that listing's photos where the "
+                 "reviewer can open them, and print the paths. With no DIR, "
+                 "a fresh private temporary directory — which is the one to "
+                 "use, because these copies sit outside purge_media and "
+                 "outside the retention clock until you delete them",
         )
 
     def handle(self, *args, **options):
@@ -69,7 +72,7 @@ class Command(BaseCommand):
                     f"seed={row['is_seed']}"
                 )
             self.stdout.write(
-                f"\n{len(rows)} waiting. Open one with --listing N --photos DIR, "
+                f"\n{len(rows)} waiting. Open one with --listing N --photos, "
                 "then decide it with --action."
             )
             return
@@ -79,7 +82,7 @@ class Command(BaseCommand):
         except ServiceError as exc:
             raise CommandError(f"{type(exc).__name__}: {exc}") from None
 
-        if options["photos"]:
+        if options["photos"] is not None:
             self._write_photos(staff, listing, options["photos"])
 
         if not options["action"]:
@@ -122,11 +125,38 @@ class Command(BaseCommand):
         A file path and not a byte dump: the moderator's question is visual,
         and `photos_for_review` writes the `personal_data_access_log` row
         that makes this an *opening* rather than a list.
+
+        **These copies are personal data outside every automated path that
+        looks after it** (review R-R6). `COMPLIANCE.md` §7 row 9 governs
+        listing photographs — *"Delete originals and derivatives from object
+        store and CDN after 1 yr"* — and a copy in an operator's directory is
+        in neither. `purge_media` cannot reach it; a DPDP erasure request
+        cannot reach it; the retention clock does not run on it. The access
+        **log** row shipped and the retention half did not.
+
+        Two halves of the fix, and neither is a control:
+
+          * the default is a **fresh private temporary directory**, so the
+            copies land somewhere the operating system clears rather than in
+            a working tree or a home directory where they accumulate;
+          * the deletion command is printed **with** the paths, not in a
+            manual, because the person who needs it is reading this output.
+
+        # ponytail: the operator deletes them. Ceiling: nothing enforces it,
+        # and `--photos DIR` into a chosen directory is still available
+        # because a reviewer on a remote VM needs a path they can fetch
+        # from. Upgrade path: the moderation screen that makes this command
+        # unnecessary, which is where the queue is going anyway — a browser
+        # renders the bytes without writing a second copy.
         """
         import pathlib
+        import tempfile
 
-        target = pathlib.Path(directory)
-        target.mkdir(parents=True, exist_ok=True)
+        if directory:
+            target = pathlib.Path(directory)
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target = pathlib.Path(tempfile.mkdtemp(prefix="bookhop-review-"))
         try:
             resolved = photos_for_review(staff, listing.id)
         except ServiceError as exc:
@@ -134,6 +164,7 @@ class Command(BaseCommand):
         if not resolved:
             self.stdout.write("  photos        none on this listing")
             return
+        written = []
         for index, (photo, data) in enumerate(resolved, start=1):
             if data is None:
                 self.stdout.write(
@@ -143,9 +174,18 @@ class Command(BaseCommand):
             suffix = str(photo.storage_key).rsplit(".", 1)[-1].lower()
             path = target / f"listing-{listing.id}-{index}.{suffix}"
             path.write_bytes(data)
+            written.append(path)
             self.stdout.write(
                 f"  photo {index}       {path}  {photo.width}x{photo.height}  "
                 f"{photo.bytes} bytes"
+            )
+        if written:
+            self.stdout.write(
+                f"  DELETE THESE   rm -rf {target}\n"
+                "                 They are a student's photographs outside "
+                "the object store, so nothing else deletes them: not "
+                "purge_media, not an erasure request, not the 1-year "
+                "retention clock (COMPLIANCE.md §7 row 9)."
             )
 
 

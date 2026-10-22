@@ -201,6 +201,42 @@ def test_the_jpeg_entropy_walk_does_not_stop_at_a_stuffed_ff_or_a_restart():
     assert b"\x10\xff\x00\x20\xff\xd0\x30" in stripped
 
 
+def test_a_fill_byte_before_the_end_marker_does_not_end_the_scan_early():
+    """`_jpeg_entropy_end`'s third branch, which had no fixture.
+
+    An encoder may pad with `0xFF` bytes before a marker, so `FF FF D9` is a
+    legal end-of-image. The walk must step over the fill and return the
+    `FF` that begins the real marker — one byte earlier and the EOI is
+    mis-parsed, one byte later and it is missed entirely.
+
+    Review's note, and rule 10: a reachable branch asserted by nothing is
+    not covered by the branches around it.
+    """
+    from apps.listings.images import strip_metadata
+
+    padded = _jpeg()[:-2] + b"\xff\xff\xd9"
+    stripped, _fmt, width, height = strip_metadata(padded)
+    assert (width, height) == (12, 9)
+    assert stripped.endswith(b"\xff\xff\xd9"), "the fill byte and the EOI both survive"
+    assert b"GPSLATITUDE" not in stripped
+
+
+def test_a_frame_header_with_no_scan_at_all_is_still_a_whole_image():
+    """The other branch with no fixture: the entropy walk is never entered.
+
+    A JPEG may carry a frame header and no scan — the segment loop runs to
+    the EOI without ever calling `_jpeg_entropy_end`. It has dimensions and
+    an EOI, so it is a complete file and must be accepted, stripped, rather
+    than refused by either of `_strip_jpeg`'s two `ImageRejected` paths.
+    """
+    from apps.listings.images import strip_metadata
+
+    stripped, _fmt, width, height = strip_metadata(_jpeg(scans=0))
+    assert (width, height) == (12, 9)
+    assert b"GPSLATITUDE" not in stripped
+    assert stripped.endswith(b"\xff\xd9")
+
+
 # --- the claim, at the boundary the documents make it ----------------------
 
 

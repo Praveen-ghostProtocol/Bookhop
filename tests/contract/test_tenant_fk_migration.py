@@ -237,14 +237,20 @@ def test_the_migration_round_trips_forward_reverse_forward():
                 f"one installed: {before} -> {_controls_present()}"
             )
     finally:
-        recovery = _restore(before)
-        _cleanup(listing)
+        # **`_cleanup` runs whatever the restore does** (review R-R2). The
+        # restore grew a new way to raise when `listings/0004` landed, and
+        # the raise came out of this `finally`, so the cleanup the docstring
+        # above says the `finally` exists for never ran and the finding
+        # below was replaced by a traceback.
+        try:
+            recovery = _restore(before)
+        finally:
+            _cleanup(listing)
 
-    assert _controls_present() == before, (
-        "the restore in `finally` did not put the schema back, so this test "
-        "has damaged the database for everything after it"
-    )
-
+    # **The finding is asserted before the harness is.** A restore that
+    # cannot put the schema back is part of what F46 costs, not a separate
+    # failure that should hide it — `recovery` carries the measurement into
+    # the message below.
     assert reverse_error is None, (
         "FINDING. `listings/0003` **cannot be reversed on SQLite**, and the "
         "failure is worse than an error.\n\n"
@@ -270,6 +276,12 @@ def test_the_migration_round_trips_forward_reverse_forward():
         "**PostgreSQL round-trips cleanly** (VERIFIED HERE) because its "
         "reverse drops the constraints before the indexes. The two paths are "
         "not equivalent and only one of them was run."
+    )
+
+    assert _controls_present() == before, (
+        "the restore in `finally` did not put the schema back, so this test "
+        f"has damaged the database for everything after it. Restore: "
+        f"{recovery}"
     )
 
 
@@ -324,18 +336,35 @@ def _restore(target):
     they are installed, and the only way forward is to lie to the ledger with
     `--fake` and re-run the migration for real.
 
-    Measured here because it is what a developer or a deploy script would
-    actually have to do.
+    **Every step is captured the way the reverse is captured**, because each
+    one is now a way this can fail and a restore that *raises* out of the
+    caller's `finally` takes the finding and the cleanup with it (review
+    R-R2). The outcome is the datum; the traceback is not.
     """
-    call_command("migrate", "listings", verbosity=0)
-    if _controls_present() == target:
+    steps = []
+
+    def run(label, *args, **kwargs):
+        try:
+            call_command("migrate", *args, verbosity=0, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - the outcome is the datum
+            steps.append(f"{label} RAISED {type(exc).__name__}: {str(exc)[:120]}")
+            return False
+        steps.append(f"{label} ran")
+        return True
+
+    if run("plain `migrate listings`", "listings") and _controls_present() == target:
         return "plain `migrate listings` was enough"
-    call_command("migrate", "listings", "0002", fake=True, verbosity=0)
-    call_command("migrate", "listings", "0003", verbosity=0)
+    run("`migrate listings 0002 --fake`", "listings", "0002", fake=True)
+    run("`migrate listings 0003`", "listings", "0003")
+    if _controls_present() == target:
+        return (
+            "plain `migrate listings` did not restore the controls; recovery "
+            f"needed `migrate listings 0002 --fake` and a real forward — {steps}"
+        )
     return (
-        "plain `migrate listings` was a NO-OP because 0003 is still recorded "
-        "as applied; recovery needed `migrate listings 0002 --fake` followed "
-        "by a real forward"
+        "**THE DOCUMENTED RECOVERY NO LONGER WORKS.** Neither a plain "
+        "forward nor `--fake` back to 0002 and a real forward restored the "
+        f"controls: {steps}; controls now {_controls_present()}"
     )
 
 

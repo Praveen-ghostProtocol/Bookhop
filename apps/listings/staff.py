@@ -177,7 +177,13 @@ def photos_for_review(staff, listing_id):
         log_personal_data_access(
             staff,
             listing.seller_pseudonym,
-            ["listing_photos.storage_key"],
+            # What the moderator read is the **photograph**. After A-25
+            # `storage_key` is the one part of this row that is not personal
+            # data — it is a random token — so logging it named the field
+            # that carries no personal data and omitted the one that does.
+            # A DPDP r.6(1)(c) reader auditing this log could not tell an
+            # image had been viewed.
+            ["listing_photos.image"],
             f"moderation review of listing {listing.id}",
         )
     return [(row, read_object(row.storage_key) if row.storage_key else None) for row in rows]
