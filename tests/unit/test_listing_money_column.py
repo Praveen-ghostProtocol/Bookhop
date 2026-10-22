@@ -216,3 +216,108 @@ def test_the_engine_would_have_rounded_it_which_is_why_the_refusal_is_above(engi
             "keeps the float in an integer column. Either way the value is not "
             "the one that was sent, which is the point."
         )
+
+
+# --- F42: one money parser, not two --------------------------------------
+
+
+@pytest.mark.parametrize(
+    "typed,minor_units,why",
+    [
+        ("320", 32000, "the plain case"),
+        ("1200", 120000, "ungrouped"),
+        ("1,200", 120000, "the grouping a student really does type"),
+        ("32,000", 3200000, "Indian grouping, thousands"),
+        ("1,00,000", 10000000, "Indian grouping, lakhs - the ceiling"),
+        ("100,000", 10000000, "Western grouping of the same number"),
+        ("  275  ", 27500, "surrounding whitespace"),
+    ],
+)
+def test_a_grouped_amount_a_student_types_is_accepted(typed, minor_units, why):
+    """The strip is what makes `1,200` work, and that is why the fix is not
+    to stop stripping commas."""
+    from apps.listings.services import parse_major_units
+
+    assert parse_major_units(typed) == minor_units, why
+
+
+@pytest.mark.parametrize(
+    "typed,why",
+    [
+        ("320,00", "**F42 itself.** Measured as Rs 32,000 for a book priced at "
+                   "Rs 320 - a hundredfold error on a column that is immutable "
+                   "by trigger, so the seller cannot correct it"),
+        ("2,80", "the input `web/forms.py`'s own docstring names and then does "
+                 "not give a sentence to"),
+        ("1,2345", "a group of four"),
+        ("12,34,5", "a trailing group of one"),
+        (",200", "a leading comma"),
+        ("1,,200", "a doubled comma"),
+        ("1,200,", "a trailing comma"),
+    ],
+)
+def test_a_comma_that_is_not_a_grouping_is_refused_not_repaired(typed, why):
+    """**Refused, never guessed.** Guessing which grouping was meant is how
+    `320,00` became 32000 in the first place."""
+    from apps.core.errors import ValidationFailed
+    from apps.listings.services import parse_major_units
+
+    with pytest.raises(ValidationFailed) as caught:
+        parse_major_units(typed)
+    assert "comma" in str(caught.value).lower(), (
+        f"{why}: the sentence must say which character is the problem, "
+        f"got {caught.value!r}"
+    )
+
+
+def test_the_two_separators_get_the_same_treatment():
+    """**The asymmetry QA named**, closed.
+
+    *"`320.00` is refused with a clear sentence and `320,00` is not, which is
+    the asymmetry - the same intent, two separators, opposite outcomes."*
+    Both are refused now, and with different sentences, because they are
+    different mistakes.
+    """
+    from apps.core.errors import ValidationFailed
+    from apps.listings.services import parse_major_units
+
+    with pytest.raises(ValidationFailed) as decimal_case:
+        parse_major_units("320.00")
+    with pytest.raises(ValidationFailed) as comma_case:
+        parse_major_units("320,00")
+    assert str(decimal_case.value) != str(comma_case.value), (
+        "each mistake deserves a different sentence"
+    )
+    assert "paise" in str(decimal_case.value)
+    assert "comma" in str(comma_case.value).lower()
+
+
+def test_the_parser_is_the_only_one_and_the_form_is_told_to_use_it():
+    """**Rule 11, as the test that keeps it true.**
+
+    The root cause of F42 was two hand-written money parsers that disagreed.
+    This asserts the service exports one, and records the state of the other
+    half: `web/forms.py` is frontend's file and still has its own cleaner, so
+    the UI path is still wrong and QA's UI-journey test is correctly red.
+    **When frontend points `clean_asking_price_rupees` at this function,
+    both go green together** - and this assertion flips to requiring it.
+    """
+    import pathlib
+
+    from apps.listings import services
+
+    assert callable(services.parse_major_units)
+    assert "parse_major_units" in services.__all__, (
+        "the shared parser must be exported, or frontend cannot call it"
+    )
+
+    form = pathlib.Path(__file__).resolve().parents[2] / "web" / "forms.py"
+    if not form.exists():
+        return
+    source = form.read_text(encoding="utf-8")
+    if "parse_major_units" in source:
+        assert 'replace(",", "")' not in source, (
+            "web/forms.py calls the shared parser AND still strips commas "
+            "itself; one of the two is dead code and the dead one is the "
+            "one that will be read"
+        )

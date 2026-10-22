@@ -520,3 +520,235 @@ def test_the_authorisation_is_identical_whichever_path_serves_the_bytes(
         "a refused request still named an internal location, so nginx would "
         "serve a file Django just refused"
     )
+
+
+# --- QA-S2 regressions: each one measured, none predicted ----------------
+
+
+@pytest.mark.parametrize(
+    "sent,why",
+    [
+        ("320,00", "F42's shape: a comma in an unexpected grouping position. "
+                   "A cleaner that strips it first reads 32000 - a hundredfold "
+                   "error on a column that is immutable by trigger"),
+        ("1,200", "even a VALID grouping is refused here rather than repaired: "
+                  "the service does not guess which grouping was meant"),
+        ("320.755", "a decimal point; rounding stores an amount nobody sent"),
+        ("280.50", "the same, with the paise a student actually types"),
+        ("1e3", "scientific notation, which int() rejects anyway"),
+        ("-5", "a sign"),
+        ("+5", "the other sign"),
+        ("", "empty"),
+        ("   ", "whitespace only"),
+        ("3 20", "an internal space"),
+    ],
+)
+def test_a_malformed_price_string_is_a_400_with_its_own_sentence(
+    client_as, seller, book, sent, why
+):
+    """**Each mistake gets a different sentence** - `web/forms.py`'s own
+    docstring, applied at the layer ADR-003 2.3 names as the detection.
+
+    None of these is repaired. The column is immutable, so an amount we read
+    differently from the way it was written cannot be corrected: the seller
+    would have to withdraw and relist while the listing carries a price they
+    did not set.
+    """
+    client = client_as(seller)
+    response = _post(client, "/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": sent, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    })
+    assert response.status_code == 400, f"{why}: got {response.status_code}"
+    assert _code(response) == "VALIDATION_FAILED"
+    assert response.json()["error"]["message"], "a 400 with no sentence"
+
+
+@pytest.mark.parametrize(
+    "sent,why",
+    [
+        ("\u00b3\u00b2\u2070", "F43: str.isdigit() is True for a superscript and "
+                "int() RAISES, so the one money column answered 500 to a "
+                "three-character input"),
+        ("\uff13\uff12\uff10", "a full-width digit: isdecimal() is True and int() "
+                "silently returns 320, a different-looking number read as the same"),
+        ("\u0be9\u0be8\u0be6", "Tamil numerals: isdecimal() is True and int() converts "
+                "them. DECIDED DELIBERATELY - refused, not converted, because "
+                "the column is immutable and a silent conversion cannot be undone"),
+    ],
+)
+def test_a_non_ascii_digit_is_a_400_and_never_a_500(client_as, seller, book, sent, why):
+    """**The one money column must not 500 at either layer.**
+
+    `str.isdigit()` and `str.isdecimal()` both disagree with `int()`, in
+    opposite and equally bad directions: one raises, the other converts.
+    ASCII 0-9 is the only set where the predicate and the parser agree.
+    """
+    client = client_as(seller)
+    response = _post(client, "/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": sent, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    })
+    assert response.status_code == 400, (
+        f"{why}: got {response.status_code}. A 500 here is the money column "
+        "failing at the only detection layer ADR-003 names."
+    )
+
+
+def test_an_ordinary_price_string_still_works(client_as, seller, book):
+    """The other side of the split. A guard that refused every string would
+    pass every case above and break the sell flow."""
+    client = client_as(seller)
+    response = _post(client, "/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": "27500", "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    })
+    assert response.status_code == 201, response.content[:300]
+    assert response.json()["asking_price_paise"] == 27500
+
+
+def test_a_consent_refusal_names_the_missing_purpose(
+    client_as, student, book, privacy_notice, seller_terms_notice
+):
+    """**API-CONTRACT 2.5 step 5, verbatim: the body names the missing
+    `purpose_key`.**
+
+    QA measured that it did not. A student told only *"this needs your
+    permission"* cannot act on it, and the per-purpose consent screen is
+    unreachable from the error - `require_actor` has always carried the key
+    and nothing rendered it.
+    """
+    student.status = "ACTIVE"
+    student.save(update_fields=["status"])
+    client = client_as(student)
+    response = _post(client, "/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": 30000, "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    })
+    assert response.status_code == 403
+    body = response.json()["error"]
+    assert body["code"] == "CONSENT_REQUIRED"
+    assert body.get("purpose_key") == "listing_publication", (
+        f"the refusal does not name which permission is missing: {body}"
+    )
+
+
+def test_the_developer_detail_still_never_reaches_the_body(client_as, seller, book):
+    """The other half of rendering a context key: `detail` must stay out.
+
+    `purpose_key` is whitelisted by name rather than merged, because
+    `context` also carries the contract citations that
+    `test_user_facing_messages.py` exists to keep out of a student's screen.
+    """
+    client = client_as(seller)
+    response = _post(client, "/api/v1/listings", {
+        "accept_seller_terms": True, "book_id": book.id,
+        "asking_price_paise": "320,00", "condition": "GOOD",
+        "annotation_level": "NONE", "damage_flags": [], "no_damage": True,
+        "language": "en", "category": "PRESCRIBED_TEXTBOOK",
+    })
+    rendered = json.dumps(response.json())
+    assert "detail" not in response.json()["error"]
+    assert "hundredfold" not in rendered, "developer detail reached the body"
+
+
+def test_a_different_photo_under_a_reused_key_is_not_a_silent_replay(
+    client_as, seller, book
+):
+    """**The upload that vanishes.**
+
+    The idempotency fingerprint was the parsed JSON body, which for a
+    multipart request is empty - so two *different* photos under one key
+    looked like the same request. The second was answered with a replay of
+    the first and **discarded**, with the client told 201.
+
+    API-only today because frontend mints a key per render; it bites in S4,
+    where a retried transition with a changed body is the normal failure.
+    """
+    from apps.listings.models import ListingPhoto
+    from apps.listings.services import create_listing
+
+    listing = create_listing(
+        seller, book=book, asking_price_paise=30000, condition="GOOD",
+        annotation_level="NONE", damage_flags=[], no_damage=True,
+        language="en", category="PRESCRIBED_TEXTBOOK",
+    )
+    client = client_as(seller)
+    key = str(uuid.uuid4())
+    path = f"/api/v1/listings/{listing.id}/photos"
+
+    first = client.post(path, data={"photo": io.BytesIO(_jpeg(width=4))},
+                        headers={"Idempotency-Key": key})
+    assert first.status_code == 201, first.content[:200]
+
+    second = client.post(path, data={"photo": io.BytesIO(_jpeg(width=7))},
+                         headers={"Idempotency-Key": key})
+    assert second.status_code == 409, (
+        f"a different photo under a reused key must be a conflict, not a "
+        f"replay; got {second.status_code} {second.content[:200]}"
+    )
+    assert _code(second) == "IDEMPOTENCY_KEY_REUSED"
+    assert ListingPhoto.all_objects.filter(listing=listing).count() == 1
+
+
+def test_the_same_photo_retried_under_one_key_is_still_a_replay(client_as, seller, book):
+    """The other side: the fingerprint is of the **content**, so a genuine
+    retry of the same upload still replays rather than erroring - which is
+    what the key is for in the first place."""
+    from apps.listings.services import create_listing
+
+    listing = create_listing(
+        seller, book=book, asking_price_paise=30000, condition="GOOD",
+        annotation_level="NONE", damage_flags=[], no_damage=True,
+        language="en", category="PRESCRIBED_TEXTBOOK",
+    )
+    client = client_as(seller)
+    key = str(uuid.uuid4())
+    path = f"/api/v1/listings/{listing.id}/photos"
+    payload = _jpeg(width=5)
+
+    first = client.post(path, data={"photo": io.BytesIO(payload)},
+                        headers={"Idempotency-Key": key})
+    second = client.post(path, data={"photo": io.BytesIO(payload)},
+                         headers={"Idempotency-Key": key})
+    assert first.status_code == 201, first.content[:200]
+    assert second.status_code == 201, second.content[:200]
+    assert second.headers.get("Idempotency-Replayed") == "true"
+
+
+def test_a_photo_whose_file_is_missing_is_404_and_never_500(client_as, seller, book):
+    """**What a dump-only restore looks like at runtime.**
+
+    The row is present and the file is not. `photo_response` raised
+    `NotFound`, but the call sat outside the handler's `ServiceError` block,
+    so it escaped as a **500**. Paired with the restore procedure never
+    opening the media tarball, a restore prints success and leaves every
+    photo URL a server error.
+    """
+    from apps.listings.services import add_photo, create_listing
+    from apps.listings.storage import delete_object
+
+    listing = create_listing(
+        seller, book=book, asking_price_paise=30000, condition="GOOD",
+        annotation_level="NONE", damage_flags=[], no_damage=True,
+        language="en", category="PRESCRIBED_TEXTBOOK",
+    )
+    photo = add_photo(seller, listing, io.BytesIO(_jpeg()))
+    delete_object(photo.storage_key)
+
+    response = client_as(seller).get(
+        f"/api/v1/listings/{listing.id}/photos/{photo.sha256}"
+    )
+    assert response.status_code == 404, (
+        f"got {response.status_code}; a missing file is 'not found', and a "
+        "500 here is indistinguishable from the application being broken"
+    )
+    assert _code(response) == "NOT_FOUND"

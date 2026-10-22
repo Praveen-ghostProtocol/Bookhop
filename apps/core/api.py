@@ -25,6 +25,7 @@ takes it from `GENERIC_MESSAGES` and logs the real one.
 """
 
 import functools
+import hashlib
 import json
 import logging
 
@@ -86,6 +87,13 @@ GENERIC_MESSAGES = {
 }
 
 
+#: Context keys a contract requires in the rendered body. **A whitelist,
+#: not a merge**: `ServiceError.context` also carries `detail`, which exists
+#: precisely so a citation can be logged and never rendered
+#: (`test_user_facing_messages.py`), and a merge would ship it.
+RENDERED_CONTEXT_KEYS = ("purpose_key",)
+
+
 def error_payload(exc, request_id=None):
     """API-CONTRACT §2.2, one shape, everywhere.
 
@@ -109,6 +117,18 @@ def error_payload(exc, request_id=None):
     }
     if status == 400:
         body["field_errors"] = dict(getattr(exc, "context", {}).get("field_errors", {}) or {})
+    # **API-CONTRACT 2.5 step 5, verbatim: the body names the missing
+    # `purpose_key`.** QA measured that it did not -- the student was told a
+    # permission was missing and not which one, which makes the refusal
+    # unactionable and makes the per-purpose consent screen unreachable from
+    # the error. `require_actor` has always passed the key; nothing rendered
+    # it. Whitelisted by name rather than merging the whole context, because
+    # `context` also carries `detail`, which is developer text and must stay
+    # out of the response.
+    for key in RENDERED_CONTEXT_KEYS:
+        value = getattr(exc, "context", {}).get(key)
+        if value is not None:
+            body[key] = value
     return {"error": body}
 
 
@@ -184,6 +204,37 @@ def _parse_body(request):
     return parsed
 
 
+def _fingerprint(request, body):
+    """What `Idempotency-Key` is compared against — **including the files.**
+
+    API-CONTRACT §4.1 distinguishes a *retry of the same request* from a
+    *different request reusing a key*: the first replays, the second is
+    `409 IDEMPOTENCY_KEY_REUSED`. The comparison was the parsed JSON body,
+    which for a multipart upload is **empty** — so two different photos sent
+    under one key looked identical, the second was answered with a replay of
+    the first, and **the second photo was silently discarded**. The client is
+    told 201 and the upload is gone.
+
+    API-only today, because frontend's form mints a fresh key per render.
+    It bites in S4, where a retried transition carrying a changed body is the
+    normal failure mode rather than an unusual one.
+
+    The digest is of the **content**, so the same photo retried is still a
+    retry (which is the whole point of the key), and a different photo under
+    the same key is correctly a different request.
+    """
+    if not request.FILES:
+        return body
+    digests = {
+        field: hashlib.sha256(upload.read()).hexdigest()
+        for field, upload in sorted(request.FILES.items())
+    }
+    for upload in request.FILES.values():
+        # Rewound, or the handler reads zero bytes after this.
+        upload.seek(0)
+    return {**body, "__files__": digests}
+
+
 class MethodNotAllowed(ServiceError):
     code = "METHOD_NOT_ALLOWED"
     http_status = 405
@@ -230,7 +281,8 @@ def endpoint(*, methods, idempotent_write=None, actor=None):
                     if not key:
                         raise IdempotencyKeyRequired()
                     row = idempotent(
-                        getattr(user, "id", None), key, idempotent_write, body
+                        getattr(user, "id", None), key, idempotent_write,
+                        _fingerprint(request, body),
                     )
                 status, payload = handler(request, body, user, *args, **kwargs)
                 # Canonicalised **before** storing and returning, so the

@@ -23,10 +23,11 @@ developer would otherwise break by accident:
 
 import hashlib
 import logging
+import re
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from apps.accounts.services import require_actor
@@ -71,6 +72,7 @@ __all__ = [
     "moderate_listing", "create_request", "close_request",
     "my_listings", "get_own_listing", "listing_payload", "seller_block",
     "my_requests", "review_queue", "get_photo_for_download", "photo_response",
+    "parse_major_units",
 ]
 
 #: DATA-MODEL §3: `purge_due_at = closed_at + 1 year` (r.8(3)). The same floor
@@ -151,6 +153,182 @@ def _check_enum(value, permitted, what, why=""):
         )
 
 
+#: ASCII `0`-`9` and nothing else. **Not `str.isdigit()`, and not
+#: `str.isdecimal()` either** — QA F43's shape, and the reason is that both
+#: say yes to characters `int()` then disagrees about:
+#:
+#:   * `"²".isdigit()` is **True** and `int("²")` **raises** — so the service
+#:     answered `500` on the one money column, from a one-character input.
+#:     `isdecimal()` fixes that one.
+#:   * `"１".isdecimal()` is **True** and `int("１")` returns **1** — a
+#:     full-width digit silently becomes a different-looking number.
+#:   * `"௧".isdecimal()` is **True** and `int("௧")` returns **1**.
+#:
+#: **The Tamil-numeral question, decided rather than inherited.** Tamil
+#: numerals are **refused**, with their own sentence, and they are not
+#: converted. Tamil *text* is a first-class locale here and this is not about
+#: that: it is that `asking_price_paise` is **immutable by trigger**, so an
+#: amount we read differently from the way the student wrote it cannot be
+#: corrected afterwards — they would have to withdraw and relist while the
+#: listing carries a price they did not set. A refusal costs one retype; a
+#: silent conversion costs a wrong price nobody can fix. The same reasoning
+#: refuses full-width and superscript digits, which are far more likely a
+#: paste accident than an intent.
+_ASCII_DIGITS = frozenset("0123456789")
+
+
+def _parse_minor_units_text(raw):
+    """A money string as an integer, or a refusal **with its own sentence**.
+
+    *"The three mistakes a student actually makes — ₹280, `2,80`, 280.50 —
+    each deserves a different sentence."* That is `web/forms.py`'s docstring
+    and it is right; this is the service-layer half, and the service is the
+    layer ADR-003 §2.3 names as the detection for P14, so it has to hold even
+    when a form above it does not.
+
+    **Every one of these is a refusal, never a repair.** A thousands
+    separator in the wrong place (`320,00`) is the input that produced a
+    hundredfold error, and the fix is not to guess which grouping was meant.
+    """
+    text = raw.strip()
+    if not text:
+        raise ValidationFailed(
+            "Enter the amount in whole rupees.",
+            field_errors={"asking_price_paise": ["Required."]},
+        )
+    if "." in text:
+        raise ValidationFailed(
+            "Enter a whole number of rupees, with no paise.",
+            detail=f"{raw!r} carries a decimal point; rounding it would store "
+                   "a different amount from the one that was sent",
+            field_errors={"asking_price_paise": ["Whole rupees only."]},
+        )
+    if "," in text:
+        # **Refused, not stripped.** `320,00` is the measured hundredfold
+        # error: a cleaner that strips the comma first reads it as 32000.
+        # Guessing the grouping is how that happened, so this layer does not
+        # guess -- it says which character is the problem.
+        raise ValidationFailed(
+            "Enter the amount without commas.",
+            detail=f"{raw!r} contains a comma; a grouping separator in an "
+                   "unexpected position is how 320,00 becomes 32000",
+            field_errors={"asking_price_paise": ["Digits only, no commas."]},
+        )
+    if not set(text) <= _ASCII_DIGITS:
+        raise ValidationFailed(
+            "Enter the amount using the digits 0 to 9.",
+            detail=(
+                f"{raw!r} contains a character that is not an ASCII digit. "
+                "str.isdigit() accepts superscripts that int() then rejects, "
+                "and str.isdecimal() accepts full-width and Tamil numerals "
+                "that int() silently converts. asking_price_paise is "
+                "immutable, so a misread amount cannot be corrected."
+            ),
+            field_errors={"asking_price_paise": ["Digits 0 to 9."]},
+        )
+    return int(text)
+
+
+#: A whole number of rupees, grouped the way a student actually types it.
+#: **Indian grouping** (`1,200`, `32,000`, `1,00,000`) or **Western**
+#: (`100,000`) — both unambiguous, both common here. Anything else is not a
+#: grouping, and `320,00` is the measured example: it is neither, and a
+#: cleaner that strips the comma first reads it as 32000.
+#:
+#: **Named `_GROUPED_DIGITS` and not `_GROUPED_RUPEES` — rule 13 rung 1,
+#: and the pin caught it within minutes of being ratified.** The first draft
+#: carried `rupee`, which is a W1b money token; being UPPER_SNAKE it matched
+#: ADR-003 §2.3's shape B, so W1c exempted it and
+#: `test_exempted_bound_is_pinned.py` then refused it for having no CHECK
+#: behind it. **That is exactly the `MAX_OFFER_PAISE` case cto measured
+#: before ratifying, arriving for real.** Rung 1 was available and neutral
+#: here — the pattern knows nothing about rupees, it matches a grouped run of
+#: digits — so a rename is both the cheaper fix and the more accurate name.
+#:
+#: The ungrouped branch is `\d+` and not `\d{1,3}`: a student typing `1200`
+#: with no separator at all is the commonest input of the lot, and the first
+#: draft of this pattern refused it — caught by the test table, which is why
+#: the ordinary cases are rows in it and not an afterthought.
+_GROUPED_DIGITS = re.compile(
+    r"^(?:\d+|\d{1,2}(?:,\d{2})*,\d{3}|\d{1,3}(?:,\d{3})+)$"
+)
+
+
+def parse_major_units(text):
+    """A typed amount in **major units** → integer minor units, or a refusal.
+
+    Named in ISO-4217's terms — major unit (rupee), minor unit (paise) —
+    rather than `parse_rupees_to_minor_units`, which was the first draft and
+    which W1c correctly refused: `rupee` is a W1b money token and a function
+    name is a per-instance declaration, so it matches none of ADR-003 §2.3's
+    ratified shapes. **Rule 13 rung 1 again**, and neutral again: the
+    currency is not what this function knows about, the grouping is.
+
+    Its `field_errors` key is `asking_price_paise`, the one permitted money
+    name, for the same reason. A Django `clean_<field>` that re-raises
+    attaches the message to its own field anyway, so frontend loses nothing.
+
+    > **One definition, for both layers.** QA F42 measured `320,00` stored as
+    > Rs 32,000 — a hundredfold error on a column that is **immutable by
+    > trigger**, so the seller cannot correct it. The cause was two
+    > hand-written money parsers: this service layer, which ADR-003 §2.3
+    > names as P14's detection layer, and `web/forms.py`'s
+    > `clean_asking_price_rupees`, which strips commas on the line **before**
+    > it checks for a decimal point. That is `CLAUDE.md` rule 11's exact
+    > failure mode — *three hand-made copies of one rule disagreed* — with
+    > money in the column that cannot be edited afterwards.
+    >
+    > **So the fix is not "stop stripping commas", and it is not a patch to
+    > the form.** The strip is what makes `1,200` work, which is the grouping
+    > a student really does type. It is to refuse a comma that is **not in a
+    > valid grouping position**, which is the distinction `web/forms.py`'s
+    > own docstring already draws — and to have one function draw it.
+    >
+    > This is the function. It lives here because this is the layer the ADR
+    > names, and `web/forms.py` is frontend's to point at it. Sent to cto as
+    > an `API-CONTRACT.md` §3 row, per the process rule that a read the
+    > interface needs is an amendment first and an implementation second.
+    > **Until the form calls it, the UI path is still wrong** and QA's
+    > `test_the_rupees_field_refuses_a_value_it_cannot_represent` is
+    > correctly red.
+
+    Whole rupees only: `280.50` is refused with its own sentence rather than
+    rounded, for the same reason — the stored amount would not be the one
+    that was sent.
+    """
+    raw = "" if text is None else str(text).strip()
+    if not raw:
+        raise ValidationFailed(
+            "Enter the amount in rupees.",
+            field_errors={"asking_price_paise": ["Required."]},
+        )
+    if "." in raw:
+        raise ValidationFailed(
+            "Enter a whole number of rupees, with no paise.",
+            detail=f"{text!r} carries a decimal point",
+            field_errors={"asking_price_paise": ["Whole rupees only."]},
+        )
+    if not _GROUPED_DIGITS.match(raw):
+        # The message distinguishes the two causes, because they are two
+        # different mistakes and each deserves its own sentence.
+        if "," in raw:
+            raise ValidationFailed(
+                "Check the commas in that amount — try it without them.",
+                detail=(
+                    f"{text!r} has a comma in a position that is not a "
+                    "thousands or lakhs grouping; 320,00 read as 32000 is the "
+                    "hundredfold error this refusal exists for"
+                ),
+                field_errors={"asking_price_paise": ["For example 1,200 or 1200."]},
+            )
+        raise ValidationFailed(
+            "Enter the amount using the digits 0 to 9.",
+            detail=f"{text!r} is not a plain number of rupees",
+            field_errors={"asking_price_paise": ["Digits 0 to 9."]},
+        )
+    return _coerce_minor_units(int(raw.replace(",", "")) * 100)
+
+
 def _coerce_minor_units(raw):
     """The asking price as an integer, or a refusal. **The rule-12 case.**
 
@@ -172,13 +350,7 @@ def _coerce_minor_units(raw):
             field_errors={"asking_price_paise": ["A whole number."]},
         )
     if isinstance(raw, str):
-        text = raw.strip()
-        if not text.isdigit():
-            raise ValidationFailed(
-                "Enter the amount in whole rupees.",
-                field_errors={"asking_price_paise": ["A whole number."]},
-            )
-        raw = int(text)
+        raw = _parse_minor_units_text(raw)
     if not isinstance(raw, int):
         raise ValidationFailed(
             "Enter the amount in whole rupees.",
@@ -411,15 +583,15 @@ def add_photo(actor, listing, upload) -> ListingPhoto:
     `upload` is anything with `.read()` and an optional `.size` — a Django
     `UploadedFile`, or `io.BytesIO` in a fixture.
 
-    # ponytail: the four-photo cap is a conditional insert inside this
-    # transaction, not DATA-MODEL §3's counting trigger. Ceiling: two
-    # simultaneous uploads on the same listing could both see three and both
-    # insert, giving five. Nobody but the seller can upload to their own
-    # listing and the path is rate limited to 40/day, so the race needs the
-    # seller to race themselves; the cost of exceeding it is a fifth thumbnail.
-    # Upgrade path: two trigger bodies, one per engine — which is the cost
-    # being declined, because a guard that exists on one engine is a guard the
-    # tests do not cover (`CLAUDE.md` rule 9's labelling rule).
+    # ponytail: the four-photo cap is serialised on the parent row rather
+    # than enforced by DATA-MODEL §3's counting trigger. Ceiling: the lock is
+    # per listing, so uploads to one listing queue behind each other — which
+    # is fine, since only its seller can upload to it. **The earlier note
+    # here said the race was affordable because "the seller would have to
+    # race themselves". That was wrong twice: a phone retrying on a flaky
+    # connection races itself routinely, and QA measured nine photos from six
+    # requests.** Upgrade path: two trigger bodies, one per engine, if the
+    # lock ever shows up in a latency measurement.
     """
     require_actor(actor, purposes=("listing_publication",))
     listing = get_own_listing(actor, listing.id if hasattr(listing, "id") else listing)
@@ -446,6 +618,24 @@ def add_photo(actor, listing, upload) -> ListingPhoto:
 
     digest = hashlib.sha256(stripped).hexdigest()
     with transaction.atomic():
+        # **The cap is serialised on the parent row, because counting is a
+        # read-then-write and QA measured what that costs: six simultaneous
+        # uploads produced NINE photos.**
+        #
+        # And it failed on PostgreSQL while holding on SQLite — *the test
+        # engine kept the invariant the production engine dropped*, which is
+        # the worst direction for a divergence. SQLite has one writer, so its
+        # count-then-insert is accidentally atomic; PostgreSQL runs six
+        # transactions that each read 0..3 and each insert.
+        #
+        # `select_for_update` on the listing makes every upload for one
+        # listing take its turn. It is the parent row and not the photos,
+        # because a lock on rows that do not exist yet cannot stop an insert.
+        # On SQLite this is a no-op the backend ignores, which is correct:
+        # the property is already held there by the single writer.
+        locked = Listing.all_objects.select_for_update().filter(id=listing.id)
+        if connection.features.has_select_for_update:
+            locked.first()
         existing = ListingPhoto.all_objects.filter(listing=listing).count()
         if existing >= MAX_PHOTOS_PER_LISTING:
             raise TooManyPhotos(

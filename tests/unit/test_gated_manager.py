@@ -520,16 +520,27 @@ def _make_listing(template, *, is_seed):
 
 
 def _make_photo(template, *, is_seed):
+    """A photo whose seed flag is `is_seed` — **on a parent that agrees**.
+
+    The first version of this helper hung the photo off `template` and set
+    the flag independently, which is exactly the inconsistency ADR-002 §2's
+    composite FK now makes unwritable: it started failing with a
+    `ForeignKeyViolation` the moment the constraint landed. **That is the
+    control catching this file's own fixture**, which is the thing the ADR
+    said a service-routed test could never do — so the parent is built to
+    match instead.
+    """
     from django.utils import timezone
 
     from apps.listings.models import ListingPhoto
 
+    parent = _make_listing(template, is_seed=is_seed)
     return ListingPhoto.all_objects.create(
-        listing=template,
-        campus_id=template.campus_id,
-        city_id=template.city_id,
-        is_seed=is_seed,
-        storage_key=f"test/{is_seed}/{template.id}.jpeg",
+        listing=parent,
+        campus_id=parent.campus_id,
+        city_id=parent.city_id,
+        is_seed=parent.is_seed,
+        storage_key=f"test/{is_seed}/{parent.id}.jpeg",
         sha256="0" * 64,
         width=10,
         height=10,

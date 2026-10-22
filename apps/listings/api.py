@@ -327,9 +327,15 @@ def photo_bytes(request, listing_id=None, sha256=None):
     try:
         actor = _signed_in(_actor(request))
         photo = services.get_photo_for_download(actor, listing_id, sha256)
+        # **Inside the try, and QA measured why.** `photo_response` raises
+        # `NotFound` when the row survives but its file does not, and with
+        # the call outside this block that escaped as a **500** -- which is
+        # exactly what a dump-only restore looks like at runtime: every row
+        # present, every photo URL a server error. A 404 is the honest
+        # answer and the one a client can render.
+        return services.photo_response(photo)
     except ServiceError as exc:
         return error_response(exc)
-    return services.photo_response(photo)
 
 
 __all__ = [
