@@ -794,6 +794,55 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-27 — correcting A-26: the limb I kept was the dangerous one (2026-10-22, cto)
+>
+> **A-26 is wrong as written and Code Review blocked it.** Measured on the
+> shipped rule, not predicted:
+>
+> | Catalogue text | A-26's result |
+> |---|---|
+> | `A History of India 1707-1947` | **refused** as a phone number |
+> | `Cambridge 2020-2021` | **refused** |
+> | `Physics ISBN 978-93-5260-123-4` | **refused** |
+>
+> …under the message *"Enter what is printed on the book"*, while the student
+> is doing exactly that, on the only path that exists for a book not yet in
+> the catalogue.
+>
+> **The instructive part is how I got it wrong.** A-26 asked rule 13's
+> question — *will this guard fire on the contracts it protects?* — carefully
+> and explicitly, about the `/` in `Physics/Chemistry Combined`, and exempted
+> `linked` on the strength of it. It never asked the same question about the
+> `-` in `1707-1947`. **The trap landed on the limb I kept**, because I had
+> already spent my suspicion on the limb I removed. Asking the question once
+> and treating it as asked is its own failure mode, and it is now written
+> here so the next amendment asks it of every limb.
+>
+> It is also rule 10's second disguise. `test_catalog.py` enumerates eleven
+> accepted strings and **not one carries a hyphenated digit run**, so the
+> accepted side of the split read as covered and was not.
+>
+> **Ruling: `dialable` applies to catalogue text with a minimum of 10 digits,
+> not 7. `addressed` applies unchanged. `linked` remains exempt.**
+>
+> Ten is not a tuning constant, it is the shortest dialable Indian subscriber
+> number; `+91` prefixes and `wa.me/91…` links run longer and are still
+> caught. A two-year range is eight digits and passes. The threshold stays
+> at 7 for `display_name`, where no legitimate name carries a seven-digit
+> run — **the limb is shared, the threshold is the caller's**, which keeps
+> one definition (rule 11) without pretending two fields have one risk.
+>
+> **An ISBN-13 in a `title` is still refused, and that is correct** — not a
+> tolerated false positive. The ISBN has its own field; one in the title is
+> misfiled data. The refusal message for catalogue fields must say that,
+> rather than talking about phone numbers.
+>
+> **The declared gap widens and is named here**: a 7-to-9-digit run in
+> catalogue text is now accepted. The layer that catches it is the review
+> queue, which after F50 shows the title, publisher and edition — the same
+> layer A-26 named for `linked`, under the same `LISTING_REVIEW_ALL` guard,
+> which now covers three limbs rather than one.
+
 > #### A-26 — the contact rule applies to catalogue text (2026-10-22, cto)
 >
 > Backend found this while writing F49's boundary sweep and correctly did not
@@ -844,8 +893,12 @@ agent knows exactly what it owns.
 >   is the better identifier and the `/media/` spelling invited exactly the
 >   public-static reading that F51 found in two deployment documents. The
 >   `/media/listing-photo/{photo_id}` spelling is **withdrawn, not unrouted.**
-> - **Cache — corrected to the clause**: `private, max-age=86400`. The route
->   serves `3600`.
+> - **Cache — `private, max-age=3600`, and the clause is what changes.**
+>   A-25 first ruled the other way, on the reasoning that the route should
+>   match the frozen clause. Review's counter is better: the URL is stable
+>   and content-addressed, so `86400` leaves a **purged** photo readable in
+>   the student's own browser for a day after erasure. A deletion right
+>   outranks a cache-hit rate, and the clause is the thing that was wrong.
 > - **The storage key must not be derivable from any response.** `add_photo`
 >   builds `listings/{id}/{sha256[:32]}.{fmt}` while `listing_payload`
 >   publishes both the id and the full `sha256`, so any authorised reader can
@@ -1085,7 +1138,8 @@ four contract guarantees:
 | **A-21** | 2026-10-22 | **§3 procedural fix after a THIRD naming drift.** A read the interface needs is a **§3 amendment first, then an implementation** — rule 6 applied to signatures, not just files. Backend's four shipped names win and are recorded on receipt | S2 frontend pass | cto |
 | **A-20** | 2026-10-22 | **`GET /media/listing-photo/{photo_id}` added** — the storage key existed and nothing served it, so **the data-saver criterion was passing vacuously and must not be reported as passing** (rule 10). Gate- and scope-checked in Django, bytes served by nginx via `X-Accel-Redirect`, 404 not 403 out of scope | S2 frontend pass | cto |
 | **A-25** | 2026-10-22 | **The photo route as it ships.** Path ratified as `/api/v1/listings/{id}/photos/{sha256}`; `/media/listing-photo/{photo_id}` withdrawn. Cache corrected to `max-age=86400`. **Storage key gains a component published in no response** - it was `sha256[:32]`, which every listing payload hands out. The `exif_stripped_at` bullet is struck: it records that the stripper ran, not that it worked | REDTEAM-S2 F47/F51/F52 | cto |
-| **A-26** | 2026-10-22 | **The contact rule reaches catalogue text, two limbs of three.** `create_book` accepts a phone number or handle in `title`, `authors`, `publisher` and `edition_label`, and those render on **every** listing of that ISBN. `dialable` and `addressed` apply. **`linked` does not** - it fires on `Physics/Chemistry Combined`, and a guard that fires on legitimate content gets edited rather than obeyed (rule 13). The layer that catches `linked` is the review queue, which is only a layer while `LISTING_REVIEW_ALL` is true - so a test fails the day its default flips | REDTEAM-S2 F55 | cto |
+| **A-26** | 2026-10-22 | **The contact rule reaches catalogue text, two limbs of three.** `create_book` accepts a phone number or handle in `title`, `authors`, `publisher` and `edition_label`, and those render on **every** listing of that ISBN. `dialable` and `addressed` apply. **`linked` does not** - it fires on `Physics/Chemistry Combined`, and a guard that fires on legitimate content gets edited rather than obeyed (rule 13). The layer that catches `linked` is the review queue, which is only a layer while `LISTING_REVIEW_ALL` is true - so a test fails the day its default flips | REVIEW-S2 rework, backend escalation | cto |
+| **A-27** | 2026-10-22 | **A-26 corrected; it refused real book titles.** `A History of India 1707-1947` and `Physics ISBN 978-93-5260-123-4` were refused as phone numbers. `dialable` on catalogue text takes a **10-digit** minimum - the shortest dialable Indian number - leaving year ranges accepted and `wa.me/91...` caught. Threshold stays 7 for `display_name`: one definition, the caller's threshold. **A-26 asked rule 13's question of the limb it removed and not of the limb it kept** | REVIEW-S2 rework B-R1 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

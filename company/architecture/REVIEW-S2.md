@@ -623,3 +623,394 @@ trigger — a non-price `.update()` and an ORM `save()` both succeed on both
 engines, so the guard is narrow enough that the state machine still works.
 **QA has not verified this slice; nothing here implies behavioural coverage
 that QA has not independently signed.**
+
+---
+---
+
+# REWORK PASS — `2af14de..998af8d` (2026-10-22, code-review)
+
+**Scope: this diff only.** The original S2 verdict above stands unamended;
+this section reviews the four rework commits against `REDTEAM-S2.md` F47–F54
+and the two contract amendments A-25 and A-26 that landed with them. I wrote
+none of this code and none of these tests.
+
+**Measurement.** Full suite, both engines, at `998af8d`:
+
+| Engine | Result |
+|---|---|
+| PostgreSQL (`BOOKHOP_TEST_DB_NAME=test_cr`) | **1 failed**, 1715 passed, 59 skipped, 2 xfailed |
+| SQLite | **2 failed**, 1643 passed, 131 skipped, 1 xfailed |
+
+`test_the_backup_scope_and_the_restore_test_cover_the_same_things` fails on
+both and **is pre-existing** — verified by running it in a worktree at
+`2af14de`, where it fails identically. It is QA's F44 reported as a red test.
+`test_the_migration_round_trips_forward_reverse_forward` fails on SQLite only;
+it also failed at `2af14de`, but **not in the same way, and the difference is
+a finding** (R-R2).
+
+`norecursedirs = tests/redteam` was checked rather than assumed: the tree is
+still collectable when named explicitly (`BOOKHOP_REDTEAM=1 pytest
+tests/redteam` collects 25). F54 is closed without losing the probes.
+
+**Coverage of Red Team's eight.** F47, F48, F49, F50, F51, F52 and F54 are
+addressed in this diff. **F53 is not, and correctly so** — it is owned by
+product-manager and design-director and its own text says it is *"a claim to
+test against a real student, not a defect to fix in code."* Nothing in the
+code range pretends otherwise.
+
+---
+
+## Blocking
+
+### B-R1 · `dialable` refuses real book titles — `apps/catalog/services.py:224` (`_refuse_contact_channel`), via `apps/core/contact.py:86` (`_NUMBER_SEPARATORS`) and `:88` (`_DIGIT_RUN`)
+
+`_NUMBER_SEPARATORS` contains `-`, `.`, `/`, whitespace and the U+2010–U+2015
+dash range, and `_DIGIT_RUN` joins digit groups across any run of them.
+Applied to catalogue text by A-26, that refuses legitimate input. **Measured,
+not predicted** — `contact_channels_in(v, ("addressed", "dialable"))`:
+
+| Value | Field | Result |
+|---|---|---|
+| `A History of India 1707-1947` | `title` | `['dialable']` → **refused** |
+| `Cambridge 2020-2021` | `publisher` / `edition_label` | `['dialable']` → **refused** |
+| `Physics ISBN 978-93-5260-123-4` | `title` | `['dialable']` → **refused** |
+
+The sentence the seller is shown is *"Enter what is printed on the book"* —
+while they are entering exactly what is printed on the book. `create_book` is
+JOURNEYS J2 step 2 and is the **only** path for a book not already in the
+catalogue, so there is no workaround: that student cannot list that book.
+
+This is `CLAUDE.md` rule 13's named failure, and A-26 walks into it on the
+limb it *kept* rather than the one it exempted. A-26 reasoned carefully about
+`/` in `Physics/Chemistry Combined` and did not ask the same question of `-`
+between two years. What happens next is rule 13's own prediction: a red test
+on a real book title, and an edit to `apps/core/contact.py` under schedule
+pressure — the shared definition, which S4's `contact_pattern_flag` also
+reads.
+
+It is also rule 10's second disguise. `tests/unit/test_catalog.py:283
+test_real_catalogue_text_is_accepted` enumerates eleven real strings and
+**not one has a hyphenated or space-separated digit run**, so the accepted
+side of the split reads as covered and is not. Where a rule splits a set,
+both sides are rows.
+
+**What would fix it** — a contract decision, so this is an escalation to cto
+against A-26 rather than a comment to backend. Three shapes, none of which I
+should pick: give `dialable` a limb-local rule that a run spanning more than
+one separator group needs more than seven digits to count; or set a different
+`MIN_DIALABLE_DIGITS` for catalogue text, declared in `contact.py` beside the
+limb and not copied into `catalog`; or exempt `dialable` on catalogue fields
+too and name the review queue as the catching layer, which A-26 has already
+written the paragraph for. Whichever lands, the accepted side gets rows: a
+year range, an ISBN, and a volume run.
+
+---
+
+## Required
+
+### R-R1 · An empty limb selector silently selects nothing — `apps/core/contact.py:122` (`contact_channels_in`)
+
+```python
+selected = CHANNEL_KINDS if kinds is None else {k: CHANNEL_KINDS[k] for k in kinds}
+```
+
+`kinds=()` and `kinds=[]` are not `None`, so they produce `{}` and the
+function returns `[]`. Measured:
+`has_contact_channel("wa.me/91 98400 12345 priya@x.com", ())` → `False`.
+
+The docstring is explicit that *"a name that is not a limb **raises** rather
+than matching nothing: a typo'd kind would be a guard that silently stopped
+guarding and was still reported as coverage (rule 10)."* An empty selector is
+that same guard, by a different typo, with no exception. No caller passes one
+today; this is new public API written for S4 to call.
+
+**Fix:** raise on a falsy-but-not-`None` `kinds` in the same breath as the
+`KeyError`, and assert it in
+`tests/contract/test_display_name_is_not_a_channel.py:100`, which already
+owns the "every limb is reachable" property.
+
+### R-R2 · `listings/0004` destroys F46's diagnostic and the test's own cleanup — `tests/contract/test_tenant_fk_migration.py:316` (`_restore`, line 330)
+
+A regression introduced by this diff, in the shape rule 12 warns about.
+
+At `2af14de` the test failed with its own worded finding
+(`assert OperationalError('foreign key mismatch …') is None`, line 248): the
+reverse raised, the test captured it, measured the damage, and printed the
+F46 analysis.
+
+At `998af8d` it fails with an **unhandled** `OperationalError: foreign key
+mismatch - "listing_photos" referencing "listings"`, raised out of the
+`finally` block. Mechanism: `migrate listings 0002` reverses `0004` cleanly
+and then fails inside `0003`; `_restore` line 330 runs `migrate listings`
+forward; `0004` is no longer recorded as applied, so Django re-applies it;
+its `ALTER TABLE "listing_photos" ADD COLUMN` makes the SQLite schema editor
+run `PRAGMA foreign_key_check` against the table F46 left damaged, and it
+raises.
+
+Two things are lost. The F46 finding text — the only place that analysis is
+written down as a measurement rather than as prose — is replaced by a raw
+traceback. And `finally`'s `_cleanup(listing)` is never reached, which is the
+precise thing the test docstring says the `finally` exists to prevent:
+*"a half-migrated schema would follow it into every test after."* Nothing
+downstream failed in this run, so the damage appears contained today; that is
+an observation, not a guarantee.
+
+`ENGINE-DIVERGENCE.md` §13.3 predicts this mechanism exactly — *"every
+subsequent `ALTER TABLE` on that table dies with `foreign key mismatch`"* —
+and then closes *"**Still open. It does not block S2.**"* The measurement
+disagrees with the explanation, so under rule 9's corollary the closing line
+goes, replaced by what was measured: 0004 is the first migration to collide
+with F46, and it collides inside the harness that reports F46.
+
+**Fix:** capture the restore the same way the reverse is captured, so the
+test still reports F46 rather than dying of it, and make `_cleanup` run
+regardless. Owner: test-qa, with cto for the §13.3 sentence.
+
+### R-R3 · `INFRA.md` §1 names a verification step that §3.3 does not contain — `company/architecture/INFRA.md`
+
+The new `/media/` box closes with:
+
+> **Verification is a step in §3.3, not a claim here.** With the app stopped:
+> `curl … /_protected_media/listings/1/x.jpeg` must print `404`.
+
+§3.3 has steps 1–7 plus 5a. **None of them is that probe**, and nothing else
+in the repository performs it — it is nginx configuration, so no conformance
+test can. A-25 makes the `internal` location one of the two layers standing
+between a student's bedroom photograph and the internet (the other being the
+underivable filename, which this diff does build). The document says the
+layer is verified somewhere; it is verified nowhere.
+
+This is `CLAUDE.md` rule 9's earned example verbatim: *"a section named four
+controls, two of which did not exist."* Either add step 5b to §3.3 or delete
+the sentence. Owner: cto and platform-sre.
+
+### R-R4 · The page varies on a request header and sends no `Vary` — `web/views.py:920` (`_save_data`), `:146` (`_page`)
+
+`listing_detail` and `sell_photos` emit a materially different body depending
+on the `Save-Data` request header. `_page` sets `Content-Language` and
+nothing else: no `Vary: Save-Data`, no `Cache-Control`. Any shared cache in
+front — nginx `proxy_cache`, or the transcoding and compressing proxies
+common on Indian mobile networks, which are the exact population `Save-Data`
+exists for — may serve the image-bearing variant to a data-saver request.
+Criterion 9 is then defeated at the cache rather than in the template, and
+the template test cannot see it: `grep -n "Vary"
+tests/a11y/test_s2_photos.py` returns nothing.
+
+**Fix:** `patch_vary_headers(response, ["Save-Data"])` on any response
+`_save_data` was consulted for, and an assertion beside the existing
+both-sides split.
+
+### R-R5 · The 0004 backfill is not safely re-runnable, and the tolerant branch is what loses the photos — `apps/listings/migrations/0004_photo_storage_token.py:98` (`forward`), `:76` (`_rename`)
+
+`forward` performs filesystem renames inside a migration Django runs in a
+transaction. The renames are not transactional. If anything later in the
+migration fails — most plausibly `CREATE UNIQUE INDEX
+listing_photos_one_copy_per_listing` on a database that already holds two
+rows with one `(listing_id, sha256)` — the database rolls back to the old
+`storage_key` values while the files sit at their new random paths.
+
+The re-run then does the damage. `_rename` finds the source missing, returns
+`False` *by design*, and `forward` mints a **fresh** token and saves it. Every
+affected row now points at a path that has never existed, and the real bytes
+are orphaned under a token recorded nowhere. They are unreachable by the app
+and invisible to `purge_media`, so `COMPLIANCE.md` §7 row 9's deletion
+obligation cannot be met for them either.
+
+`tests/contract/test_photo_storage_key.py:501
+test_the_backfill_tolerates_a_row_whose_file_is_already_gone` asserts the
+tolerant branch, and it is the branch that causes this. The tolerance is
+right for a genuinely purged row; it cannot distinguish that from a
+half-applied migration.
+
+**Fix (backend's choice):** make `forward` idempotent — carry the existing
+`storage_token` when one is already set and only mint a token for a row that
+has none; or copy-then-delete with the delete in `transaction.on_commit`; or
+`atomic = False` with a documented recovery. Any of the three; the current
+code has none.
+
+### R-R6 · `--photos DIR` writes personal data outside every retention and purge path — `apps/listings/management/commands/review_listings.py:131` (`_write_photos`)
+
+`path.write_bytes(data)` puts a student's listing photographs into an
+arbitrary operator-chosen directory, in plaintext, with no expiry.
+`COMPLIANCE.md` §7 row 9 governs listing photographs — *"Delete originals and
+derivatives from object store and CDN after 1 yr; purge EXIF at upload"* —
+and these copies are in neither the object store nor the CDN. `purge_media`
+cannot reach them; erasure cannot reach them; the §7 retention clock does not
+run on them.
+
+The access **log** row is written (correctly, the naming suggestion below
+aside); the **retention** side of the same obligation is not addressed at
+all. Charter item 7: a new personal-data path needs a §7 row, a retention
+rule and a purge path, and this one shipped with none.
+
+**Fix (the lazy version is fine):** default `DIR` to `tempfile.mkdtemp()`,
+print the deletion command on the same lines as the paths, and add the §7
+row. Owner: the command's author, with privacy-compliance via cto.
+
+### R-R7 · A-26's amendment-log row cites a finding that does not exist — `company/architecture/API-CONTRACT.md`, amendment table
+
+The A-26 row's source column reads `REDTEAM-S2 F55`. `REDTEAM-S2.md` contains
+F47 through F54 and no F55. A-26's own body is honest about the provenance —
+*"Backend found this while writing F49's boundary sweep"* — so the table and
+the body disagree, and the table is the index a future reader uses. Rule 1:
+every factual claim carries a source. One-word fix. Owner: cto.
+
+---
+
+## Suggestions
+
+- **`photos_for_review` logs the wrong field name.** `apps/listings/staff.py:176`
+  passes `["listing_photos.storage_key"]`. What the moderator read is the
+  photograph; `storage_key` is, after A-25, the one part of that row that is
+  *not* personal data. A DPDP r.6(1)(c) reader auditing this log cannot tell
+  an image was viewed. `listing_photos.image` or similar.
+- **`photo_response`'s cache window.** A-25 corrected the code to the frozen
+  `max-age=86400`, which is procedurally right. The contract value may not be:
+  the URL is stable (`sha256`), so after `purge_media` nulls `storage_key` the
+  student's own browser continues to render the photograph for up to 24 hours.
+  `3600` was the safer number, and the amendment chose the contract over the
+  measurement without saying it had noticed the trade. cto's call.
+- **`_photo_rows`' sort key can 500 the page.** `web/views.py:962`:
+  `rows.sort(key=lambda p: (getattr(p, "uploaded_at", None), getattr(p, "id", 0)))`.
+  If `uploaded_at` is ever absent, the `None` default makes the tuple
+  comparison raise `TypeError`, outside the `try` above it, which only wraps
+  `.all()`. Either trust the column or give the default a sortable value.
+- **`search.photos_gate` is a `search.`-prefixed key used only on
+  `listing.html` and `sell_photos.html`.** No functional effect — it is
+  correctly not a blocking class — but the same commit renames
+  `listing.photo.alt` to `trust.photo.alt` *because prefixes carry meaning*,
+  which makes this one read as an oversight rather than a decision.
+- **The `?photos=1` opt-in is lost on the next POST.** `sell_photos.html`'s
+  upload form posts to `/sell/{id}/photos` with no query, so a data-saver
+  seller who opted in is re-gated after every upload.
+- **Two reachable branches of the entropy walk have no fixture.** To QA:
+  `_jpeg_entropy_end`'s `marker == 0xFF` fill-byte branch
+  (`apps/listings/images.py:184`), and a JPEG carrying a frame header and no
+  scan at all. Both are one fixture line and both are currently asserted by
+  nothing.
+
+---
+
+## Escalations to cto (not review comments)
+
+1. **B-R1 is an escalation against A-26**, which is cto's own amendment. See
+   above.
+2. **`locale/ta/BLOCKING_CLASSES.toml` is in the diff** (charter item 10a: a
+   diff to a locale manifest is an escalation by construction, because adding
+   a hash is functionally granting a reviewer's sign-off). **Checked and
+   benign.** No hash is added; no `reviewer` field is written; no class scope
+   or prefix is widened; `locale/ta/REVIEWED.toml` is not in the diff; and
+   `i18n.ta_enabled` is untouched, so the new blocking-class string's
+   unreviewed Tamil draft is not served. What the file gains is three
+   `_at_S2_rework` counts and a `measured_by` line that **declares the new
+   counts are not comparable with the existing `_at_S2` row and does not
+   explain the discrepancy away** — which is rule 10's instrument rule
+   honoured, and the right call.
+3. **No ADR-003 §2.3 trigger in this diff.** Checked: no settled price, PAN,
+   Aadhaar, DOB, UPI handle, address, balance or credit; no offer, bid or
+   counter-offer amount; **no new numeric column at all** (`storage_token` is
+   a `TextField`); and no new column on, or widened CHECK in, `transfers`,
+   `transfer_events`, `messages` or `transfer_followups` — none of those
+   tables exists yet. `queue_rows` newly **reads** `asking_price_paise`, which
+   is the one whitelisted money column, and `_as_written` divides only for a
+   printed line and stores nothing.
+
+---
+
+## Praise
+
+**The entropy walk is correct, and I checked it as byte arithmetic rather
+than taking the comment's word.** `_jpeg_entropy_end`
+(`apps/listings/images.py:170`) terminates on every input: the main loop's
+fill-byte consumption advances `i` by at least one each iteration, and the
+walk is monotone in `j`, so even when it returns `i` unchanged the preceding
+`i += length` has already made progress. It cannot read past the buffer —
+`j < end - 1` guards the only two-byte read, and every other access is a
+Python slice. Stuffed `FF 00`, RST0–RST7 and `FF` fill are each consumed;
+anything else ends the scan; a scan that runs off the end returns `end`, which
+`saw_eoi` converts into `ImageRejected` rather than into a stored file whose
+end nobody located. Choosing the walk over `data.find(b"\xff\xd9")` is the
+right call for the reason the comment gives: the one-liner would have stopped
+at a progressive JPEG's first scan and copied every inter-scan APP1 unexamined
+— the same defect, relocated.
+
+**Asking the other two containers the same question instead of asserting they
+were fine.** PNG is recorded as *verified, no change needed* with the reason;
+WebP turned out to have the same defect and was fixed in the same pass. *"The
+other formats do not have this problem"* is a claim, and it was measured.
+
+**`photos_for_review` is a genuinely separate authorisation, and I verified
+each half.** `get_photo_for_download` is byte-for-byte unchanged across
+`2af14de..998af8d`. `listing_for_review` refuses a non-staff actor before any
+row is touched, and `log_personal_data_access` re-checks `is_staff_member`
+independently — two layers, as rule 12 asks. The access row is per **opening**
+and `queue_rows` deliberately writes none, which is the right line.
+`test_the_student_photo_path_was_not_widened_to_let_staff_in` pins the
+non-widening so a future "simplification" fails by name. The purged-row case
+returns `None` rather than crashing, and the caller says so in words.
+
+**`0004`'s `SeparateDatabaseAndState`, and §13.1's claim is true.**
+`listings/0003` installs `listing_photos_parent_tenant_fk` with raw SQL, so it
+is absent from Django's model state, and the SQLite backend implements
+`AddField` and `AddConstraint` by rebuilding the table from that state. A
+plain `AddField` would have dropped the composite FK on SQLite only and
+silently. Raw `ALTER TABLE` / `CREATE UNIQUE INDEX` avoids the rebuild on both
+engines, and `test_the_composite_foreign_key_survived_0004` asserts it on
+both rather than predicting SQLite from PostgreSQL. **And the replacement
+constraint went in *in the same migration* as the token that removed its
+predecessor** — I checked the operation order, and
+`test_the_database_refuses_it_too_whatever_the_service_does` proves the
+database holds the property and not merely the service. Rule 12, honoured
+where it is easiest to skip.
+
+**The alt text passes the limb no grep can check.** *"Photo 2 of 4, uploaded
+by the seller"* is position plus provenance: it describes a mechanism and
+names a fact, and makes no prediction and no judgement about a book, a person
+or an outcome — `COPY-DECK.md` §1.2's six-row table, passed on the side
+`test_forbidden_copy.py` cannot see. The Tamil
+(*"%(n)s படங்களில் %(i)s-வது படம், விற்பவர் பதிவேற்றியது"*) renders the same
+fact and warrants nothing; *"open the full-size photo"* is an instruction and
+*"Show {n} photos (about {kb} KB)"* is an instruction plus a measured number.
+None of the eight forbidden words appears, and nothing says "Price". The
+`listing.photo.alt` → `trust.photo.alt` rename is rule 13's first resort used
+correctly: one key name, control at full strength, nothing added to a
+manifest.
+
+**The deleted string.** `listing.photos.pending` — *"BookHop has no way to
+show them yet"* — is removed from both catalogues rather than left to go
+quietly false, and `web/selfcheck.py`'s *"check that has not started"*
+sentence is deleted rather than softened now that the line it described
+exists. Rule 9's corollary, applied twice in one diff, to the authors' own
+prose.
+
+---
+
+## Verdict line (rework)
+
+# CHANGES REQUIRED
+
+**Blocking:** B-R1 — `dialable` refuses `A History of India 1707-1947`,
+`Cambridge 2020-2021` and any ISBN typed into catalogue text, on the only
+path a seller has for a book not yet in the catalogue. It is an escalation
+against A-26 and not a comment to the author.
+
+**Required before merge, or as a follow-up commit in this slice:** R-R1
+(empty selector), R-R2 (F46 diagnostic destroyed), R-R3 (INFRA §3.3 step that
+does not exist), R-R4 (`Vary: Save-Data`), R-R5 (backfill not re-runnable),
+R-R6 (photo export outside retention), R-R7 (A-26 citation).
+
+**Not introduced here:** both red tests predate the diff
+(`test_the_backup_scope…` on both engines, F44's surviving half) — except for
+the *shape* of the SQLite one, which is R-R2.
+
+**Checked last and most carefully** — recorded although this is not an
+approval, because it is the thing a later reader will want to know was
+checked: the JPEG entropy walk, against the specification, for termination
+and for out-of-bounds reads on every input shape I could construct —
+stuffing, restart markers, `FF` fill, truncation mid-scan, truncation
+mid-header, a second concatenated image, and a file with a frame header and
+no scan. It terminates on all of them and reads nothing it does not own.
+
+**QA has not independently verified this rework.** The behavioural assertions
+cited above are the authors' own tests, read and run by me; nothing in this
+section implies coverage test-qa has signed.

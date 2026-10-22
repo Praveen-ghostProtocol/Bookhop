@@ -193,6 +193,27 @@ is the founder's call (`COST-MODEL.md` §5).
    bounds; the three decisive metric queries (`DATA-MODEL.md` §9.2–9.4) return
    non-error results; `listings_price_immutable` trigger present;
    the ADR-003 deny-list still clean.
+6b. **Assert the `/media/` location is `internal` — A-25's second layer at
+   the deployment seam, and the one nothing else verifies.** With the app
+   stopped, request a storage path directly and require a refusal:
+
+   ```bash
+   code=$(curl -sS -o /dev/null -w '%{http_code}'        "https://$HOST/_protected_media/listings/1/0000.jpeg")
+   [ "$code" = "404" ] || { echo "FAIL: /media/ is not internal (got $code)"; exit 1; }
+   ```
+
+   **A `200` means every listing photo is public**, and the Django
+   authorisation decision in front of them guards nothing, because the
+   storage path was derivable from the listing payload until A-25 and the
+   `internal` location is what replaced that. **A `403` fails too** — it
+   means the location exists and is merely access-controlled, which is a
+   different arrangement from the one ADR-001 §2.6 now specifies.
+
+   *This step exists because `INFRA.md` §1 claimed "verification is a step in
+   §3.3" when no such step existed — a document naming a control that did not
+   exist, which is rule 9's own earned example. Added 2026-10-22 by cto, found
+   by Code Review as R-R3.*
+
 7. Print **RESTORE OK <dump timestamp> <elapsed>** and tear down.
 
 **The result is recorded in `METRICS.md`'s "restore-from-backup test result"
