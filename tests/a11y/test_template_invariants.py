@@ -115,32 +115,29 @@ def test_no_template_puts_interactive_content_inside_a_label():
     assert findings == [], "template accessibility invariants: " + "\n".join(findings)
 
 
-def test_the_module_still_says_it_is_unwired_only_if_it_is():
-    """**The note that goes stale.** `web/selfcheck.py`'s docstring says *"until
-    that line exists somewhere that CI runs, this is a check that has not
-    started."* The line now exists, in this file.
+def test_the_module_does_not_say_it_is_unwired():
+    """**QA's reminder, spent and converted.** It used to assert that
+    `web/selfcheck.py`'s docstring still read *"until that line exists
+    somewhere that CI runs, this is a check that has not started"*, and skip
+    with the finding routed to frontend. Frontend has now deleted the
+    sentence, so the reminder's own instruction — *"this reminder is spent
+    and should be deleted along with the finding it carries"* — has come due.
 
-    Left as a test rather than an edit to frontend's tree: the module is
-    `web/**` and that is frontend-developer's. This is the measurement that
-    its disclosure is now out of date, and the one-line docstring correction
-    is routed to frontend with it — `CLAUDE.md` rule 9's corollary, *when an
-    explanation and a measurement disagree, delete the explanation*, applied
-    across an ownership boundary where QA can measure but may not edit.
+    **Inverted rather than deleted** (`CLAUDE.md` rule 12: never remove a
+    remedy before its replacement is green). A plain deletion would leave
+    nothing watching the disclosure, and the sentence could come back in a
+    later edit with no test noticing. This asserts the corrected state
+    instead, which is the same control pointed the other way.
     """
     source = selfcheck.__doc__ or ""
-    assert "check that has not started" in source, (
-        "frontend has already corrected the disclosure, so this reminder is "
-        "spent and should be deleted along with the finding it carries"
+    assert "check that has not started" not in source, (
+        "`web/selfcheck.py` claims this guard has not started. It has — this "
+        "file runs it on every suite run — so the disclosure is false, which "
+        "is worse than the stale-but-true state it replaced."
     )
-    pytest.skip(
-        "REPORTED, NOT FAILED (owner=frontend-developer, slice=S2): "
-        "`web/selfcheck.py`'s docstring still says this guard has not "
-        "started. It has — `tests/a11y/test_template_invariants.py` runs it, "
-        "its detector and its corpus assertion on every suite run. The "
-        "sentence is now the only thing in the repository claiming otherwise "
-        "and is a one-line correction in frontend's tree. Skipped rather "
-        "than failed because the code is correct and only the note is "
-        "stale; it turns green the moment the sentence goes."
+    assert "test_template_invariants" in source, (
+        "the docstring no longer names the place this module is wired in, so "
+        "a reader cannot tell whether it runs anywhere"
     )
 
 

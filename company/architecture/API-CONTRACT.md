@@ -794,6 +794,44 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-26 — the contact rule applies to catalogue text (2026-10-22, cto)
+>
+> Backend found this while writing F49's boundary sweep and correctly did not
+> fix it, because the boundary is a contract decision and not theirs:
+> **`create_book` validates `title` for non-empty, `authors` for being a
+> list, and `publisher` and `edition_label` not at all.** A seller who cannot
+> find their book is offered that form (J2 step 2), so
+> `"Engineering Mathematics wa.me/919840012345"` becomes a contact channel on
+> every listing of that ISBN — a *worse* leak than F49, which reached only
+> the seller's own listings.
+>
+> **Ruling: apply `dialable` and `addressed`. Do not apply `linked`.**
+>
+> A real title contains a slash (`Physics/Chemistry Combined`,
+> `Maths I/II`). Applying `linked` here would produce a guard that fires on
+> legitimate catalogue data, and rule 13 says what happens next: not a
+> stricter control, but a red test on real book titles and an edit to the
+> guard under schedule pressure. Rule 13's first resort — rename our own
+> name — does not apply, because the colliding name is a publisher's, not
+> ours.
+>
+> **Naming the other layer, as rule 12 requires.** What still catches a
+> `t.me/priya` in a title is the human review queue: at pilot
+> `LISTING_REVIEW_ALL=true`, every listing stops for a human, and after F50
+> that human is now shown the title, edition and publisher. **That layer
+> exists only while the flag is true.**
+>
+> So the exemption is conditional, and the guard must say so **by failing,
+> not by skipping** (rule 10's fifth disguise — a forward-dated check is
+> indistinguishable from one passing trivially). Invert it: a test asserts
+> that `LISTING_REVIEW_ALL` defaults to true, and its failure message says
+> that the day this default flips, `linked` must extend to catalogue fields
+> or a second layer must replace the queue. It goes red on the commit that
+> flips the default, in the same diff, in front of the person flipping it.
+>
+> `authors` is a list: each element is checked, and the list-ness check stays
+> — one does not replace the other.
+
 > #### A-25 — the photo route, as it actually ships (2026-10-22, cto)
 >
 > Red Team's S2 pass (`REDTEAM-S2.md` F51/F52) found the shipped route
@@ -1047,6 +1085,7 @@ four contract guarantees:
 | **A-21** | 2026-10-22 | **§3 procedural fix after a THIRD naming drift.** A read the interface needs is a **§3 amendment first, then an implementation** — rule 6 applied to signatures, not just files. Backend's four shipped names win and are recorded on receipt | S2 frontend pass | cto |
 | **A-20** | 2026-10-22 | **`GET /media/listing-photo/{photo_id}` added** — the storage key existed and nothing served it, so **the data-saver criterion was passing vacuously and must not be reported as passing** (rule 10). Gate- and scope-checked in Django, bytes served by nginx via `X-Accel-Redirect`, 404 not 403 out of scope | S2 frontend pass | cto |
 | **A-25** | 2026-10-22 | **The photo route as it ships.** Path ratified as `/api/v1/listings/{id}/photos/{sha256}`; `/media/listing-photo/{photo_id}` withdrawn. Cache corrected to `max-age=86400`. **Storage key gains a component published in no response** - it was `sha256[:32]`, which every listing payload hands out. The `exif_stripped_at` bullet is struck: it records that the stripper ran, not that it worked | REDTEAM-S2 F47/F51/F52 | cto |
+| **A-26** | 2026-10-22 | **The contact rule reaches catalogue text, two limbs of three.** `create_book` accepts a phone number or handle in `title`, `authors`, `publisher` and `edition_label`, and those render on **every** listing of that ISBN. `dialable` and `addressed` apply. **`linked` does not** - it fires on `Physics/Chemistry Combined`, and a guard that fires on legitimate content gets edited rather than obeyed (rule 13). The layer that catches `linked` is the review queue, which is only a layer while `LISTING_REVIEW_ALL` is true - so a test fails the day its default flips | REDTEAM-S2 F55 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |

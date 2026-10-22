@@ -15,7 +15,9 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.core.errors import ServiceError
 from apps.listings.services import MODERATION_ACTIONS, moderate_listing
-from apps.listings.staff import listing_for_review, queue_rows, staff_actor
+from apps.listings.staff import (
+    listing_for_review, photos_for_review, queue_rows, staff_actor,
+)
 
 
 class Command(BaseCommand):
@@ -30,6 +32,11 @@ class Command(BaseCommand):
         parser.add_argument("--seconds", type=int, default=0,
                             help="seconds spent reviewing; recorded in audit_log")
         parser.add_argument("--limit", type=int, default=50)
+        parser.add_argument(
+            "--photos", metavar="DIR",
+            help="with --listing: write that listing's photos into DIR and "
+                 "print the paths, so the reviewer can open them",
+        )
 
     def handle(self, *args, **options):
         try:
@@ -43,23 +50,45 @@ class Command(BaseCommand):
                 self.stdout.write("Nothing is waiting for review.")
                 return
             for row in rows:
+                # **Red Team F50.** `condition`, `damage_flags` and the
+                # asking price were assembled (or, for the price, not even
+                # that) and never printed, so the human who is the only
+                # control between a photocopied textbook and a buyer was
+                # deciding from an ISBN and a photo *count*. The claim and
+                # the price are the two halves of the counterfeit signal:
+                # neither is suspicious alone and the combination is.
                 self.stdout.write(
                     f"#{row['id']}  {row['created_at']:%Y-%m-%d %H:%M}  "
                     f"{row['campus']}  {row['isbn13'] or 'no ISBN'}  "
-                    f"{row['title'][:48]}  photos={row['photo_count']}  "
+                    f"{row['title'][:48]}  {_as_written(row['asking_price_paise'])}  "
+                    f"{row['condition']}  "
+                    f"damage={','.join(row['damage_flags']) or 'none'}  "
+                    f"photos={row['photo_count']}  "
                     f"verified_book={row['book_staff_verified']}  "
                     f"suspect={row['suspect_reproduction_flag']}  "
                     f"seed={row['is_seed']}"
                 )
-            self.stdout.write(f"\n{len(rows)} waiting. Decide one with --listing.")
+            self.stdout.write(
+                f"\n{len(rows)} waiting. Open one with --listing N --photos DIR, "
+                "then decide it with --action."
+            )
             return
 
-        if not options["action"]:
-            raise CommandError("--action is required when --listing is given")
         try:
             listing = listing_for_review(staff, options["listing"])
         except ServiceError as exc:
             raise CommandError(f"{type(exc).__name__}: {exc}") from None
+
+        if options["photos"]:
+            self._write_photos(staff, listing, options["photos"])
+
+        if not options["action"]:
+            # **Not an error any more.** `--listing` alone is "show me this
+            # one", which is the step J2-staff step 3 describes and the step
+            # that did not exist: the only way to name a listing was to
+            # decide it in the same breath.
+            self._show(listing)
+            return
         try:
             updated = moderate_listing(
                 staff, listing, options["action"],
@@ -68,3 +97,64 @@ class Command(BaseCommand):
         except ServiceError as exc:
             raise CommandError(f"{type(exc).__name__}: {exc}") from None
         self.stdout.write(f"listing {updated.id} is now {updated.status}")
+
+    def _show(self, listing):
+        """One listing's claims, for the decision in J2-staff step 3."""
+        self.stdout.write(
+            f"#{listing.id}  {listing.status}  {listing.campus.slug}\n"
+            f"  book          {listing.book.isbn13 or 'no ISBN'}  "
+            f"{listing.book.title}\n"
+            f"  edition       {listing.book.edition_label or '-'}  "
+            f"{listing.book.publisher or '-'}  "
+            f"{listing.book.publication_year or '-'}\n"
+            f"  asking        {_as_written(listing.asking_price_paise)}\n"
+            f"  condition     {listing.condition}  "
+            f"annotations={listing.annotation_level}\n"
+            f"  damage        {','.join(listing.damage_flags or []) or 'none claimed'}\n"
+            f"  category      {listing.category}  language={listing.language}\n"
+            f"  book verified {listing.book.staff_verified_at is not None}  "
+            f"suspect={listing.suspect_reproduction_flag}  seed={listing.is_seed}"
+        )
+
+    def _write_photos(self, staff, listing, directory):
+        """Put the images where the reviewer can open them.
+
+        A file path and not a byte dump: the moderator's question is visual,
+        and `photos_for_review` writes the `personal_data_access_log` row
+        that makes this an *opening* rather than a list.
+        """
+        import pathlib
+
+        target = pathlib.Path(directory)
+        target.mkdir(parents=True, exist_ok=True)
+        try:
+            resolved = photos_for_review(staff, listing.id)
+        except ServiceError as exc:
+            raise CommandError(f"{type(exc).__name__}: {exc}") from None
+        if not resolved:
+            self.stdout.write("  photos        none on this listing")
+            return
+        for index, (photo, data) in enumerate(resolved, start=1):
+            if data is None:
+                self.stdout.write(
+                    f"  photo {index}       purged — the row survives, the bytes do not"
+                )
+                continue
+            suffix = str(photo.storage_key).rsplit(".", 1)[-1].lower()
+            path = target / f"listing-{listing.id}-{index}.{suffix}"
+            path.write_bytes(data)
+            self.stdout.write(
+                f"  photo {index}       {path}  {photo.width}x{photo.height}  "
+                f"{photo.bytes} bytes"
+            )
+
+
+def _as_written(asking):
+    """The asking figure as a reviewer reads it.
+
+    **Integer throughout** — the division is for the printed line only and
+    nothing stores the result. The name avoids both W1b tokens on purpose
+    (`CLAUDE.md` rule 13's first resort: rename our own name, which costs one
+    rename and leaves the P14 source grep at full strength).
+    """
+    return "no asking figure" if asking is None else f"Rs {asking // 100}.{asking % 100:02d}"

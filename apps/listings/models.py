@@ -308,6 +308,21 @@ class ListingPhoto(models.Model):
     #: NULL rather than `""` because the column is UNIQUE and two purged rows
     #: would collide on the empty string; NULLs are distinct on both engines.
     storage_key = models.TextField(null=True, blank=True, unique=True)
+    #: API-CONTRACT A-25, from Red Team F51: *"The stored filename gains a
+    #: component that appears in **no** response — a per-photo random token,
+    #: stored on the row. The URL keeps the `sha256`; the disk does not."*
+    #:
+    #: The key used to be `listings/{id}/{sha256[:32]}.{fmt}` while
+    #: `listing_payload` published both the id and the full `sha256`, so any
+    #: authorised reader could write down the exact path on disk and hand it
+    #: to anyone — the authorisation decision standing in front of a door
+    #: whose key is printed on the door. The Django decision is still the
+    #: layer that matters; this is the layer that survives `INFRA.md` §1
+    #: routing `/media/` publicly, which it currently does.
+    #:
+    #: NULL on a purged row, like `storage_key`, and NULL on any row written
+    #: before migration 0004's backfill reached it.
+    storage_token = models.TextField(null=True, blank=True)
     sha256 = models.TextField()
     width = models.IntegerField()
     height = models.IntegerField()
@@ -322,6 +337,20 @@ class ListingPhoto(models.Model):
         indexes = [
             models.Index(fields=["campus", "uploaded_at"], name="photos_campus_uploaded_idx"),
             models.Index(fields=["listing"], name="photos_listing_idx"),
+        ]
+        constraints = [
+            # **The same photo twice on one listing, as the database says
+            # it.** This was previously enforced as a side effect of
+            # `storage_key` being UNIQUE and content-addressed; A-25 makes
+            # the key random, so that side effect is gone and the guarantee
+            # had to move before it did (`CLAUDE.md` rule 12: the new remedy
+            # goes in beside the old, and the old comes out in the commit
+            # that turns the new one green). It is also the *property* —
+            # "one copy of these bytes per listing" — rather than a
+            # consequence of how a filename happened to be spelled.
+            models.UniqueConstraint(
+                fields=["listing", "sha256"], name="listing_photos_one_copy_per_listing"
+            ),
         ]
 
     def __str__(self):

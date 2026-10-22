@@ -724,12 +724,62 @@ example.
 | S1-3 | DATA-MODEL §2 / API-CONTRACT §4.1 — `idempotency_keys.user_id FK NULL`, *"the FK to `users` that S1 adds"* | **FK not added** | 24 assertions in QA's trees and ~20 in backend's pass synthetic `user_id` values (`idempotent(user_id=7, …)`); the FK turns all of them red, most in another agent's tree. And the break it would guard — `user_id` reuse after purge, API-CONTRACT §4.1's third named break — **does not arise**: tombstone-plus-purge never deletes a `users` row, so no id is ever freed. Raised to cto with the measurement |
 | S1-4 | S0's own code comment — *"FK to users lands in S1"* on `audit_log.actor_id` | **FK not added** | Adding it makes Django rebuild `audit_log` on SQLite, which **drops its append-only triggers** — §12.2's defect, on purpose. DATA-MODEL §8 specifies `actor_id NULL` with no FK, so the contract does not require one |
 
+## 13. S2 rework — the migration that must not be written in Django's own terms
+
+### 13.1 `listings/0004` uses `SeparateDatabaseAndState`, and it is load-bearing
+
+| | |
+|---|---|
+| **Claim** | Adding a column and a UNIQUE constraint with plain `AddField` / `AddConstraint` is engine-neutral. |
+| **Measured** | **False on SQLite, and silently so.** Django's SQLite backend implements both by **rebuilding the table from model state** and copying rows across. `listings/0003` installed `listing_photos_parent_tenant_fk` with raw SQL, so it exists **only in the database** and not in model state. A plain `AddField` would therefore have dropped the composite FK **on SQLite only** — re-opening F32, the control that makes a cross-tenant photo unwritable. |
+| **Done instead** | The database half is raw `ALTER TABLE … ADD COLUMN` and `CREATE UNIQUE INDEX`, which neither engine implements by rebuilding; the state half tells Django what the model now looks like. |
+| **Guarded** | Both ways, per rule 9: a catalog read (diagnoses by name which guard went missing) **and** a behavioural assertion (a child row whose `is_seed` disagrees with its listing is refused). Existence alone would have passed while the table was freely writable — that exact failure is §10.2's third wrong prediction. |
+
+**This is the general rule for this codebase, not a one-off.** Any migration
+touching a table that carries raw-SQL DDL must avoid Django's rebuild path on
+SQLite. `listing_photos`, `audit_log`, `notice_versions`, `gate_authorisations`
+and `campuses` all qualify. §12.2 is the same hazard with triggers; this is it
+with a foreign key.
+
+### 13.2 A remedy moved before the old one was removed
+
+`storage_key` was content-addressed and UNIQUE, so **duplicate-photo detection
+was a side effect of the filename**. A-25 replaces the key with a random token,
+which removes that side effect. `listing_photos_one_copy_per_listing`
+(`UNIQUE (listing_id, sha256)`) goes in **in the same migration** — not the
+next one. Rule 12: an upgrade that leaves a gap between the two is a downgrade
+for the length of the gap, and the gap is invisible because the document
+already describes the better state.
+
+### 13.3 F46 is worse than F46 says — measured, not predicted
+
+QA's F46 records that `listings/0003` cannot be reversed on SQLite. Backend
+measured the state **after** the documented recovery path
+(`migrate listings 0002 --fake`, then a real forward):
+
+> `listing_photos` is left carrying a composite FK that
+> `PRAGMA foreign_key_check` **rejects**, so every subsequent `ALTER TABLE` on
+> that table dies with `foreign key mismatch`.
+
+**The table is not merely un-reversed; it is unmigratable.** Any later slice
+that touches `listing_photos` on a developer machine that has rolled back
+once will fail, and the error will name the new migration rather than the old
+one. The round-trip test is named to sort **before** `test_tenant_fk_migration.py`
+so it runs against an undamaged schema, and it carries a guard that skips —
+naming engine, slice and F46 — if it ever runs after the damage. **Both
+branches of that guard were exercised rather than predicted** (rule 10).
+
+**Still open. It does not block S2 and it must not reach S4.**
+
+---
+
 ---
 
 ## Amendment log
 
 | Date | Change | By |
 |---|---|---|
+| 2026-10-22 | **v1.6 — S2 Red Team rework, §13.** `listings/0004` must use `SeparateDatabaseAndState`: Django's SQLite backend implements `AddField` by rebuilding from model state, and `0003`'s composite FK exists only in the database, so a plain `AddField` would have dropped it **on SQLite only**. Duplicate detection was a side effect of a content-addressed filename and is replaced by a real constraint in the same migration, not the next one. And **F46 is wider than recorded**: after its own recovery path, `listing_photos` fails `PRAGMA foreign_key_check`, so every later `ALTER TABLE` on it dies — the table is unmigratable, not merely un-reversed | cto |
 | 2026-10-22 | **v1.5 — S1, §12.** Nine tables, one shared plpgsql body (six now, not five), twelve SQLite triggers, and a privilege layer that is PostgreSQL-only. **One defect measured, and SQLite found it where PostgreSQL could not:** widening `notice_versions.kind`'s CHECK rebuilt the table on SQLite and **silently dropped its append-only triggers**, so for one migration an immutable table was mutable and the engine production runs on would never have said so. Fixed in `accounts/0004` and guarded on both engines by `test_append_only_triggers_exist.py`, because the hazard applies to every trigger-protected table in the system. Also measured: **a `REVOKE` does bind a table's owner — and the owner can `GRANT` it back in one statement**, which is why RED TEAM §1's one-migration fix is necessary and not sufficient. Four S1 deviations in §12.3 | backend-developer |
 | 2026-10-21 | **v1.4 — the first PostgreSQL run (16.15), §10.** Every `UNVERIFIED` label executed: 95 direct assertions with SQLSTATE *and* message text, 0 failures, plus the suite on both engines (571/60 PostgreSQL, 573/58 SQLite). Blocker fixed with `params=None` rather than by doubling `%`, because the doubling failure mode is silent (§10.1). **Three predictions in this document were wrong** — §3.8's exception class (psycopg 3 maps `RaiseException` to `ProgrammingError`, not `InternalError`; the "catch `DatabaseError`" mitigation is what made that cost nothing), §2.11's boolean probe (passing on SQLite for the wrong reason, with the wrong reason recorded here as deliberate), and §2.8's float rejection (a silent **rounding**, not an error) — §10.2. **Two defects found in shipped S0 code, both invisible to SQLite**: `record_audit`'s 4-attempt retry dropped an audit row under 12 concurrent appenders and reported it as a broken chain, and `allow_test_flush` bound a per-connection GUC to a pytest session, which would have failed in S4 teardown exactly as F9 predicted — §10.3. A finding against QA-S0 §7: its nine "skip → run" items have no body to run, and `sqlmigrate` cannot render `RunPython` DDL on either engine — §10.6. Escalations 15–17 added | backend-developer |
 | 2026-10-21 | v1.0 — written during S0, from measurements on SQLite 3.45.1 / Django 5.2.8 / Python 3.11.9, with no PostgreSQL server available | backend-developer |

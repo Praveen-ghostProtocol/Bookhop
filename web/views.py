@@ -738,14 +738,22 @@ def _listings():
 
 
 
-#: FOUR READS `API-CONTRACT.md` §3 DOES NOT NAME, AND BACKEND HAS SHIPPED
-#: THREE OF THEM. Recorded because the contract is still short of the code and
+#: SIX READS `API-CONTRACT.md` §3 DOES NOT NAME, AND BACKEND HAS SHIPPED
+#: FIVE OF THEM. Recorded because the contract is still short of the code and
 #: the next reader of §3 will not find these:
 #:
 #:   apps.listings.services.my_listings(actor, cursor=None, limit=20) -> Page
 #:   apps.listings.services.get_own_listing(actor, listing_id) -> Listing  # NotFound
 #:   apps.listings.services.my_requests(actor, cursor=None, limit=20) -> Page
 #:   apps.listings.services.seller_block(listing) -> dict
+#:   apps.listings.services.get_photo_for_download(actor, listing_id, sha256) -> ListingPhoto
+#:   apps.listings.services.photo_response(photo) -> HttpResponse
+#:
+#: The last two are A-25's HTML twin, `GET /listing/{id}/photo/{sha256}`.
+#: §5.2 names the *route* and A-25 freezes its spelling; neither names the
+#: pair of service functions the route is built from, and both already exist
+#: because the L2 twin calls the same two. `listing_photo` adds nothing to
+#: them — same call, same order, same authorisation.
 #:
 #: Why `discovery.get_listing` could not have served the first two: it is a
 #: **discovery** call, so it runs `assert_discovery_open` and is scoped to
@@ -909,8 +917,24 @@ def _listing_row(listing, today=None):
     }
 
 
+def _save_data(request):
+    """Is the student's data-saver setting on, and have they not overridden it?
+
+    `SYSTEM.md` §4.16 `disabled` and criterion 9: under `Save-Data: on` **no
+    `<img>` is emitted at all**, replaced by a link naming the real byte cost.
+    `?photos=1` is that link — the student's own explicit opt-in, on a
+    different URL, so the bare route still emits nothing.
+
+    The header is a single token (`Save-Data: on`), not a list, so this is a
+    comparison rather than a parse.
+    """
+    if request.GET.get("photos") == "1":
+        return False
+    return request.headers.get("Save-Data", "").strip().lower() == "on"
+
+
 def _photo_rows(listing):
-    """The photos on a listing, as `{id, bytes, kb}`.
+    """The photos on a listing, as `{id, sha256, width, height, bytes, kb}`.
 
     **CONTRACT GAP, smaller than the four above and recorded in the same
     breath:** `API-CONTRACT.md` §3 has no accessor for a listing's photos, so
@@ -923,11 +947,28 @@ def _photo_rows(listing):
     The byte total is what `SYSTEM.md` §4.16's `Save-Data` link names, and it
     is **computed from the stored sizes rather than estimated**, which is the
     whole point of telling a student what an image will cost them.
+
+    `width` and `height` are the **stored intrinsic pixels**, not a thumbnail
+    size: they go straight onto the `<img>` so the browser reserves the right
+    box before a byte of image arrives, and the CSS scales it down. That is
+    the whole of the no-reflow requirement, in two attributes and no script.
     """
     try:
         rows = list(getattr(listing, "photos").all())
     except Exception:  # noqa: BLE001 — a missing relation is zero photos
         return []
+    # ORDER IS A CORRECTNESS PROPERTY HERE, NOT A PREFERENCE. `ListingPhoto`
+    # declares no `Meta.ordering`, so the related manager's order is whatever
+    # the engine returns and can differ between two requests. The alt text is
+    # **"Photo 2 of 4"** — a positional claim — so an unstable order makes it
+    # false on the second page load, and the seller who photographed the
+    # cover first would find it somewhere else each time.
+    #
+    # Sorted here rather than asking backend for `Meta.ordering`: this is a
+    # presentation decision about four rows already in memory, and it is the
+    # one place `web/**` reads them. `uploaded_at` is the seller's own
+    # sequence; `id` breaks a same-millisecond tie so the sort is total.
+    rows.sort(key=lambda p: (getattr(p, "uploaded_at", None), getattr(p, "id", 0)))
     # KB rounds UP, never down. `SYSTEM.md` §4.16 words the figure as "about
     # {kb} KB" and it is a **cost to the student**, so the honest direction is
     # the one that cannot under-state what they will pay. Rounding to nearest
@@ -935,10 +976,28 @@ def _photo_rows(listing):
     return [
         {
             "id": getattr(p, "id", None),
+            "sha256": getattr(p, "sha256", "") or "",
+            "width": getattr(p, "width", 0) or 0,
+            "height": getattr(p, "height", 0) or 0,
             "bytes": getattr(p, "bytes", 0) or 0,
             "kb": -(-(getattr(p, "bytes", 0) or 0) // 1024),
         }
         for p in rows
+        # A purged row survives its bytes (`DATA-MODEL.md` §10.2) and there is
+        # nothing to point an `<img>` at: `get_photo_for_download` 404s on a
+        # NULL `storage_key`, so rendering it would be a guaranteed broken
+        # image. The row is dropped here, which also keeps "{i} of {n}" and
+        # the byte total counting only photos that can actually be served.
+        #
+        # KNOWN CONSEQUENCE, NAMED RATHER THAN CODED AROUND: `sell_photos`
+        # derives `room_for_more` from this list, so a listing with four rows
+        # of which one is purged offers the upload control again. The limit
+        # itself is `add_photo`'s and stays `add_photo`'s (rule 11) — a fifth
+        # row is refused there with `sell.photos.full`, which is a sentence
+        # rather than a crash. Ceiling: the seller is offered a control that
+        # may refuse. Upgrade path: a service accessor that reports both
+        # counts, when `API-CONTRACT.md` §3 gains one.
+        if getattr(p, "storage_key", None)
     ]
 
 
@@ -1333,7 +1392,20 @@ def sell_photos(request, listing_id):
         max_photos=MAX_PHOTOS,
         room_for_more=len(photos) < MAX_PHOTOS,
         repeated_failures=fails.get(key, 0) >= 3,
+        save_data=_save_data(request),
+        photo_kb=_photo_kb_total(photos),
     )
+
+
+def _photo_kb_total(photos):
+    """What the whole strip costs, in KB, rounded **up**.
+
+    The figure `SYSTEM.md` §4.16's data-saver link names. Summed from the
+    stored byte counts and rounded once at the end — rounding each photo up
+    and then adding would over-state a four-photo strip by up to 4 KB, and a
+    cost quoted to a student has to be the real one in both directions.
+    """
+    return -(-sum(p["bytes"] for p in photos) // 1024)
 
 
 def _photo_error(code):
@@ -1507,15 +1579,17 @@ def listing_detail(request, listing_id):
     building it now: the buyer-facing listing exists and has been looked at
     before a buyer can reach it.
 
-    **Criterion 9 — "no `<img>` when `Save-Data: on`" — is satisfied VACUOUSLY
-    on this page today and must not be reported as passing** (`CLAUDE.md`
-    rule 10). No route serves a stored photo: `listing_photos.storage_key`
-    exists, `API-CONTRACT.md` §5.2 has no `GET` for a photo, and inventing a
-    media URL is not L3's to do. So the page emits no `<img>` under any
-    header, the `Save-Data` branch has nothing to gate, and both it and
-    `SYSTEM.md` §4.16's strip are deliberately unbuilt rather than written
-    against a URL that does not exist. Escalated with the slice; the spec is
-    quoted in `listing.html` where the strip goes.
+    **Criterion 9 — "no `<img>` when `Save-Data: on`" — stopped being vacuous
+    in this slice, and that is the point of the change.** It used to pass
+    because the page emitted no image under any header: no route served a
+    stored photo, so there was nothing for the criterion to gate
+    (`CLAUDE.md` rule 10's second disguise — a check that cannot fail).
+    `API-CONTRACT.md` A-25 froze the URL, `listing_photo` below serves the
+    HTML twin, and the strip now emits one `<img>` per stored photo **unless**
+    `Save-Data: on` is set, in which case it emits a link naming the real byte
+    cost. `tests/a11y/test_s2_photos.py` asserts both sides of that split, on
+    a listing that actually has photos — because a criterion tested only on
+    the page with none is the vacuous version wearing a test.
     """
     user = _require_user(request)
     try:
@@ -1525,13 +1599,57 @@ def listing_detail(request, listing_id):
         if page is not None:
             return page
         raise
+    photos = _photo_rows(listing)
     return _page(
         request,
         "listing.html",
         row=_listing_row(listing),
         seller=_seller_block(listing),
-        photos=_photo_rows(listing),
+        photos=photos,
+        save_data=_save_data(request),
+        photo_kb=_photo_kb_total(photos),
     )
+
+
+@require_safe
+@_signed_in_only
+def listing_photo(request, listing_id, sha256):
+    """`GET /listing/{id}/photo/{sha256}` — the HTML twin, frozen in A-25.
+
+    **This view authorises nothing and decides nothing.** Both calls are the
+    service layer's: `get_photo_for_download` applies scope, the discovery
+    gate and listing status (and logs the gate refusal before converting it
+    to a `404`), and `photo_response` produces the bytes or the
+    `X-Accel-Redirect` that makes nginx produce them. L3 does what L3 does —
+    turn a URL into a service call and a service result into a response.
+
+    **Why a twin at all, rather than pointing `<img src>` at the L2 path.**
+    The L2 route is `/api/v1/...`; an HTML page linking into the JSON API's
+    namespace makes the API surface part of the page contract, and A-25 names
+    the twin precisely so it is not. Same service, same authorisation, same
+    bytes; one URL for documents and one for machines.
+
+    **The error page is not an error page.** A `ServiceError` here is almost
+    always `NOT_FOUND`, and the consumer is an `<img>` — rendering the full
+    404 shell would send a few kilobytes of HTML to something that will
+    display a broken-image icon regardless. An empty 404 is the honest and
+    the cheap answer, and the *page* a student navigated to (the full-size
+    view, same URL) gets the browser's own "cannot display" rather than
+    ours. Named as a deliberate corner: a student who taps a thumb for a
+    photo that was purged between page render and tap sees the browser's
+    message, not BookHop's.
+    """
+    user = _require_user(request)
+    try:
+        photo = _listings().get_photo_for_download(user, listing_id, sha256)
+        return _listings().photo_response(photo)
+    except errors.ServiceError as exc:
+        if getattr(exc, "code", None) in ("NOT_FOUND", "GONE"):
+            return HttpResponse(b"", status=404, content_type="text/plain")
+        page = _service_problem(request, exc)
+        if page is not None:
+            return page
+        raise
 
 
 # --- J4 · the book that is not there ---------------------------------------

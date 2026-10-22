@@ -43,6 +43,22 @@ urlpatterns = [
     path("sell/<int:listing_id>/publish", views.sell_publish, name="sell-publish"),
     path("sell/<int:listing_id>/withdraw", views.sell_withdraw, name="sell-withdraw"),
     path("listing/<int:listing_id>", views.listing_detail, name="listing"),
+    # The photo bytes, HTML side. `API-CONTRACT.md` A-25 freezes this spelling
+    # as the twin of `GET /api/v1/listings/{id}/photos/{sha256}` — same
+    # service call, same authorisation, same bytes. The `/media/listing-photo/`
+    # spelling A-20 named is **withdrawn, not unrouted** (A-25), so nothing
+    # here answers it and the catch-all 404 is the correct reply.
+    #
+    # `<str:sha256>` rather than a hex converter: a wrong-shaped digest is a
+    # miss in `get_photo_for_download`'s filter and comes back 404, which is
+    # the same answer a well-formed digest for somebody else's photo gets.
+    # Making the URLconf reject it earlier would be a second definition of
+    # "what a sha256 looks like" (rule 11) for no change in the response.
+    path(
+        "listing/<int:listing_id>/photo/<str:sha256>",
+        views.listing_photo,
+        name="listing-photo",
+    ),
     # S2 — the demand side. `GET /wanted` is JOURNEYS J4's named entry point;
     # `GET /wanted/all` is the campus-wide list and is S3, so it is absent
     # rather than stubbed.

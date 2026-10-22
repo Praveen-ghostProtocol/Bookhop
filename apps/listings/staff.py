@@ -50,7 +50,9 @@ from apps.core.errors import NotPermitted
 
 log = logging.getLogger(__name__)
 
-__all__ = ["queue_rows", "staff_actor", "listing_for_review"]
+__all__ = [
+    "queue_rows", "staff_actor", "listing_for_review", "photos_for_review",
+]
 
 
 def staff_actor(email):
@@ -77,13 +79,22 @@ def queue_rows(staff, limit=50):
     J2-staff step 3 is about the book and the images, and a command that
     printed a student's display name beside a moderation decision would make
     `personal_data_access_log` owe a row for every queue listing rather than
-    for every listing opened.
+    for every listing opened. The images are `photos_for_review`, which is a
+    per-listing read and writes that row.
+
+    **`asking_price_paise` is here** (Red Team F50). It was in no key of this
+    dict and on no line of the command, and price against edition is the
+    cheapest counterfeit signal there is — a ₹900 prescribed textbook offered
+    at ₹60 is the campus-gate photocopy price. It is the **asking** price,
+    which ADR-003 §2.1 is explicit is not a consideration, and it is the one
+    money column that exists.
     """
     from .services import review_queue
 
     return [
         {
             "id": listing.id,
+            "asking_price_paise": listing.asking_price_paise,
             "created_at": listing.created_at,
             "campus": listing.campus.slug,
             "isbn13": listing.book.isbn13,
@@ -123,3 +134,50 @@ def listing_for_review(staff, listing_id):
     if row is None:
         raise NotFound("Not found.")
     return row
+
+
+def photos_for_review(staff, listing_id):
+    """`[(photo, bytes_or_None), …]` for one listing. A **staff** read.
+
+    Red Team F50: *"the reviewer's judgement … is about the book **and the
+    images**"* was the documented job, and no shipped surface resolved a
+    photo for a moderator. `get_photo_for_download` refuses them correctly —
+    it authorises on *ownership or an open discovery gate*, and a moderator
+    before Gate C is neither — and **widening it would have been the wrong
+    fix**: a staff read is a different authorisation with a different
+    justification and a different log, not a wider student read. So it is a
+    different function. `get_photo_for_download` is untouched.
+
+    What this does that the student path does not:
+
+      * **it asks `is_staff_member`** and nothing else — no gate, no scope,
+        no ownership, because the queue's entire job is listings on a campus
+        whose gate is lawfully closed (the ADR-002 §2.3 staff allow-list, the
+        same entry `listing_for_review` sits in);
+      * **it writes `personal_data_access_log`**, one row per listing opened,
+        naming `listing_photos` as the field read. The photo is the student's
+        data — the whole reason EXIF is stripped is that a photo of a book on
+        a desk is a photo of where that student lives — so a staff view of it
+        is DPDP r.6(1)(c) access and owes a row. `queue_rows` does not write
+        one and must not: it is a list, this is an opening.
+
+    The bytes are `None` where the object has been purged (DATA-MODEL §10.2);
+    the row survives its file, and the caller says so rather than crashing.
+    """
+    from apps.accounts.services import log_personal_data_access
+
+    from .models import ListingPhoto
+    from .storage import read_object
+
+    listing = listing_for_review(staff, listing_id)
+    rows = list(
+        ListingPhoto.all_objects.filter(listing_id=listing.id).order_by("uploaded_at", "id")
+    )
+    if rows:
+        log_personal_data_access(
+            staff,
+            listing.seller_pseudonym,
+            ["listing_photos.storage_key"],
+            f"moderation review of listing {listing.id}",
+        )
+    return [(row, read_object(row.storage_key) if row.storage_key else None) for row in rows]

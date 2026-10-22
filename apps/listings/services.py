@@ -24,6 +24,7 @@ developer would otherwise break by accident:
 import hashlib
 import logging
 import re
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
@@ -642,20 +643,13 @@ def add_photo(actor, listing, upload) -> ListingPhoto:
                 "That listing already has four photos.",
                 photo_count=existing,
             )
-        key = f"listings/{listing.id}/{digest[:32]}.{image_format}"
-        # Written before the row and deleted on rollback, so a committed row
-        # always has its object. The reverse order would leave a row pointing
-        # at nothing, which is the failure a reader cannot distinguish from a
-        # storage outage.
-        write_object(key, stripped)
-        transaction.on_commit(lambda: None)
-        if ListingPhoto.all_objects.filter(storage_key=key).exists():
-            # **The same bytes, twice, on the same listing.** The key is
-            # content-addressed, so a seller who taps "add" twice on one photo
-            # produces the same key — and the UNIQUE index turned that into an
-            # IntegrityError and a 500. Found by the four-photo test, whose
-            # four "different" uploads differed only in a comment segment this
-            # module strips, so all four hashed the same.
+        if ListingPhoto.all_objects.filter(listing=listing, sha256=digest).exists():
+            # **The same bytes, twice, on the same listing.** The diagnosis;
+            # the guarantee is `listing_photos_one_copy_per_listing` and the
+            # `IntegrityError` branch below. Moved up here from a
+            # `storage_key` lookup because A-25 makes the key random, so two
+            # uploads of one photo no longer produce the same filename — the
+            # property was never about the filename, it was about the bytes.
             #
             # A duplicate is not an error the seller can act on and not a new
             # photo either, so it is a refusal with a sentence rather than a
@@ -665,6 +659,19 @@ def add_photo(actor, listing, upload) -> ListingPhoto:
                 "That photo is already on this listing.",
                 field_errors={"photo": ["Choose a different photo."]},
             )
+        # **The component that appears in no response** (A-25 / F51).
+        # `token_hex(16)` is 128 bits from the OS CSPRNG, so the on-disk path
+        # is not computable from the listing id and the `sha256` that
+        # `listing_payload` publishes. The `sha256` stays in the URL and the
+        # row; it is only the *filename* that stops being derivable.
+        storage_token = secrets.token_hex(16)
+        key = f"listings/{listing.id}/{storage_token}.{image_format}"
+        # Written before the row and deleted on rollback, so a committed row
+        # always has its object. The reverse order would leave a row pointing
+        # at nothing, which is the failure a reader cannot distinguish from a
+        # storage outage.
+        write_object(key, stripped)
+        transaction.on_commit(lambda: None)
         try:
             photo = ListingPhoto.all_objects.create(
                 listing=listing,
@@ -672,6 +679,7 @@ def add_photo(actor, listing, upload) -> ListingPhoto:
                 city_id=listing.city_id,
                 is_seed=listing.is_seed,
                 storage_key=key,
+                storage_token=storage_token,
                 sha256=digest,
                 width=width,
                 height=height,
@@ -695,9 +703,10 @@ def add_photo(actor, listing, upload) -> ListingPhoto:
             raise ValidationFailed(
                 "That photo is already on this listing.",
                 detail=(
-                    "storage_key collision: the key is the sha256 of the "
-                    "stripped bytes, so an identical photo — or one differing "
-                    "only in metadata that was stripped — produces the same key"
+                    "listing_photos_one_copy_per_listing: the sha256 is of "
+                    "the stripped bytes, so an identical photo — or one "
+                    "differing only in metadata that was stripped — is the "
+                    "same photo to this constraint"
                 ),
                 field_errors={"photo": ["Choose a different photo."]},
             ) from None
@@ -1066,7 +1075,10 @@ def photo_response(photo):
 
     # `private` and not `public`: a shared cache in front of this would serve
     # one student's photo from another student's authorised request.
-    response["Cache-Control"] = "private, max-age=3600"
+    # A-25 corrects this to the clause A-20 always carried: the route shipped
+    # `3600` against a frozen `86400`. Minor on its own; it is here because
+    # a frozen contract that diverges silently is how F51 came to be written.
+    response["Cache-Control"] = "private, max-age=86400"
     response["X-Robots-Tag"] = "noindex"
     response["X-Content-Type-Options"] = "nosniff"
     return response

@@ -568,6 +568,56 @@ form {
   border-top: var(--bw-hair) solid var(--c-rule);
 }
 
+/* ---------------------------------------------------------------- PHOTOS
+   SYSTEM §4.16. The strip on the listing page and the seller's own upload
+   list. Everything that stops layout shifting is in the markup — intrinsic
+   `width`/`height` on the `<img>` — so all this does is cap the painted size
+   and let the browser derive the height from the attributes.
+
+   `height: auto` is load-bearing: without it the `height` attribute wins and
+   every photo is squashed to its stored aspect-ratio-ignoring box. With it,
+   the attributes still reserve the right space before the bytes arrive. */
+
+.photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  list-style: none;
+  margin: var(--s-4) 0 var(--s-5);
+  padding: 0;
+}
+
+.photos > li {
+  margin: 0;
+  /* 320px is §4.16's thumb width; `min()` is what keeps a single photo from
+     overflowing a 320 CSS px viewport once the gutters are taken out, which
+     is SC 1.4.10 and the device this product is designed for. */
+  flex: 0 1 min(20rem, 100%);
+}
+
+.photos img,
+.rows--photos img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: var(--bw-hair) solid var(--c-rule);
+  /* The reserved box before the bytes land. Not a shimmer (§1.5 bans those);
+     the page's own paper, so an unloaded photo reads as an empty frame. */
+  background: var(--c-paper);
+}
+
+.rows--photos img {
+  max-width: 10rem;
+  margin-bottom: var(--s-2);
+}
+
+/* The tap target is the whole thumbnail, and the focus ring must enclose it
+   rather than the inline box the image sits in. */
+.photos a,
+.rows--photos a {
+  display: block;
+}
+
 /* Two decisions side by side, each its own form, each its own 44px target,
    8px apart. Used by the consent toggles: granting and withdrawing are one tap
    each, which is what "as easy as granting" means (DPDP r.3(c)(i)). */

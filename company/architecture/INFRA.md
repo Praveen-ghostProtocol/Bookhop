@@ -56,7 +56,8 @@ Ubuntu LTS, 1 vCPU / 1–2 GB, Indian region.
 ```
 internet ──443──► nginx ──unix socket──► gunicorn (3 workers) ──► Django
                     │                                              │
-                    ├── /static/, /media/  (direct, private cache)  │
+                    ├── /static/         (direct, private cache)     │
+                    ├── /media/ INTERNAL (X-Accel-Redirect only)    │
                     └── TLS (Let's Encrypt, auto-renew)             ▼
                                                             Postgres 16
                                                          (localhost only)
@@ -65,6 +66,29 @@ systemd: bookhop-web.service
          bookhop-nightly.timer → backup, retention_purge, digest, 02:30 IST
          chrony → NTP: NPL / NIC
 ```
+
+> **`/media/` is an `internal` location (A-25, REDTEAM-S2 F51, 2026-10-22).**
+> This diagram previously showed it served direct, alongside `/static/`,
+> which contradicted `API-CONTRACT.md` §5.2 and would have published every
+> listing photo. `/static/` is direct because it holds the stylesheet and the
+> app icons; `/media/` holds photographs taken inside students' rooms.
+> **The two are not the same kind of file and must not share a location block.**
+>
+> ```nginx
+> location /static/ { alias /var/lib/bookhop/static/; add_header Cache-Control "private, max-age=86400"; }
+> location /_protected_media/ { internal; alias /var/lib/bookhop/media/; }
+> ```
+>
+> `internal` makes nginx return 404 to any direct request; the location is
+> reachable only through an `X-Accel-Redirect` header Django emits **after**
+> it has authorised the read. Set
+> `BOOKHOP_MEDIA_INTERNAL_PREFIX=/_protected_media/` to match.
+>
+> **Verification is a step in §3.3, not a claim here.** With the app stopped:
+> `curl -sS -o /dev/null -w '%{http_code}' https://<host>/_protected_media/listings/1/x.jpeg`
+> must print `404`. A `200` means the location is not `internal` and every
+> listing photo is public.
+
 
 **Hardening** (`THREAT-MODEL.md` §4 B6): SSH keys only, no password auth, no
 root login, UFW allowing 22/80/443 only, fail2ban, unattended-upgrades for

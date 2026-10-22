@@ -25,11 +25,14 @@ line for whoever owns a suite:
     def test_template_invariants():
         assert run() == []
 
-**STATED PLAINLY: until that line exists somewhere that CI runs, this is a
-check that has not started**, which `CLAUDE.md` rule 10 names as one of the
-six disguises of a passing check that cannot fail. It is run by hand with
-`python -m web.selfcheck` and its result is reported with the slice; that is a
-measurement, not coverage, and the difference is the point.
+**THAT LINE NOW EXISTS**, in `tests/a11y/test_template_invariants.py`, which
+runs this module, its detector and its corpus assertion on every suite run.
+Until it did, this guard had never run in CI — `CLAUDE.md` rule 10's fifth
+disguise, where *"not yet running"* and *"running and passing trivially"* are
+indistinguishable from outside. The sentence saying so was the last thing
+claiming otherwise and is deleted rather than softened (rule 9's corollary:
+when an explanation and a measurement disagree, delete the explanation). It is
+still runnable by hand with `python -m web.selfcheck`.
 
 WHAT IT CAN AND CANNOT DECIDE. These are *preconditions* of the accessible
 name, not the name itself — the name is computed by a browser and only a

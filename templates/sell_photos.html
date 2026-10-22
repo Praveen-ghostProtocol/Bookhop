@@ -62,9 +62,30 @@
      size. The count is a fact about the server's rows, never about an
      in-flight request. {% endcomment %}
   <p>{% blocktranslate context "sell.photos.partial" with i=photo_count n=max_photos %}{{ i }} of {{ n }} photos attached.{% endblocktranslate %}</p>
-  <ul class="rows">
+  {% comment %} THE SELLER SEES WHAT THEY UPLOADED, which is the only way to
+     notice a photo of the wrong book, a thumb over the lens, or a page so
+     dark it tells a buyer nothing. The chip and the KB row stay: the chip is
+     §4.5's `partial` state signal and the byte figure is what the photo will
+     cost every buyer who opens the listing.
+
+     The alt text and the `Save-Data` gate are the listing page's, unchanged
+     — same string, same rule, same reason. A seller on a metered connection
+     who just spent the bytes uploading these is owed the same choice about
+     downloading them again, and "the criterion only applies to the buyer's
+     page" is how a rule acquires an exception nobody can defend. {% endcomment %}
+  {% if save_data %}
+    <p><a href="?photos=1">{% blocktranslate context "search.photos_gate" with n=photos|length kb=photo_kb %}Show {{ n }} photos (about {{ kb }} KB){% endblocktranslate %}</a></p>
+  {% endif %}
+  <ul class="rows rows--photos">
     {% for photo in photos %}
       <li>
+        {% if not save_data %}
+          {% blocktranslate context "trust.photo.alt" with i=forloop.counter n=photos|length asvar photo_alt %}Photo {{ i }} of {{ n }}, uploaded by the seller{% endblocktranslate %}
+          <a href="/listing/{{ row.id }}/photo/{{ photo.sha256 }}">
+            <img src="/listing/{{ row.id }}/photo/{{ photo.sha256 }}" width="{{ photo.width }}" height="{{ photo.height }}" loading="lazy" decoding="async" alt="{{ photo_alt }}">
+            <span class="vh"> — {% translate "open the full-size photo" context "listing.photo.open" %}</span>
+          </a>
+        {% endif %}
         <span class="chip chip--live">{% translate "Uploaded" context "sell.photos.done" %}</span>
         {% blocktranslate context "sell.photos.row" with i=forloop.counter kb=photo.kb %}Photo {{ i }} — {{ kb }} KB{% endblocktranslate %}
       </li>

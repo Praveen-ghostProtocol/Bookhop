@@ -57,6 +57,7 @@ from apps.core.errors import (
     UnderEighteen,
     ValidationFailed,
 )
+from apps.core.contact import contact_channels_in
 from apps.core.models import Campus, PurgeLog
 from apps.core.request_context import public_origin
 from apps.core.ratelimit import consume_quota
@@ -1068,6 +1069,25 @@ def update_profile(user, *, display_name=None, locale=None):
         if len(cleaned) > 60:
             raise ValidationFailed(
                 "That name is too long.", field_errors={"display_name": ["60 characters at most."]}
+            )
+        # **Red Team F49.** The name renders to every buyer on the listing
+        # page and ships in the L2 payload, and API-CONTRACT §5.2's rule —
+        # *"Listing responses never contain … a phone number"* — was enforced
+        # on **key names**. One seller writing a number here once takes every
+        # buyer off the platform, and the support minute that follows is
+        # unmeasurable because the conversation never happened here.
+        #
+        # The property is imported, not retyped: `apps/core/contact.py` is
+        # the same definition S4's `messages.contact_pattern_flag` reads, and
+        # it states in its own docstring what it cannot catch.
+        channels = contact_channels_in(cleaned)
+        if channels:
+            raise ValidationFailed(
+                "Use a name, not a way to reach you. Buyers and sellers "
+                "arrange handovers through BookHop, so a phone number, an "
+                "email address or a link does not belong here.",
+                detail=f"display_name carries a contact channel: {', '.join(channels)}",
+                field_errors={"display_name": ["No phone numbers, links or addresses."]},
             )
         user.display_name = cleaned
         fields.append("display_name")

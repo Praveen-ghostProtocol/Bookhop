@@ -32,12 +32,33 @@ code path somebody has to remember.
 # slice that needs derivatives (S7/S8) — and it is pre-approved in
 # requirements.txt for exactly that.
 
+**Trailing data — what is past the end of the image** (Red Team F47). Each
+container declares where it ends, and this module now stops there in all
+three. Only the JPEG path was wrong; the other two are recorded because
+*"the other formats do not have this problem"* is a claim and had to be
+measured:
+
+  * **JPEG — FIXED HERE.** `_strip_jpeg` copied from SOS to `len(data)`, so
+    every byte after the primary image's EOI reached storage verbatim.
+    Motion Photo / Top Shot and MPF (CIPA DC-007) put a whole second stream
+    there, and an MPF second image carries **its own unstripped APP1 with a
+    GPS IFD** — so `exif_stripped_at` was set on a row whose file held a GPS
+    tag. The copy now ends at EOI, and a file with no EOI is refused.
+  * **PNG — VERIFIED HERE, no change needed.** The chunk walk already breaks
+    at `IEND` and output is assembled chunk by chunk, so appended bytes were
+    never reachable.
+  * **WebP — FIXED HERE.** The walk ran to `len(data)` and parsed appended
+    bytes as further chunks, keeping any whose type was not one of the three
+    metadata types. It is now bounded by the RIFF size word.
+
 **VERIFIED HERE** on both engines and both Python paths by
 `tests/unit/test_listing_photos.py`: the fixtures carry a real EXIF APP1
 segment with a GPS tag, the test asserts the marker is present before and
 absent after, and asserts the stripped bytes still begin with the format's
-magic. **ASSUMED THERE:** nothing — there is no platform-dependent behaviour
-in this module; it is byte arithmetic.
+magic. The trailing-data property is asserted for all three containers by
+`tests/contract/test_nothing_past_the_end_of_the_image.py`. **ASSUMED
+THERE:** nothing — there is no platform-dependent behaviour in this module;
+it is byte arithmetic.
 """
 
 import struct
@@ -84,6 +105,7 @@ def _strip_jpeg(data):
         raise ImageRejected("not a JPEG: no SOI marker")
     out = bytearray(b"\xff\xd8")
     width = height = None
+    saw_eoi = False
     i = 2
     end = len(data)
     while i < end - 1:
@@ -99,8 +121,9 @@ def _strip_jpeg(data):
         if marker in _JPEG_STANDALONE:
             out += bytes((0xFF, marker))
             continue
-        if marker == 0xD9:  # EOI
+        if marker == 0xD9:  # EOI — the image ends here, and so does the copy
             out += b"\xff\xd9"
+            saw_eoi = True
             break
         if i + 2 > end:
             raise ImageRejected("JPEG ended inside a segment header")
@@ -118,12 +141,56 @@ def _strip_jpeg(data):
         if not _is_jpeg_metadata(marker):
             out += bytes((0xFF, marker)) + data[i:i + length]
         i += length
-        if marker == 0xDA:  # SOS — entropy-coded data to the end of the file
-            out += data[i:]
-            break
+        if marker == 0xDA:
+            # SOS — entropy-coded data, **up to the next real marker and not
+            # to the end of the file** (F47). The old form was
+            # `out += data[i:]; break`, which copied every trailing byte
+            # verbatim; a Motion Photo / MPF second stream lives exactly
+            # there and carries its own unstripped APP1 with a GPS IFD.
+            #
+            # Walking the stream rather than seeking `b"\xff\xd9"` because a
+            # progressive JPEG has several scans: the walk hands control back
+            # to the segment loop, which strips the metadata segments between
+            # them too. The one-line `find` would have stopped at the first
+            # scan and copied the rest unexamined, which is the same defect
+            # in a different place.
+            nxt = _jpeg_entropy_end(data, i, end)
+            out += data[i:nxt]
+            i = nxt
     if width is None or height is None:
         raise ImageRejected("no JPEG frame header, so the file carries no dimensions")
+    if not saw_eoi:
+        # Symmetric with PNG's `saw_iend`. A file with no EOI is truncated or
+        # is not a JPEG, and the old code could not tell because it never
+        # looked for one. Refusing is the conservative half: the alternative
+        # is storing bytes whose end we cannot locate.
+        raise ImageRejected("JPEG ended without an EOI marker")
     return bytes(out), width, height
+
+
+def _jpeg_entropy_end(data, i, end):
+    """Index of the `0xFF` starting the next real marker after an entropy scan.
+
+    Inside entropy-coded data a `0xFF` byte is always followed by `0x00`
+    (byte stuffing) or by an RSTn marker — the JPEG specification guarantees
+    it, which is what makes this a *property* and not a heuristic: anything
+    else is the end of the scan. `end` when the file runs out, which
+    `_strip_jpeg` turns into a refusal.
+    """
+    j = i
+    while j < end - 1:
+        if data[j] != 0xFF:
+            j += 1
+            continue
+        marker = data[j + 1]
+        if marker == 0x00 or 0xD0 <= marker <= 0xD7:
+            j += 2
+            continue
+        if marker == 0xFF:  # fill byte before a marker
+            j += 1
+            continue
+        return j
+    return end
 
 
 # --- PNG -------------------------------------------------------------------
@@ -187,13 +254,22 @@ def _strip_webp(data):
     kept = bytearray()
     width = height = None
     i = 12
-    end = len(data)
+    # **The RIFF size word is the end of the file, not `len(data)`** (F47's
+    # question asked of the other two containers). RIFF declares its own
+    # length at bytes 4..8; anything past it is appended data the container
+    # does not own, and the walk used to parse it as further chunks and keep
+    # whatever it could. `min` because a truncated file must still stop at the
+    # bytes we actually have.
+    (declared,) = struct.unpack("<I", data[4:8])
+    end = min(len(data), 8 + declared)
     while i + 8 <= end:
         kind = data[i:i + 4]
         (length,) = struct.unpack("<I", data[i + 4:i + 8])
-        payload = data[i + 8:i + 8 + length]
-        if len(payload) != length:
+        if i + 8 + length > end:
+            # Measured against the declared RIFF length, so a chunk cannot
+            # reach into appended bytes to make them look like payload.
             raise ImageRejected("WebP chunk length runs past the end of the file")
+        payload = data[i + 8:i + 8 + length]
         if kind == b"VP8X" and length >= 10:
             width = int.from_bytes(payload[4:7], "little") + 1
             height = int.from_bytes(payload[7:10], "little") + 1

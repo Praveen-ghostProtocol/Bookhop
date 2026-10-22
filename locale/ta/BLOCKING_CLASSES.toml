@@ -58,6 +58,38 @@ blocking_strings_in_catalogue_at_S2 = 86
 blocking_strings_without_a_tamil_draft_at_S2 = 60
 total_strings_in_catalogue_at_S2 = 254
 
+# S2 rework (2026-10-22), closing REDTEAM-S2 F48 — the photo strip.
+#
+# **The prefix rule was about to miss one, and the fix was to rename our own
+# key rather than touch this file** (CLAUDE.md rule 13, first resort). The
+# photo's alt text — *"Photo 2 of 4, uploaded by the seller"* — is a
+# no-warranty string in every sense B2's `why` describes: its entire
+# engineering is that BookHop makes no claim about an image nobody here has
+# looked at, and a natural-sounding Tamil rendering ("விற்பவர் சரிபார்த்த
+# படம்" — the seller's checked photo) would warrant in a language
+# `test_forbidden_copy.py` cannot read. It was drafted as
+# `listing.photo.alt`, which no prefix here matches. Renaming it to
+# **`trust.photo.alt`** made it blocking on arrival, cost one key name, and
+# added nothing to this file — which is the point of the ordering in rule 13.
+#
+# `listing.photo.open` ("open the full-size photo") and `search.photos_gate`
+# ("Show {n} photos (about {kb} KB)") are deliberately NOT blocking: one is a
+# navigation instruction and the other a byte cost. Neither makes a claim
+# about a book, a person or a price. Recorded so the omission reads as a
+# decision rather than an oversight.
+# **These three are NOT comparable with the `_at_S2` row above.** They were
+# produced by a different instrument — every `\n\n`-separated block carrying a
+# `msgctxt`, matched against the prefixes in this file — which counts the
+# same catalogue at the S2 commit as 260 / 88 / 62, not 254 / 86 / 60. The
+# earlier method is not recorded, so the discrepancy cannot be explained and
+# is not explained away (rule 9). What IS measured is the **delta across this
+# change, by one instrument**: +2 strings (one removed, three added),
+# +1 blocking, +0 without a Tamil draft — `trust.photo.alt` arrives with one.
+measured_by = "msgctxt blocks in locale/ta/LC_MESSAGES/django.po, prefix-matched against classes.*.keys"
+blocking_strings_in_catalogue_at_S2_rework = 89
+blocking_strings_without_a_tamil_draft_at_S2_rework = 62
+total_strings_in_catalogue_at_S2_rework = 262
+
 # --- B1 ---------------------------------------------------------------------
 [classes.B1]
 scope = "COPY-DECK §7 — the handover guidance"

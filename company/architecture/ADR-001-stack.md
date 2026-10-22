@@ -345,9 +345,28 @@ see `THREAT-MODEL.md` §5.8.
 
 Listing photos are resized to a max edge of 1600px, re-encoded, **EXIF
 stripped at upload** (data inventory row 9), and written to a local directory
-served by nginx with `Cache-Control: private`. At one campus with a few
-thousand listings and ~3 photos each at ~150 KB after re-encode, this is
-single-digit GB.
+**that nginx serves only from an `internal` location, reached by
+`X-Accel-Redirect` from Django** — never from a location a browser can
+request directly. At one campus with a few thousand listings and ~3 photos
+each at ~150 KB after re-encode, this is single-digit GB.
+
+> **Corrected 2026-10-22 (A-25, REDTEAM-S2 F51).** This clause previously
+> read *"written to a local directory served by nginx with `Cache-Control:
+> private`"* — and `API-CONTRACT.md` §5.2 cited **this clause** as the
+> authority for keeping photos *"off any publicly-routable path"*. It said
+> the opposite. An operator configuring nginx from this paragraph would have
+> published every listing photo, and the filename was derivable from the
+> listing payload, so the Django authorisation decision in front of it would
+> have guarded nothing.
+>
+> `Cache-Control: private` is a caching directive. **It is not an access
+> control and was never one** — it asks intermediaries not to store a shared
+> copy, and says nothing about who may request the resource. Reading it as
+> the protection is how this survived review.
+>
+> The operator sets `BOOKHOP_MEDIA_INTERNAL_PREFIX` to that internal
+> location's name. Until it is set, Django streams the bytes itself: slower,
+> and correct.
 
 This removes an object-storage vendor *and* its DPA *and* a CDN *and* the
 question of which region the bucket is in (C1, C11). The upgrade path is real

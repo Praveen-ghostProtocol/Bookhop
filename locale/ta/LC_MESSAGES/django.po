@@ -596,12 +596,10 @@ msgctxt "listing.no_offer_yet"
 msgid "There is no way to offer on a listing from inside BookHop yet."
 msgstr ""
 
-#: templates/listing.html
-msgctxt "listing.photos.pending"
-msgid "The seller attached %(n)s photo. BookHop has no way to show it yet."
-msgid_plural "The seller attached %(n)s photos. BookHop has no way to show them yet."
-msgstr[0] ""
-msgstr[1] ""
+#: templates/listing.html templates/sell_photos.html
+msgctxt "listing.photo.open"
+msgid "open the full-size photo"
+msgstr "முழு அளவுப் படத்தைத் திற"
 
 #: templates/sell.html
 #. BLOCKING CLASS B4 (COPY-DECK §2)
@@ -754,6 +752,11 @@ msgstr "உங்கள் பாடத்திட்டம் கேட்க�
 msgctxt "run.why_email"
 msgid "Your college address is how we know you're on this campus. We don't ask for a document or a phone number."
 msgstr "நீங்கள் இந்தக் கல்லூரியில் இருப்பதை உங்கள் கல்லூரி முகவரியே காட்டுகிறது. ஆவணமும் தொலைபேசி எண்ணும் கேட்கவில்லை."
+
+#: templates/listing.html templates/sell_photos.html
+msgctxt "search.photos_gate"
+msgid "Show %(n)s photos (about %(kb)s KB)"
+msgstr "%(n)s படங்களைக் காட்டு (சுமார் %(kb)s KB)"
 
 #: templates/sell_find.html
 msgctxt "sell.addbook.h"
@@ -1337,6 +1340,12 @@ msgstr "BookHop-ல் மதிப்பெண்கள் இல்லை."
 msgctxt "trust.not_checked"
 msgid "BookHop hasn't checked this book."
 msgstr "இந்தப் புத்தகத்தை BookHop சரிபார்க்கவில்லை."
+
+#: templates/listing.html templates/sell_photos.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.photo.alt"
+msgid "Photo %(i)s of %(n)s, uploaded by the seller"
+msgstr "%(n)s படங்களில் %(i)s-வது படம், விற்பவர் பதிவேற்றியது"
 
 #: templates/listing.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)

@@ -146,24 +146,84 @@
     </p>
   {% endif %}
 
-  {% comment %} PHOTOS — THE STRIP IS NOT BUILT AND THE REASON IS A GAP, NOT A
-     CHOICE. SYSTEM §4.16 specifies up to 3 thumbs at 320px, `loading="lazy"`,
-     explicit width/height, `<picture>` with webp + jpeg, tap opening the full
-     image as a page navigation; and criterion 9 forbids any `<img>` under
-     `Save-Data: on`, replaced by a link naming the real byte cost.
+  {% comment %} PHOTOS — SYSTEM §4.16, and the alt text is the decision in it.
 
-     **No route serves a stored photo.** `listing_photos.storage_key` exists,
-     `API-CONTRACT.md` §5.2 has no GET for a photo, and inventing a media URL
-     is not L3's to do. So no `<img>` is emitted on this page under any header
-     — which means criterion 9 is satisfied VACUOUSLY today and must not be
-     reported as passing (`CLAUDE.md` rule 10). Escalated with the slice.
+     THE ALT TEXT MAKES NO CLAIM ABOUT WHAT IS IN THE PHOTO, AND THAT IS THE
+     POINT. A photo of a used textbook carries the condition claim the buyer
+     is judging, so `alt=""` — "decorative, skip it" — would tell a screen
+     reader there is nothing here while four images are doing the deciding
+     for everyone else. The opposite failure is worse: BookHop has not looked
+     at these files, so "Front cover" or "A torn page" would be a description
+     of something nobody saw, and "the book the seller calls Good" would
+     attach our voice to an image and be false on the three photos that are
+     not the cover. **A seller who uploads four near-identical photos must
+     produce four alt texts that are all true**, and the only sentence with
+     that property is one that says where the image came from and which of
+     how many it is. Position plus provenance, no content:
+     *"Photo 2 of 4, uploaded by the seller."*
 
-     What IS honest is to say the photos exist and what they would cost, so a
-     buyer can tell a listing with four photos from one with none — and the
-     byte figure is computed from the stored sizes, not estimated, which is
-     the number §4.16's gate will name when the route lands. {% endcomment %}
+     THE KEY IS `trust.photo.alt`, NOT `listing.photo.alt`, AND THE RENAME IS
+     THE CONTROL. `locale/ta/BLOCKING_CLASSES.toml` matches B2 — the
+     no-warranty class — by the `trust.` prefix, so a string drafted as
+     `listing.photo.alt` would have been outside the Tamil gate while being
+     exactly what B2 exists for: a sentence engineered not to warrant, where
+     a natural Tamil rendering ("the seller's checked photo") would warrant,
+     in a script `test_forbidden_copy.py` cannot read. `CLAUDE.md` rule 13's
+     first resort is to rename our own name rather than widen a control, and
+     that is all this cost.
+
+     What carries the condition for a non-sighted buyer is the attributed
+     quotation immediately above — §4.14's primitive, the seller's own words,
+     which is a real text alternative for the claim rather than a guess at
+     the pixels. The strip is placed after it deliberately.
+
+     TWO DIVERGENCES FROM §4.16, BOTH BECAUSE THE BYTES DO NOT EXIST:
+     * **No `<picture>`, no webp+jpeg pair, no `srcset`.** `add_photo` stores
+       the uploaded file in the format it arrived in and derives nothing —
+       one file, one size, one type per row. A `<source type="image/webp">`
+       would point at a transcode nobody makes. Ceiling: one stored
+       rendition. Upgrade path: when a resize/transcode job exists, this
+       becomes `srcset` with the widths it writes, and nothing else here
+       changes.
+     * **All photos render, not "up to 3".** Four is the stored maximum and
+       dropping the fourth would hide a photo the seller chose to upload with
+       nothing on the page saying so.
+
+     `loading="lazy"` on every image including the first: on a 375px phone
+     the strip sits below the price and the condition quotation, so no photo
+     is the LCP element and deferring all four is strictly cheaper.
+     `width`/`height` are the stored intrinsic pixels, so the box is reserved
+     at the right aspect ratio before any byte arrives and nothing reflows —
+     CSS scales it down. Tapping is a page navigation to the same URL, which
+     gets the browser's own pinch-zoom on the full-resolution file: no
+     lightbox, no focus trap, back button works, zero script. {% endcomment %}
   {% if photos %}
-    <p class="meta">{% blocktranslate context "listing.photos.pending" count n=photos|length %}The seller attached {{ n }} photo. BookHop has no way to show it yet.{% plural %}The seller attached {{ n }} photos. BookHop has no way to show them yet.{% endblocktranslate %}</p>
+    {% if save_data %}
+      {% comment %} §4.16 `disabled`, and criterion 9's whole subject. Under
+         `Save-Data: on` **no `<img>` is emitted at all** — not a hidden one,
+         not a placeholder — and the student gets a priced link instead. The
+         KB figure is summed from the stored byte counts, never estimated.
+         `?photos=1` is their opt-in: a different URL, so the bare route
+         still emits nothing under the header. {% endcomment %}
+      <p><a href="?photos=1">{% blocktranslate context "search.photos_gate" with n=photos|length kb=photo_kb %}Show {{ n }} photos (about {{ kb }} KB){% endblocktranslate %}</a></p>
+    {% else %}
+      <ul class="photos">
+        {% for photo in photos %}
+          <li>
+            {% blocktranslate context "trust.photo.alt" with i=forloop.counter n=photos|length asvar photo_alt %}Photo {{ i }} of {{ n }}, uploaded by the seller{% endblocktranslate %}
+            <a href="/listing/{{ row.id }}/photo/{{ photo.sha256 }}">
+              <img src="/listing/{{ row.id }}/photo/{{ photo.sha256 }}" width="{{ photo.width }}" height="{{ photo.height }}" loading="lazy" decoding="async" alt="{{ photo_alt }}">
+              {% comment %} The link's accessible name is the alt plus this:
+                 an image inside a link needs the alt to name the
+                 DESTINATION, and the destination is the same photo at full
+                 resolution (SC 2.4.4). Visually hidden because the
+                 thumbnail already says it to anyone who can see it. {% endcomment %}
+              <span class="vh"> — {% translate "open the full-size photo" context "listing.photo.open" %}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
   {% else %}
     <p class="meta">{% translate "No photos. Buyers will only have your description." context "sell.photos.none" %}</p>
   {% endif %}
