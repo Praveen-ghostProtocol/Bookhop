@@ -1311,6 +1311,12 @@ msgctxt "trust.attribution.today"
 msgid "— %(name)s, today"
 msgstr ""
 
+#: templates/_withheld.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.book.withheld"
+msgid "A student typed this entry and no BookHop staff member has read it, so BookHop isn't repeating their words here. The ISBN identifies the edition."
+msgstr "இந்தப் பதிவை ஒரு மாணவர் தட்டச்சு செய்தார்; BookHop பணியாளர் யாரும் அதைப் படிக்கவில்லை. எனவே அவர் எழுதிய வார்த்தைகளை BookHop இங்கே திரும்பச் சொல்லவில்லை. பதிப்பை ISBN அடையாளப்படுத்துகிறது."
+
 #: templates/account.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)
 msgctxt "trust.campus_mail"

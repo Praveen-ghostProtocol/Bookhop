@@ -53,6 +53,13 @@
     <p class="biblio">{{ book.title }}</p>
     <p class="sub">{{ book.authors }}{% if book.edition %} · {{ book.edition }}{% endif %}{% if book.publisher %} · {{ book.publisher }}{% endif %}{% if book.year %} · {{ book.year }}{% endif %}</p>
     <p class="mono">{{ book.isbn }}</p>
+    {% comment %} THE SURFACE THAT IS ALWAYS WITHHELD. An ISBN lookup reaches a
+       global row through nothing anybody owns, so `_book_of` is called with no
+       reader and an unverified row is withheld here **even from the student who
+       typed it** (A-30). That makes this the common case, not the edge one: the
+       ordinary journey is one student adding a book and the next student with
+       the same ISBN finding it. {% endcomment %}
+    {% include "_withheld.html" with book=book %}
     <p>{% translate "Is this the one?" context "sell.isbn.found" %}</p>
   </div>
 {% elif not_found %}

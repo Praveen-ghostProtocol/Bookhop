@@ -1305,6 +1305,12 @@ msgctxt "trust.attribution.today"
 msgid "— %(name)s, today"
 msgstr "— %(name)s, today"
 
+#: templates/_withheld.html
+#. BLOCKING CLASS B2 (COPY-DECK §2)
+msgctxt "trust.book.withheld"
+msgid "A student typed this entry and no BookHop staff member has read it, so BookHop isn't repeating their words here. The ISBN identifies the edition."
+msgstr "A student typed this entry and no BookHop staff member has read it, so BookHop isn't repeating their words here. The ISBN identifies the edition."
+
 #: templates/account.html
 #. BLOCKING CLASS B2 (COPY-DECK §2)
 msgctxt "trust.campus_mail"

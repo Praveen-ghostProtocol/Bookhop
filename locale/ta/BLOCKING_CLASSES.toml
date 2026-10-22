@@ -90,6 +90,40 @@ blocking_strings_in_catalogue_at_S2_rework = 89
 blocking_strings_without_a_tamil_draft_at_S2_rework = 62
 total_strings_in_catalogue_at_S2_rework = 262
 
+# A-29/A-30 rework (2026-10-22) — one string, and the key-prefix decision was
+# made deliberately for the second time this slice rather than by default.
+#
+# `trust.book.withheld` is the sentence a student is shown where a title would
+# be, on a `books` row no staff member has read. **It is the paradigm B2
+# string, not a borderline one:** its entire content is a negation — nobody
+# here has read this, so BookHop is not repeating it — and B2's `why` is
+# precisely that *"a natural-sounding Tamil rendering is very likely to
+# over-promise"*. Tamil reaches a negation through a participle, and
+# `படிக்கப்பட்ட` / `சரிபார்க்கப்பட்ட` ("read" / "checked", as an attribute of
+# the entry) is one keystroke of drift away from the positive claim the gate
+# exists to stop. `test_forbidden_copy.py` reads English only (TR-8), so that
+# drift would ship green. The closing clause is the second hazard:
+# "the ISBN identifies the edition" rendered with `உறுதிப்படுத்துகிறது`
+# ("confirms") would warrant the correctness of data nobody checked.
+#
+# **The prefix did the work and this file needed no edit** (CLAUDE.md rule 13,
+# first resort). Drafted as `listing.book.withheld`, which no prefix here
+# matches; keyed `trust.book.withheld` instead, which is blocking on arrival.
+# That is the same move `trust.photo.alt` made earlier in this slice, made on
+# its own reasoning rather than copied — the test is whether the string's job
+# is to withhold a warranty, and this one's job is nothing else.
+#
+# `[classes]` and `[exceptions]` are unchanged. The three numbers below are
+# the same instrument as the `_at_S2_rework` row above, which it reproduces
+# exactly on the parent commit (262 / 89 / 62) — so the delta is measured and
+# not inferred: **+1 string, +1 blocking, +0 without a Tamil draft**, because
+# `trust.book.withheld` arrives with one. The draft is unreviewed, which is
+# the gated state; `REVIEWED.toml` is untouched and carries no name for it.
+# The reviewer's three questions are COPY-DECK §11 **TR-13**.
+blocking_strings_in_catalogue_at_A29_label = 90
+blocking_strings_without_a_tamil_draft_at_A29_label = 62
+total_strings_in_catalogue_at_A29_label = 263
+
 # --- B1 ---------------------------------------------------------------------
 [classes.B1]
 scope = "COPY-DECK §7 — the handover guidance"

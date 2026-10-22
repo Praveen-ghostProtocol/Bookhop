@@ -54,6 +54,7 @@
 
 <p class="biblio">{{ row.book.title }}</p>
 <p class="sub">{{ row.book.authors }}{% if row.book.edition %} · {{ row.book.edition }}{% endif %}</p>
+{% include "_withheld.html" with book=row.book %}
 
 {% include "_errorslot.html" %}
 

@@ -1,0 +1,50 @@
+{% load i18n %}{% comment %}
+  A-29 §1's OTHER HALF. `web/views.py _book_of` renders a withheld row's
+  biblio line as `ISBN 978…` and publishes `withheld` for exactly this: the
+  ISBN is the data half, this sentence is the label half, and backend
+  correctly refused to write a student-facing literal into a view
+  (`tests/contract/test_copy_catalogue_is_the_shipped_copy.py`).
+
+  ONE CONDITION, FOUR READERS (`CLAUDE.md` rule 11). Four surfaces read
+  the dict `_book_of` returns —
+  `sell_find.html`, `sell.html`, `sell_photos.html`, `listing.html` — and
+  three of them can carry a withheld row whenever the lister is not the
+  person who typed the catalogue entry. A copy of the condition in each one
+  is four places for the next slice to forget one.
+
+  READING ORDER, AND THE HEADING IS NOT TOUCHED. On `listing.html` the
+  withheld form lands in an `<h1>`. The heading keeps the ISBN and **only**
+  the ISBN: a heading is a navigation target, a screen-reader user lands on
+  it out of a heading list with no surrounding context, and `ISBN
+  9789387432147` is both a true identity for the edition and short enough to
+  be usable there. This sentence follows the heading as ordinary prose, so
+  the order is identity first, then why there is nothing else — which is also
+  the order a sighted reader meets them in, and the order `document.title`
+  already has. A disclosure inside the heading would make the heading list
+  unreadable and the browser tab a paragraph.
+
+  No `role`, no `aria-live`, no `notice--wait`: nothing failed, nothing is
+  pending from the student's side, and the `notice` register on this product
+  means a state the reader has to act on. `meta` is the quiet-note register.
+
+  COPY-DECK §1.2, word by word, because this string's whole engineering is
+  that it does not warrant:
+    * "A student typed this entry" — a fact, and the ordinary case. The
+      overwhelmingly common reason a row is unverified is an honest seller
+      adding a book we do not have yet, so nothing here implies they did
+      anything wrong.
+    * "no BookHop staff member has read it" — the mechanism, named at the
+      act it actually is. Not "checked", not "approved", and the banned word
+      "verified" is unavailable anyway: reading is literally all
+      `staff_verified_at` records somebody doing.
+    * "BookHop isn't repeating their words here" — declining to repeat, which
+      is a different act from vouching. Present tense, no "yet": "yet" is a
+      soft undertaking that the record will be published, and copy of that
+      shape has already been overruled once this project ("listings open when
+      BookHop launches on your campus"). No timescale, no promise, no
+      prediction.
+    * "The ISBN identifies the edition." — what a buyer can rely on, stated
+      positively, because a paragraph of only negations tells them nothing.
+{% endcomment %}{% if book.withheld %}
+<p class="meta">{% translate "A student typed this entry and no BookHop staff member has read it, so BookHop isn't repeating their words here. The ISBN identifies the edition." context "trust.book.withheld" %}</p>
+{% endif %}

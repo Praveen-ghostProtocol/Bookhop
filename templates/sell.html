@@ -50,6 +50,7 @@
         <p class="biblio">{{ row.book.title }}</p>
         <p class="sub">{{ row.book.authors }}{% if row.book.edition %} · {{ row.book.edition }}{% endif %}{% if row.book.year %} · {{ row.book.year }}{% endif %}</p>
         {% if row.book.isbn %}<p class="mono">{{ row.book.isbn }}</p>{% endif %}
+        {% include "_withheld.html" with book=row.book %}
 
         {% comment %} `listing.price.row` — the short form, permitted only in a
            list row and only because the sentence above is on the page. {% endcomment %}

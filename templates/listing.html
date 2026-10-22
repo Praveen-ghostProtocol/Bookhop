@@ -51,6 +51,9 @@
 
 {% block main %}
 <h1 class="biblio">{{ row.book.title }}</h1>
+{% comment %} The heading holds the ISBN and nothing else on a withheld row —
+   see `_withheld.html` for why the disclosure is not in the heading. {% endcomment %}
+{% include "_withheld.html" with book=row.book %}
 
 {% if row.status == "RESERVED" %}
   {% comment %} SYSTEM §4.11 `disabled`. There is no "tell me if it comes back"
