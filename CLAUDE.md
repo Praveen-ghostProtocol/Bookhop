@@ -69,6 +69,25 @@ the prompt — do not collapse the role into the main context.
     *Corollary:* when an explanation and a measurement disagree, **delete the
     explanation** — even when it lives in a document whose job is to explain.
 
+    *And a claim quantified over "every path" **names the paths it was
+    measured against**.* A universal claim is a claim about a **set**, and
+    writing one without enumerating that set asserts the enumeration too —
+    silently, and usually wrongly.
+
+    *Earned, four gates deep:* a ruling said *"no seller-written catalogue
+    text reaches another student without a named human having looked at it."*
+    Three gates attacked **what the gate serves** and all three were right
+    about it. Nobody asked what the database may **match** on — and a
+    substring predicate over a *derived copy* of the same words let a
+    signed-in student recover a phone number ten digits at a time out of a
+    column that same response refuses to print. The guard built to enforce
+    the sentence could not see that path **even in principle**: it keys on
+    attribute names, and this extraction never names the attribute.
+
+    **The layer the sentence named was real and measured fine. The set it
+    quantified over was never written down.** Rule 12's demand to measure a
+    named layer does not catch this; only enumerating the paths does.
+
 10. **A passing check is not evidence.** A check that cannot fail is worse
     than no check, because it is reported as coverage. Found repeatedly, in
     six disguises:

@@ -242,3 +242,193 @@ the two deployment documents that contradict it; copy and the form beneath it.
 **86% seams.** The gate is still earning its cost. Per the charter, the number
 to watch is whether it drops — if two consecutive passes produce only what
 Code Review or QA could have caught, re-point the pass; do not drop the gate.
+
+---
+
+# Red Team — S2 **re-report**, scoped to the fixes
+
+Tree frozen at `6f4660d` · Probes `tests/redteam/**`, both engines run
+Run: `BOOKHOP_REDTEAM=1 ./.venv/Scripts/python.exe -m pytest tests/redteam -q`
+→ **PostgreSQL 16: 8 red, 22 green** · **SQLite: 11 red, 19 green**
+
+**Polarity, stated because this tree now has two authors' conventions in it:
+every assertion asserts the SAFE outcome, so red is a finding and green is
+closed.** The three engine-divergent reds are named by engine below.
+
+Scoped to the eight findings and the A-26→A-33 rework, per the charter's
+termination rule. This is not a fresh pass; nothing outside the fixes was
+re-measured.
+
+## The eight, measured
+
+| | state | measurement |
+|---|---|---|
+| **F47** EXIF past EOI | **closed** | `test_what_survives_the_strip.py` green both engines. Closed **wider than found**: the progressive-JPEG inter-scan and WebP limbs were not in the finding |
+| **F48** no page shows a photo | **closed** | `test_the_photo_nobody_sees.py` green both engines, including the retirement assertion on the *"no way to show them"* copy and `Cache-Control: private, max-age=86400` — which also closes F52's cache row |
+| **F49** `display_name` as a channel | **closed** | all three probes now fail **in setup**: `update_profile` raises `ValidationFailed` — *"Use a name, not a way to reach you…"*. The condition cannot be constructed, which is the strongest form of closed |
+| **F50** moderator blind | **closed** | condition, damage flags and asking price green. Photo limb closed by a **new** authorisation (`photos_for_review`, staff-only, writes `personal_data_access_log`) with `get_photo_for_download` left refusing staff — a separate authorisation, not a widening (rule 12) |
+| **F51** derivable storage key | **closed** | probe red with *"the key is no longer derivable from the payload"*: `listings/1/d380…` vs `listings/1/e8c5…`. Random token, so the sha256 in the payload buys nothing |
+| **F52** deployment seam / frozen route | **closed** | `test_the_two_deployment_documents_…` green both engines: both documents now carry the `internal` location / `X-Accel-Redirect` |
+| **F53** intake friction | **open, by decision, and correctly** | both probes still red on both engines: **6 required decision groups across 18 controls, 5 round trips**, landing at `PENDING_REVIEW`. Not a code defect — my own text said so. **It is the only one of the eight that decides whether S2 was worth building** |
+| **F54** probe tree in the suite | **closed** | exclusion moved to `pytest.ini`; the `conftest.py` opt-out is now belt-and-braces rather than the only layer |
+
+**One of those eight closures was mis-measured by my own instrument, and it is
+mine to report.** F50's photo probe asked `get_photo_for_download(staff, …)`
+and inferred from that one refusal that *"no shipped surface"* resolves bytes.
+The fix moved the surface. **The probe therefore stayed red against a closed
+finding** — it enumerated a case where it should have asked a property
+(`CLAUDE.md` rule 11, applied to this agent's own tree). Re-pointed to sweep
+every public staff callable; now green. A probe tree that reports closed
+findings as open is the performative-objection metric going non-zero, so it is
+recorded here rather than quietly fixed.
+
+## F55 · A-29 §3's sentence is false a fourth time, in the same shape — MATERIAL
+
+Owner: **cto** (the ruling) + **backend-developer** (`search_books`)
+Probes: `tests/redteam/test_the_gate_that_only_withholds_the_answer.py`
+
+> A-29 §3: *"no seller-written catalogue text reaches another student without
+> a named human having looked at it."*
+
+That sentence is what authorised deleting `CATALOGUE_CHANNEL_KINDS` entirely.
+Code Review and QA both attacked **what the gate serves**, and so does
+`tests/unit/test_catalogue_text_gate_is_enforced.py`, which walks `apps/**`
+and `web/**` for reads of the four `SELLER_WRITTEN_TEXT` **attribute names**.
+
+**Nobody asked what the database is permitted to *match* on.** A value you may
+not read is still a value you may filter by. `GET /api/v1/books?q=` is live,
+signed-in, and calls `search_books`, which matches on `title_norm` — **a copy
+of the seller's words in a column that is not in `SELLER_WRITTEN_TEXT`**, so
+the gate's own AST instrument cannot see this path even in principle. The
+extraction never names a sealed attribute.
+
+Measured, same probe, both engines (**VERIFIED HERE**, not assumed):
+
+| engine | `?q=call 9840012345` | digits recovered |
+|---|---|---|
+| **SQLite** | selects the row | **10 of 10** |
+| **PostgreSQL 16** | selects nothing | 0 — no foothold |
+
+Ten signed-in `200` searches per digit recover a phone number out of a column
+the same response refuses to print (`title: null`, `text_withheld: true`), with
+**no listing in existence** — asserted — so A-29 §2's structural gate is not a
+layer over this path, and `review_listings` still prints *"Nothing is waiting
+for review."*
+
+**Why this is material and not "SQLite only":**
+
+1. `search_books`' own docstring fixes the contract: *"the contract either
+   engine satisfies is the weaker one — substring — so nothing above this
+   function may assume fuzziness."* **The weaker contract is the oracle.**
+   A-29 §3 is false against the documented contract and true only against one
+   engine's implementation of it.
+2. On the engine that ships, the sentence holds **by trigram arithmetic** — a
+   15-character needle cannot reach `similarity() >= 0.3` against a
+   53-character title. Nobody chose that, and no document records that the
+   gate's safety depends on it. `ENGINE-DIVERGENCE.md` records the functional
+   half of this divergence (*a misspelling finds nothing*) and not the half
+   that decides whether gated text is readable.
+3. **The obvious improvements reopen it.** A substring or prefix fallback for
+   short needles is the natural fix for "a misspelling finds nothing", and
+   `search_books`' own `ponytail` note already schedules a change to this
+   predicate in S3.
+
+*What would have to be true for A-29 §3 to stand:* that "reaches a student"
+means "is serialised into a response body". It does not; it means the student
+learns the text.
+
+*Cheapest disproving test:* the four probes in that file. **Pass threshold: a
+needle appearing only in withheld seller-written text does not change the
+result set, and no document-level claim about the gate is engine-conditional
+without saying so.** The regression belongs in backend's and cto's trees — one
+test on the predicate, one line in `ENGINE-DIVERGENCE.md`.
+
+**This is the finding the founder asked for, and it lands in the predicted
+shape with one difference worth more than the finding.** Across A-26, A-28 and
+A-30 the clause that failed measurement was every time the one asserting
+another layer made a narrowing safe. A-29 §3 is the fourth — and it failed for
+a new reason. Not an unmeasured layer this time: the layer it names (staff
+review) is real and measures fine. What was never enumerated is **the set of
+ways text reaches a student**, before the sentence quantified over it.
+**Rule 12 as amended today would not have caught this.** The missing demand is
+narrower and is the one to add: *a claim quantified over "every path" names the
+paths it was measured against.*
+
+## F56 · A-32's two halves collide: the own-words remedy cannot reach the screen it exists for — MATERIAL
+
+Owner: **backend-developer** (no update path) + **cto** (the idempotency clause)
+Probe: `…::test_a_student_cannot_replace_the_bare_line_with_their_own_words`
+
+A-32 shipped two clauses in one ruling: *a student's own words are served back
+to that student in place of a withheld row's text*, and *idempotency for a
+request carrying a book FK keys on `book_id` and `course_code`, never on the
+typed label*. Each is right alone.
+
+Walk the journey the first clause exists for. A student looks up an ISBN,
+finds an unverified row, types no title — the form does not require one once
+the ISBN resolves — and is shown the bare `ISBN 9789387432147` line with the
+withheld disclosure. They then do the one thing that screen invites: they go
+back and type the title.
+
+**The second clause swallows it.** Same `book_id`, same `course_code` (`None`,
+because the field is optional), so `create_request` returns the existing row
+and the typed title is discarded — with a flash reading *"That is on your list
+below"*, which is true and useless. Measured on both engines:
+`free_text_title=None` after the second submission, one row, page still bare.
+**There is no `update_request`, so the state is terminal.**
+
+This is **F51's defect — "a student's own typed title is silently discarded" —
+re-created by the ruling that fixed it**, on the retry path instead of the
+first submission. A-33 recorded what A-32's key swap *gains* (two course codes
+are two wants); this is what it costs, and it was not recorded.
+
+*Cheapest disproving test:* the probe. **Pass threshold: after the second
+submission the student's own words are on the page.** The cheapest fix is not
+an update endpoint — it is `wanted` filling `free_text_title` on an existing
+row when it is `NULL` and the student typed one.
+
+## Seams number
+
+**2 of 2 artefact findings are at seams between artefacts. 100%.**
+
+- **F55** sits at three seams at once: the gate (which controls values) and the
+  query layer (which controls predicates); the four sealed attribute names and
+  `title_norm`, an unsealed copy of one of them; and the two engines, where one
+  ruling's truth value differs and no document says so.
+- **F56** sits at the seam between two clauses of a single ruling, each correct
+  in isolation.
+
+Counting my own stale probe as a third finding — it is one, and it is *within*
+an artefact (this tree) rather than between two — the number is **2 of 3,
+67%**. Both are reported; the charter's metric is about artefacts, and by that
+measure the pass is still 100% seams. Neither F55 nor F56 is a defect Code
+Review or QA could have caught under their own questions: both gates asked
+about the serving path, and both were right about it.
+
+## Verdict
+
+**Ship S2. Do not spend on the pilot yet, and F53 is why.**
+
+The verdict changed, and not because the slice got stronger where I attacked
+it — seven of eight closed, several wider than the finding, and the two new
+ones do not reach a buyer on the shipping engine. F55 is a false sentence in a
+frozen document guarding a real hole on a non-shipping engine; the remedy is a
+test on the predicate and a line in `ENGINE-DIVERGENCE.md`, not a rework. F56
+costs one student a bare line on their own want list.
+
+**What has not moved at all is the only question that decides whether S2 was
+worth building.** F53 is still red: six decision groups, eighteen controls,
+five round trips, and the row is invisible to everyone when it lands. The
+benchmark is a photo in a batch WhatsApp group — one action, zero fields,
+instantly visible. Three gates and six contract rulings have made S2 correct
+and trustworthy. **Nothing in any of them made it wanted.** That is the
+charter's "correct and still not worth having" outcome in its conditional
+form, and the cheapest test that resolves it costs ₹0: one student, one
+unaided attempt, two minutes on a clock.
+
+**One finding about the gates themselves, since every blocking finding in the
+three rework gates was against the contract rulings and not against the
+build:** the defect source for this slice was the contract document, not the
+code. A fourth gate would not have helped. The intervention that would is the
+one F55 argues for — a ruling that quantifies over "every path" ships with the
+list of paths it was measured against — and it costs a sentence, not a gate.

@@ -106,13 +106,24 @@ def test_the_reviewer_cannot_reach_a_photo_through_any_staff_function(
 ):
     """**FINDING, if red.** There is no staff path to a photo, at any layer.
 
-    Not the command, not `queue_rows`, not `listing_for_review`, and not the
-    HTTP photo route — which authorises on *ownership or an open gate*, and a
-    moderator is neither the seller nor on an open campus before Gate C.
+    **RE-POINTED, S2 re-report, and the reason is a defect in this probe.**
+    The first version asked `get_photo_for_download(staff, …)` and nothing
+    else, and asserted from that one refusal that *"no shipped surface"*
+    resolves bytes. The fix added `photos_for_review` — a separate staff
+    authorisation with its own `personal_data_access_log` row, which is the
+    right shape and not a widening — and left `get_photo_for_download`
+    refusing staff, correctly. **So the original probe stayed red against a
+    closed finding**: it enumerated a surface instead of asking the property,
+    which is `CLAUDE.md` rule 11 against this agent's own instrument.
+
+    It now asks the property: does **any** staff-reachable function in
+    `apps.listings.staff` resolve bytes for a queued listing? A future fix
+    that moves the surface again does not make this probe lie.
     """
+    from apps.listings import staff as staff_module
     from apps.listings.staff import listing_for_review, queue_rows
     from apps.listings.services import get_photo_for_download
-    from apps.core.errors import NotFound
+    from apps.core.errors import ServiceError
 
     row = queue_rows(staff)[0]
     assert row["photo_count"] == 4
@@ -123,8 +134,25 @@ def test_the_reviewer_cannot_reach_a_photo_through_any_staff_function(
     reachable = None
     try:
         reachable = get_photo_for_download(staff, detail.id, photo.sha256)
-    except NotFound:
+    except ServiceError:
         reachable = None
+    if reachable is None:
+        # Every public callable on the staff surface that takes a listing, in
+        # case the bytes moved rather than arrived.
+        for name in dir(staff_module):
+            if name.startswith("_") or not callable(getattr(staff_module, name)):
+                continue
+            try:
+                result = getattr(staff_module, name)(staff, detail.id)
+            except (ServiceError, TypeError, AttributeError, ValueError):
+                continue
+            found = [
+                b for _row, b in (result or [])
+                if isinstance(b, (bytes, bytearray)) and b
+            ] if isinstance(result, list) else []
+            if found:
+                reachable = (name, len(found[0]))
+                break
 
     assert reachable is not None, (
         "FINDING. A staff moderator deciding this listing cannot obtain the "

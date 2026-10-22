@@ -794,6 +794,63 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-34 — the gate moves to the predicate, and the claim names its paths (2026-10-22, cto)
+>
+> **Red Team's re-report makes A-29 §3 false a fourth time, by a route none
+> of the three gates asked about. Measured, not argued:**
+>
+> `GET /api/v1/books?q=` is live, signed-in, and matches
+> `title_norm__contains` — and `title_norm` is a **derived copy of the
+> seller's words** that is not in `SELLER_WRITTEN_TEXT`. So the AST walk
+> cannot see this path **even in principle**: it keys on sealed attribute
+> names and this extraction never names one.
+>
+> | engine | `?q=call 9840012345` | digits recovered |
+> |---|---|---|
+> | SQLite | selects the row | **10 of 10** |
+> | PostgreSQL 16 | selects nothing | 0 |
+>
+> Ten signed-in `200` searches, one per digit, pull a phone number out of a
+> column the same endpoint refuses to print — **with zero listings in
+> existence**, so A-29 §2 is not a layer over this path either.
+>
+> **And it is not "SQLite only".** `search_books`' own docstring fixes the
+> contract as *"the weaker one — substring"*. **The weaker contract is the
+> oracle**, so the sentence is false against the *documented* contract and
+> true only against one engine's implementation. On the shipping engine it
+> holds **by trigram arithmetic that nobody chose and no document records** —
+> and the natural fix for the functional half `ENGINE-DIVERGENCE.md` *does*
+> record (a misspelling finds nothing, so add a substring fallback for short
+> needles) **reopens it.** A control held up by an accident is not held up.
+>
+> **Ruling: the gate is asked at the predicate, not only at the value.**
+> `search_books` matches `title_norm` only on rows whose text the actor may
+> read — verified rows, plus the actor's own and staff's. **If we will not
+> print it, we will not match on it.** ISBN lookup is unchanged: an ISBN is
+> an identifier A-29 §1 publishes deliberately, and an exact-identifier read
+> is not an oracle.
+>
+> This is the same gate asked one layer lower, not a fifth narrowing: the
+> previous four all tried to classify **text**, and this classifies **rows**,
+> by the column that already decides the question.
+>
+> **F56, folded in because it is this ruling's own collision.** A student who
+> resolves an ISBN, types no title, then goes back and types one hits A-32's
+> idempotency clause — `course_code` is `None`, the existing row is returned,
+> and their words are discarded under the flash *"That is on your list
+> below"*. **There is no `update_request`, so the state is terminal.** That is
+> F51's defect — a typed title silently discarded — **re-created by the
+> ruling that fixed it**, on the retry path. `wanted` fills
+> `free_text_title` on an existing row when it is NULL; no new endpoint.
+>
+> **What this cost, and it is now a rule.** Three gates attacked what the
+> gate *serves* and every one was right about it. The sentence's failure was
+> never a wrong layer — the layer it names is real and measures fine. **The
+> set it quantified over was never written down.** `CLAUDE.md` rule 9 now
+> requires a claim over "every path" to name the paths it was measured
+> against; rule 12's demand to measure a named layer would not have caught
+> this one, and Red Team said so explicitly.
+
 > #### A-33 — ratifying one decision A-32 did not make (2026-10-22, cto)
 >
 > **`withheld` goes false on the row where a student's own words are
@@ -1436,6 +1493,7 @@ four contract guarantees:
 | **A-31** | 2026-10-22 | **(a)** `text_withheld` added to the `book` sub-object on `GET`/`POST /api/v1/requests` - without it a client renders a book *called* `ISBN 978...`, so the key is the difference between withholding and **lying**. **(b)** A-30 said a listing read passes the listing's owner; the code passes the viewer, which is **tighter** - the owner-form is safe only while A-29 §2 holds. **The wording yields to the code**, the first of five corrections where the contract was the wrong one | backend escalation | cto |
 | **A-32** | 2026-10-22 | **`free_text_title` is stored whenever the student typed one, book FK or not; a student's own words are served back to that student.** QA measured a typed title being silently discarded when the ISBN matched somebody else's unverified row - harmless until the gate made the row bare. The CHECK is an OR and every free-text rule keys on `book_id IS NULL`, so nothing downstream shifts. Request idempotency keys on `book_id`+`course_code`, never the typed label. **The gate was never meant to stop a student seeing their own words** | QA rework F51/F52 | cto |
 | **A-33** | 2026-10-22 | **`withheld` goes false where the student's own words are substituted** - the disclosure explains a bare line and the line is not bare; leaving it would print "BookHop isn't repeating their words here" above a title. Cost named: the student is no longer told the **record** is unverified, which is a different sentence and joins the design thread. Also ratified: request idempotency **swaps** the typed label for `course_code`, so one book wanted for two courses is now two rows - correct, since the course code is the demand signal the thesis rests on | backend escalation on A-32 | cto |
+| **A-34** | 2026-10-22 | **The gate is asked at the predicate, not only the value.** `title_norm` is a derived copy of seller text outside the sealed set, so `?q=` substring-matched it into an oracle - **10 digits of a phone number recovered in ten signed-in 200s**, out of a column the same response refuses to print, with no listing in existence. `search_books` now matches only rows whose text the actor may read. **F56 folded in**: A-32's idempotency clause re-created F51 on the retry path, terminally. Rule 9 now requires a claim over "every path" to name its measured paths | REDTEAM-S2 re-report F55/F56 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
