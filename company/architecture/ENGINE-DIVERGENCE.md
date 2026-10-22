@@ -769,7 +769,39 @@ so it runs against an undamaged schema, and it carries a guard that skips —
 naming engine, slice and F46 — if it ever runs after the damage. **Both
 branches of that guard were exercised rather than predicted** (rule 10).
 
-**Still open. It does not block S2 and it must not reach S4.**
+**Re-pointed 2026-10-22 against a measurement, replacing a sentence that was
+wrong** (Code Review R-R2). This section predicted that *"every subsequent
+`ALTER TABLE` on that table dies"* — and then closed by saying F46 does not
+block S2, as though the prediction had not come true. It had, inside this
+very document's own slice:
+
+- **A forward deployment of S2 is unaffected on both engines.** Every schema
+  in the suite is built forward from scratch. In that narrow sense the old
+  sentence was true, and it is the only sense in which it was.
+- **PostgreSQL round-trips cleanly.** The round-trip test passes there.
+- **On SQLite, `listings/0004` is the first migration to collide with F46 —
+  and it collides inside the harness that reports F46.** The first step of
+  this section's own documented recovery, plain `migrate listings`, **was a
+  silent no-op before `0004` and is now a hard error**:
+  `foreign key mismatch - "listing_photos" referencing "listings"`, because
+  `0004`'s `ALTER TABLE` runs `PRAGMA foreign_key_check` against the table
+  F46 already damaged.
+- **The recovery still exists and is now the only one**: `migrate listings
+  0002 --fake`, then a real forward, restores every control — asserted, not
+  assumed, and the harness now returns *"THE DOCUMENTED RECOVERY NO LONGER
+  WORKS"* if that ever stops being true.
+
+**So: F46 does not block a forward deployment of S2 on either engine, and
+does not block rollback on PostgreSQL. As of `listings/0004` it blocks the
+first step of its own recovery on SQLite — an error that names the new
+migration rather than the old one, which is the worst way for a developer to
+meet it. Still open, and it must not reach S4.**
+
+*The sentence this replaces is worth keeping in mind: a section that
+correctly predicts a failure and then concludes it is harmless has done the
+analysis and discarded it. Rule 9's corollary — when an explanation and a
+measurement disagree, delete the explanation — applies to a document's own
+conclusion about its own prediction.*
 
 ---
 
