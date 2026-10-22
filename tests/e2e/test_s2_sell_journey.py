@@ -823,7 +823,29 @@ def test_the_backup_scope_and_the_restore_test_cover_the_same_things():
         "superuser legitimately; nowhere else can check it."
     )
 
-    covers_media = bool(re.search(r"\bmedia\b|tarball|tar -|photo", restore, re.I))
+    # NARROWED BY cto 2026-10-22, because this check had stopped being able
+    # to fail — and an unrelated edit of mine is what did it.
+    #
+    # It read `re.search(r"\bmedia\b|tarball|tar -|photo", restore)`. I then
+    # added step 6b to §3.3: a curl asserting the `/media/` nginx location is
+    # `internal` (A-25 / review finding R-R3). That step is about **access
+    # control, not restore**, and it opens no archive — but it contains the
+    # words "media" and "photo", so **this test went green and F44 reported
+    # as closed while the backup's media half remained as untested as ever.**
+    # A live finding was erased by editing the document it reads, for an
+    # unrelated reason, and nothing announced it.
+    #
+    # The word "media" was never the control. **Extracting the archive and
+    # resolving a stored file is the control**, so that is what is asked —
+    # both halves, because either alone is satisfiable by prose that happens
+    # to mention a tarball or a column name.
+    extracts = bool(
+        re.search(r"\btar\b[^\n]*\s-[a-zA-Z]*x|\bunzip\b|\bzcat\b", restore, re.I)
+    )
+    resolves = bool(
+        re.search(r"storage_key|storage_token|listing_photos\b", restore, re.I)
+    )
+    covers_media = extracts and resolves
     assert covers_media, (
         "FINDING, the surviving half of F44. `INFRA.md` §3.1 backs up the "
         "media directory as `media-<UTC-ts>.tar.gz` and **§3.3's restore "

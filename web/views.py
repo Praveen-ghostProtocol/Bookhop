@@ -44,6 +44,7 @@ from django.http import (
 from django.shortcuts import render
 from django.templatetags.static import static
 from django.utils import timezone, translation
+from django.utils.cache import patch_vary_headers
 from django.utils.translation import pgettext
 from django.views.decorators.http import require_http_methods, require_safe
 
@@ -143,6 +144,36 @@ def _ip_ua(request):
     return request.META.get("REMOTE_ADDR"), (request.headers.get("User-Agent") or "")[:400]
 
 
+def _varying_header(request, name):
+    """Read a request header **and record that the body now depends on it.**
+
+    `_page` turns what was recorded into `Vary`, so the invariant — *any
+    response whose body depends on a request header declares that header in
+    `Vary`* — is a property of how the header is read, not two lines someone
+    has to remember on two routes (`CLAUDE.md` rule 11: one definition, many
+    readers). A third route reading a fourth header through this function is
+    correct by construction; one reading `request.headers` directly is caught
+    by `tests/unit/test_page_vary.py`, which decides the question by
+    **differential fetch** rather than by listing the headers we know about.
+
+    Why it matters at all: without `Vary`, a shared or carrier proxy — a real
+    intermediary on Indian mobile networks, not a hypothetical — may cache the
+    image-bearing variant of a page and hand it to a request that asked for
+    data-saver, or the stripped variant to a student who wanted the photos.
+    The gate would then be defeated at the cache while every page-level test
+    stays green, which is exactly where `SYSTEM.md` §4.16 criterion 9 was
+    found (Code Review R-R4).
+
+    `_ip_ua` above deliberately does not go through here: `User-Agent` is read
+    for the audit record and changes nothing in the body.
+    """
+    try:
+        request._vary_on.add(name)
+    except AttributeError:
+        request._vary_on = {name}
+    return request.headers.get(name, "")
+
+
 def _page(request, template, status=200, **extra):
     """Render a page in a locale the student may actually be served.
 
@@ -172,6 +203,22 @@ def _page(request, template, status=200, **extra):
     extra.setdefault("notice_slugs", NOTICE_SLUGS)
     response = render(request, template, extra, status=status)
     response["Content-Language"] = lang
+    # Every header this request's body was read through, declared — see
+    # `_varying_header`. `patch_vary_headers` merges rather than overwrites,
+    # so `LocaleMiddleware`'s `Accept-Language` survives.
+    varies = getattr(request, "_vary_on", None)
+    if varies:
+        patch_vary_headers(response, sorted(varies))
+    # **A page is not a photo, and this is the same reasoning, not the same
+    # value.** `listing_photo` serves content-addressed bytes, so a private
+    # cache with a lifetime is safe for the bytes and bounded for erasure.
+    # A page has one URL whose content changes underneath it: a listing is
+    # withdrawn, a seller's words are edited, a consent is revoked. Anything
+    # with a lifetime would keep showing the old page, and a shared cache
+    # could show one student's signed-in page to another. So: never a shared
+    # cache, and revalidate every time. Stored is still allowed, which is
+    # what keeps the back button working on a 3G connection.
+    response.setdefault("Cache-Control", "private, no-cache")
     return response
 
 
@@ -927,10 +974,13 @@ def _save_data(request):
 
     The header is a single token (`Save-Data: on`), not a list, so this is a
     comparison rather than a parse.
+
+    `?photos=1` is in the URL, so it needs no `Vary`; the header does, and
+    `_varying_header` is what records it (R-R4).
     """
     if request.GET.get("photos") == "1":
         return False
-    return request.headers.get("Save-Data", "").strip().lower() == "on"
+    return _varying_header(request, "Save-Data").strip().lower() == "on"
 
 
 def _photo_rows(listing):
