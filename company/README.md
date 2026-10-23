@@ -161,6 +161,15 @@ A `gate_authorisations` row is **a named person asserting these things on a
 date. It is not verification.** Whoever assembles this packet must read it that
 way.
 
+> **Scope correction, 2026-10-23 (privacy-compliance).** Every guarantee in the
+> table below is a guarantee about a **`gate='C'` row only.** Migration 0005's
+> trigger opens with `IF NEW.gate <> 'C' THEN RETURN NEW`, so a `gate='B'` or
+> `gate='D'` row may carry `evidence={}` and an empty `authorised_by_human`,
+> and **no code reads a `gate='B'` row at all** — `ops/INCORPORATION-AND-BLOCKERS.md`
+> §3.3 B9′ specified that guard and it was never built. Read the table as
+> "Gate C", not as "a gate authorisation row". See
+> `evidence/CLOSED-TEST.md` §1.
+
 What the system genuinely checks, and what it cannot:
 
 | Evidence | Guarantee |
@@ -206,7 +215,8 @@ person's name.**
 | Metric definitions | `metrics/METRICS.md` | ceo-planning | live |
 | Competitor audit | `evidence/COMPETITORS.md` | market-finance | live (Phase A complete) |
 | Market denominator | `evidence/MARKET-SIZING.md` | market-finance | live (Phase A complete) |
-| Compliance review | `evidence/COMPLIANCE.md` | privacy-compliance | live (Phase A complete) |
+| Compliance review | `evidence/COMPLIANCE.md` | privacy-compliance | live (Phase A complete) — **campus scope** |
+| **Closed-test ruling** | `evidence/CLOSED-TEST.md` | privacy-compliance | **live 2026-10-23** — what binds for ~12 known adults; which of the ten gate fields are law and which are not |
 | Persona & research plan | `product/DISCOVERY.md` | product-manager | live (instruments ready, ZERO results) |
 | Red Team memos | `evidence/RED-TEAM/` | red-team | G1 memo complete |
 | Financial model | `finance/MODEL.md` | market-finance | live (Phase A complete, re-runnable) |

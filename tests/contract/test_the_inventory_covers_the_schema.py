@@ -231,13 +231,6 @@ def test_the_want_is_on_one_side_of_the_purge_split():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§7 rows 26-27 / P16(iv): the deletion card enumerates eight record "
-    "types and a want is none of them. A want is not a transfer - it is a book "
-    "that did not change hands - so 'Books that changed hands' does not cover it. "
-    "Copy is frontend's; the finding is privacy-compliance's.",
-)
 def test_the_deletion_card_enumerates_the_want():
     """The enumeration is the assertion, so an omission is a false statement.
 

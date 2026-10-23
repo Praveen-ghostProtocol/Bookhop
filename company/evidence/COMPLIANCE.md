@@ -8,6 +8,29 @@
 
 ## Changelog
 
+### v1.5 — 2026-10-23 · a scope this document was never written for
+
+The founder asked what a **closed test among ~12 personally-known adults**
+requires, and how much of the ten-field discovery gate is overkill for it.
+**That answer is in `company/evidence/CLOSED-TEST.md`, not here**, because
+every field answer differs from the campus answer and interleaving the two
+would make the campus rulings ambiguous.
+
+**Three things from it that bind this document.** (i) The gate a friends test
+crosses is **Gate B, and Gate B has no guard in the code and no evidence
+requirement in the database** — `ops/INCORPORATION-AND-BLOCKERS.md` §3.3 B9′
+was specified and never built, and migration 0005 exempts `gate='B'` by
+design. (ii) `campus_mou_ref` is **unsatisfiable** at that scope, which is a
+rule-10 defect, not an inconvenience. (iii) **SPDI Rule 4 is primary-verified
+to cover "personal information including sensitive personal data or
+information"** — not SPDI only — and "body corporate" under s43A Explanation (i)
+reaches a sole proprietorship, so **a published privacy notice binds an
+unincorporated founder today.** §1.1's statement that the current statutory
+privacy floor "is thin" stands as to *content*; the **publication** duty is not
+thin and applies pre-incorporation.
+
+Nothing in this document is relaxed. **The condition set remains P1–P16.**
+
 ### v1.1 — 2026-10-21 · prompted by D-009 and three CTO escalations
 
 | # | Change | Why |
@@ -3069,6 +3092,13 @@ is the current state.
 ---
 
 ## 11. Verdict
+
+> **Scope note (v1.5).** This verdict is for the **campus pilot**: verified
+> adults at 2–3 Chennai campuses. It is **not** the verdict for a closed test
+> among personally-known adults, which is a different scope with a different
+> per-field answer — see `company/evidence/CLOSED-TEST.md`. Do not read
+> P1–P16 as the requirement set for twelve friends, and do not read
+> CLOSED-TEST.md as relaxing anything here.
 
 ### v1.1 amendment — what D-009 changed, stated plainly
 

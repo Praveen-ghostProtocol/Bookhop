@@ -450,6 +450,12 @@ msgctxt "erase.retained.transfers"
 msgid "Books that changed hands — kept without your name, under a code that cannot be turned back into you."
 msgstr "Books that changed hands — kept without your name, under a code that cannot be turned back into you."
 
+#: templates/delete_confirm.html
+#. BLOCKING CLASS B3 (COPY-DECK §2)
+msgctxt "erase.retained.wants"
+msgid "The books you were looking for — your name comes off now, and what you typed is removed within a year. The line itself stays, under the same code, as a record that a book was wanted on your campus."
+msgstr "The books you were looking for — your name comes off now, and what you typed is removed within a year. The line itself stays, under the same code, as a record that a book was wanted on your campus."
+
 #: templates/account.html
 msgctxt "export.cta"
 msgid "Download a copy of my data"

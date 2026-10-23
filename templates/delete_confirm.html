@@ -52,6 +52,48 @@
   the moment a ninth retention lands. What the card asserts is only what it
   enumerates.
 
+  ====================================================================
+  THE NINTH RETENTION LANDED: `erase.retained.wants` (P16(iv)).
+  ====================================================================
+  The paragraph above said this list would be wrong "the moment a ninth
+  retention lands", and it was already wrong when it was written. Privacy &
+  Compliance v1.4 §7 rows 26-27: a **want** survives `erase_account` — the
+  requester FK is NULLed, `requester_pseudonym` survives, an OPEN want becomes
+  WITHDRAWN with `closed_at` set, and `free_text_title` and `course_code` live
+  for a year before `sweep_book_requests` NULLs them. The row itself never
+  goes: a want with no supply is how R-01 measures that a campus is illiquid.
+
+  **"Books that changed hands" does not cover it.** That item is `transfers`;
+  a want is a book that did *not* change hands, which is why the new item sits
+  directly under it — the contrast is the reason a reader needs both lines.
+
+  The sentence names the mechanism and nothing else: the name comes off now,
+  the words go within a year, the line stays. **It does not say the line goes**
+  — that would be the "Everything else goes now" defect one level down, which
+  is what this amendment is repairing.
+
+  "within a year" and not "after one year": a want closed before the student
+  deleted their account already has its clock running, so its words go sooner.
+  One year is the ceiling, and the ceiling is what a disclosure states.
+
+  The key is `erase.retained.wants` and the prefix was chosen, not inherited.
+  B3 in `locale/ta/BLOCKING_CLASSES.toml` matches `erase.`, so the string is
+  blocking in Tamil on arrival with no edit to that file (CLAUDE.md rule 13,
+  first resort) — correct here, because a sentence about what survives erasure
+  is a sentence about a statutory right, and the Tamil is served to the student
+  least able to check it. The Tamil draft is written and unreviewed, which is
+  the gated state; `REVIEWED.toml` carries no name for it.
+
+  **NOT FIXED HERE, AND REPORTED RATHER THAN QUIETLY LEFT:** the lead-in
+  `erase.confirm.retained` says *"We have to keep these records for one year"*,
+  and three of the nine items have no one-year clock at all —
+  `audit_log`, `age_verification_events` and `consents` are in
+  `PURGE_SKIP_LIST` and are never purged, and the `listings` rows a student
+  leaves behind have a `purge_due_at` that nothing reads. That is the same
+  shape as the defect this card already fixed once, in the one sentence that
+  COMPLIANCE §7 cites by name as the r.8(3) disclosure. Changing it is a deck
+  amendment, not a template edit.
+
   The email-hash item leads the new group deliberately: it is the one a
   reasonable person accepts when told and resents when discovered, so it names
   the mechanism (a code made from the address), the period (one year) and the
@@ -70,7 +112,7 @@
   COPY-DECK's amendment log.
 
   THE LIST IS NOT COLLAPSED BEHIND A <details>, AND THAT IS THE POINT.
-  Eight items is ~26 rendered lines at 320px and the obvious next idea is to
+  Nine items is ~29 rendered lines at 320px and the obvious next idea is to
   put them behind a disclosure summary. Do not. AC-X1.2 and J8 step 3 require
   the student to learn this **here**, before the button, and a collapsed
   <details> means most of them never open it — which would re-create the defect
@@ -98,6 +140,7 @@
   <p>{% translate "We have to keep these records for one year, because the law requires it:" context "erase.confirm.retained" %}</p>
   <ul>
     <li>{% translate "Books that changed hands — kept without your name, under a code that cannot be turned back into you." context "erase.retained.transfers" %}</li>
+    <li>{% translate "The books you were looking for — your name comes off now, and what you typed is removed within a year. The line itself stays, under the same code, as a record that a book was wanted on your campus." context "erase.retained.wants" %}</li>
     <li>{% translate "Messages you wrote to another student are not deleted. They are removed one year after the last message in that conversation." context "erase.retained.chat" %}</li>
     <li>{% translate "Reports and problems, and what was decided about them." context "erase.retained.reports" %}</li>
     <li>{% translate "A scrambled code made from your email address, kept for one year so that a banned account cannot sign up again. It is a code, not an address." context "erase.retained.email_hash" %}</li>
