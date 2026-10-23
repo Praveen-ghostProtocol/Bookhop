@@ -1209,6 +1209,35 @@ def models_Q_lt(created, last_id):
 # --- book requests (the demand side) ---------------------------------------
 
 
+#: The longest want we store. A free-text box with no bound is a free-text box
+#: somebody pastes a database into, and both columns are personal data on a
+#: one-year clock (`COMPLIANCE.md` §7 rows 26–27). The shape is
+#: `apps.accounts.services.MAX_STATED_PROBLEM`'s, which exists for this exact
+#: reason on the other free-text box in the product.
+#:
+#: **The bound is here and not only on the form.** `WantedForm` capped `title`
+#: at 300 and `course_code` at 40 while `POST /api/v1/requests` passed
+#: `body["free_text_title"]` straight to a `TextField` — two writers, one
+#: bound, which is `CLAUDE.md` rule 11's failure mode. `web.forms.WantedForm`
+#: imports these two names, so the numbers have one definition and the form
+#: keeps giving the student a sentence before the service gives them a 422.
+MAX_FREE_TEXT_TITLE = 300
+MAX_COURSE_CODE = 40
+
+#: How long an OPEN want stands before the system closes it, which is the only
+#: thing that starts its retention clock: `purge_due_at` is written beside
+#: `closed_at`, and before this constant existed a want nobody withdrew had no
+#: clock at all (`COMPLIANCE.md` P16(ii)). `web/views.py` already renders
+#: `EXPIRED` as *"Closed at the end of term"*; this is the code that makes
+#: that sentence true.
+#:
+# ponytail: one number for every campus. Ceiling: there is no academic
+# calendar in the data model, so "the end of term" is approximated by two
+# semesters' worth of days from `created_at`. Upgrade path: a term table on
+# `campuses`, when a campus tells us its dates and a metric needs them.
+WANT_TTL = timedelta(days=180)
+
+
 def create_request(actor, *, book=None, free_text_title=None, course_code=None) -> BookRequest:
     """API-CONTRACT §3. JOURNEYS J4 step 2 — *"record the want"*.
 
@@ -1245,7 +1274,17 @@ def create_request(actor, *, book=None, free_text_title=None, course_code=None) 
             "Name the book you are looking for.",
             field_errors={"free_text_title": ["A title, or pick a book."]},
         )
+    if title and len(title) > MAX_FREE_TEXT_TITLE:
+        raise ValidationFailed(
+            "That is longer than we can take. Please shorten it.",
+            field_errors={"free_text_title": [f"{MAX_FREE_TEXT_TITLE} characters at most."]},
+        )
     code = " ".join(str(course_code or "").split()).upper() or None
+    if code and len(code) > MAX_COURSE_CODE:
+        raise ValidationFailed(
+            "That course code is longer than we can take.",
+            field_errors={"course_code": [f"{MAX_COURSE_CODE} characters at most."]},
+        )
 
     # Idempotent by shape as well as by key: a student who submits the same
     # want twice has one want, not two, and the match rate counts people
@@ -1380,6 +1419,77 @@ def open_requests_for_staff(staff, campus, limit=100):
         BookRequest.all_objects.filter(campus=campus, status="OPEN"), campus
     )
     return list(rows.select_related("book").order_by("created_at")[:limit])
+
+
+def sweep_book_requests(now=None, job_run_id=None):
+    """The want's retention, both halves, run nightly from `retention.purge`.
+
+    **Both halves, in one function, because they are one clock.** Closing a
+    stale want is what *starts* the retention; NULLing its text at
+    `purge_due_at` is what *ends* it. Split across two functions they drift
+    apart, and the state this closes — `COMPLIANCE.md` P16 — is exactly what
+    that drift looks like: `purge_due_at` existed, `_detach_listing_rows` set
+    it, and **nothing read it**, so an erased student's typed want and course
+    code were retained for ever rather than for a year.
+
+    **It does not delete the row.** A want with no supply is the measurement
+    that tells us the campus is illiquid (R-01), and that measurement is the
+    row's existence, its campus and its date — none of which is the student's
+    words. `DELETE FROM book_requests` would be a worse defect than the one
+    this fixes, which is why the purge limb's test asserts a **not-yet-due**
+    row keeps its text in the same breath as asserting a due one loses it.
+
+    **Idempotent under at-least-once delivery** (API-CONTRACT §4.4): the
+    expiry limb selects on `status='OPEN'`, which a second run no longer
+    matches, and the purge limb excludes rows whose text is already NULL, so a
+    second run writes no second `purge_log` row.
+
+    Returns `{"book_requests_expired": n, "book_requests": n}` — the second
+    key is the table's purge count, in the shape the other limbs use.
+    """
+    from apps.core.models import PurgeLog
+
+    now = now or timezone.now()
+
+    # P16(ii). `EXPIRED` was in the CHECK, in DATA-MODEL §3, in
+    # `REQUEST_STATUSES` and rendered on `/wanted` as *"Closed at the end of
+    # term"* — and **no code path assigned it**, so a screen promised
+    # something nothing kept. This is the assignment.
+    expired = list(
+        BookRequest.all_objects.filter(
+            status="OPEN", created_at__lt=now - WANT_TTL
+        ).values_list("id", flat=True)
+    )
+    if expired:
+        BookRequest.all_objects.filter(id__in=expired).update(
+            status="EXPIRED", closed_at=now, purge_due_at=now + RETENTION_FLOOR
+        )
+
+    # P16(i). `purge_due_at IS NULL` is excluded by the comparison itself, so
+    # a want still inside its year — or one that never closed — is untouched.
+    due = list(
+        BookRequest.all_objects.filter(purge_due_at__lte=now)
+        .exclude(free_text_title__isnull=True, course_code__isnull=True)
+        .values_list("id", "purge_due_at")
+    )
+    if due:
+        BookRequest.all_objects.filter(id__in=[pk for pk, _ in due]).update(
+            free_text_title=None, course_code=None
+        )
+        PurgeLog.objects.bulk_create(
+            [
+                PurgeLog(
+                    table_name="book_requests",
+                    object_pk=str(pk),
+                    purge_due_at=due_at,
+                    purged_at=now,
+                    job_run_id=str(job_run_id or ""),
+                    mode="PURGE",
+                )
+                for pk, due_at in due
+            ]
+        )
+    return {"book_requests_expired": len(expired), "book_requests": len(due)}
 
 
 #: DATA-MODEL §6.1's statuses, re-exported so a caller does not import the

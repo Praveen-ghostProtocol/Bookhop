@@ -153,13 +153,6 @@ def test_every_free_text_column_has_an_inventory_entry():
             )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§7 rows 26-27 / P16(i): nothing reads book_requests.purge_due_at. "
-    "retention.purge walks six tables and listings.purge_media walks "
-    "listing_photos; neither walks book_requests. So an erased student's typed "
-    "want and course code are retained for ever, not for a year.",
-)
 @pytest.mark.django_db
 def test_an_erased_want_is_purged_when_its_clock_runs_out(student):
     """A due want loses its text. **A want that is not yet due keeps it.**
@@ -199,12 +192,6 @@ def test_an_erased_want_is_purged_when_its_clock_runs_out(student):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§7 rows 26-27 / P16(i): book_requests carries purge_due_at and is "
-    "on neither side of the purge/skip split. PURGE_SKIP_LIST exists so that an "
-    "omission is a decision with a reason; this omission is not one.",
-)
 def test_the_want_is_on_one_side_of_the_purge_split():
     """The **existence** half of the control above, so it fails by name.
 
@@ -282,13 +269,6 @@ def test_the_deletion_card_enumerates_the_want():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="§7 row 26 / P16(iii): WantedForm caps title at 300, create_request "
-    "caps nothing, and POST /api/v1/requests goes through create_request. Two "
-    "writers, one bound. MAX_STATED_PROBLEM is the same control already written "
-    "for the other free-text box in the product.",
-)
 @pytest.mark.django_db
 def test_the_want_box_has_a_bound_on_every_path(student):
     """The bound is asserted at **the service**, not at the form.

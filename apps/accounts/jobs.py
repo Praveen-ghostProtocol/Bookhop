@@ -128,7 +128,19 @@ def retention_purge(payload):
     in one place and means the job cannot silently stop existing — the one
     failure mode that turns a retention policy back into a promise.
     """
-    counts = purge_expired(job_run_id=payload.get("run_id") or timezone.now().isoformat())
+    run_id = payload.get("run_id") or timezone.now().isoformat()
+    counts = purge_expired(job_run_id=run_id)
+    # `book_requests` is a `listings` table, so its limb lives with its table
+    # rather than in `apps.accounts.services` — but it runs on this one nightly
+    # clock, because a second schedule is a second thing that can stop. P16(i):
+    # before this call nothing read `book_requests.purge_due_at` at all.
+    #
+    # Imported inside the handler, not at module scope: `apps.listings.services`
+    # imports `apps.accounts.services`, so the dependency runs both ways and
+    # only a local import keeps it acyclic.
+    from apps.listings.services import sweep_book_requests
+
+    counts.update(sweep_book_requests(job_run_id=run_id))
     log.info("retention.purge", extra=counts)
     if payload.get("reschedule", True):
         enqueue(

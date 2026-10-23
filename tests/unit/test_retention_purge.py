@@ -363,3 +363,147 @@ def test_a_live_session_is_not_purged(student, client):
         "a live session was purged; every signed-in student would be signed out "
         "by the nightly job"
     )
+
+
+# --- the want's clock (COMPLIANCE.md P16) ----------------------------------
+#
+# Before P16, `book_requests` was the one clocked table on neither side of the
+# purge/skip split: `_detach_listing_rows` wrote `purge_due_at` and nothing
+# read it, so an erased student's typed want was retained for ever. These
+# assert both halves of the clock — the event that starts it and the job that
+# ends it — because either one alone is a retention that does not run.
+
+
+def test_a_want_nobody_withdraws_expires_and_only_then_has_a_clock(student):
+    """P16(ii). `EXPIRED` was a status no code path assigned.
+
+    `web/views.py` already renders it as *"Closed at the end of term"*, so the
+    screen promised a thing nothing kept. The fresh want is the sibling
+    assertion: an expiry limb that closes every want would satisfy the first
+    half and destroy the demand signal.
+    """
+    from apps.listings.models import BookRequest
+    from apps.listings.services import WANT_TTL, create_request, sweep_book_requests
+
+    stale = create_request(student, free_text_title="Engineering Mathematics", course_code="ma8151")
+    fresh = create_request(student, free_text_title="Signals and Systems", course_code="ec8352")
+    assert stale.purge_due_at is None, (
+        "an OPEN want starts with no clock at all — that is the finding, and if "
+        "this ever fails the rest of this test is measuring something else"
+    )
+
+    BookRequest.all_objects.filter(id=stale.id).update(
+        created_at=timezone.now() - WANT_TTL - timedelta(days=1)
+    )
+    counts = sweep_book_requests()
+
+    stale.refresh_from_db()
+    fresh.refresh_from_db()
+    assert counts["book_requests_expired"] == 1
+    assert stale.status == "EXPIRED" and stale.closed_at is not None
+    assert stale.purge_due_at == stale.closed_at + RETENTION_FLOOR
+    assert fresh.status == "OPEN" and fresh.purge_due_at is None, (
+        "a want inside its term was closed; R-01's demand signal is the OPEN "
+        "want, and expiring it early is the measurement going missing"
+    )
+
+
+def test_the_want_text_goes_at_purge_due_at_and_the_row_stays(student, book):
+    """P16(i), on **both** shapes of want — free-text and book-backed.
+
+    The compliance test covers the free-text row. This one adds the row that
+    names a book, because that is the shape the CHECK already permitted and a
+    limb that only handled it would look green while the free-text want — the
+    one carrying the student's own words — kept them.
+    """
+    from apps.listings.models import BookRequest
+    from apps.listings.services import create_request, sweep_book_requests
+
+    typed = create_request(student, free_text_title="Kannan hostel room 214", course_code="ma8151")
+    titled = create_request(student, book=book, course_code="cs8491")
+    erase_account(student)
+
+    now = timezone.now()
+    BookRequest.all_objects.filter(id__in=[typed.id, titled.id]).update(
+        purge_due_at=now - timedelta(days=1)
+    )
+    counts = sweep_book_requests(job_run_id="pytest")
+
+    typed.refresh_from_db()
+    titled.refresh_from_db()
+    assert counts["book_requests"] == 2
+    assert typed.free_text_title is None and typed.course_code is None
+    assert titled.course_code is None and titled.book_id == book.id, (
+        "the book FK is the catalogue's, not the student's words, and purging "
+        "it would take R-01's demand signal with it"
+    )
+    assert {log.object_pk for log in _log_for("book_requests")} == {
+        str(typed.id), str(titled.id)
+    }, "a purge with no purge_log row is a purge nobody can audit"
+
+
+def test_the_want_sweep_is_idempotent_under_at_least_once_delivery(student):
+    """API-CONTRACT §4.4. A second delivery must not write a second log row."""
+    from apps.listings.models import BookRequest
+    from apps.listings.services import create_request, sweep_book_requests
+
+    row = create_request(student, free_text_title="A want past its year", course_code="ma8151")
+    BookRequest.all_objects.filter(id=row.id).update(
+        status="WITHDRAWN", closed_at=timezone.now(),
+        purge_due_at=timezone.now() - timedelta(days=1),
+    )
+
+    first = sweep_book_requests(job_run_id="first")
+    second = sweep_book_requests(job_run_id="second")
+    assert (first["book_requests"], second["book_requests"]) == (1, 0)
+    assert len(_log_for("book_requests")) == 1
+
+
+def test_the_nightly_job_is_what_runs_the_want_sweep(student):
+    """The limb is wired to the schedule, not merely written.
+
+    `retention.purge` is the only recurring retention job; a sweep nobody
+    calls is the state P16 found. Driven through `REGISTRY` rather than by
+    calling the service, so a handler that stops calling it fails here.
+    """
+    from apps.core.jobs import REGISTRY
+    from apps.listings.models import BookRequest
+    from apps.listings.services import create_request
+
+    row = create_request(student, free_text_title="Reached by the handler", course_code="ma8151")
+    BookRequest.all_objects.filter(id=row.id).update(
+        status="WITHDRAWN", closed_at=timezone.now(),
+        purge_due_at=timezone.now() - timedelta(days=1),
+    )
+
+    counts = REGISTRY["retention.purge"]({"reschedule": False, "run_id": "pytest"})
+
+    row.refresh_from_db()
+    assert row.free_text_title is None and row.course_code is None
+    assert counts["book_requests"] == 1
+
+
+def test_a_new_want_still_cannot_name_nothing(student):
+    """The widened CHECK, **measured** on the side it did not widen (rule 12).
+
+    `requests_book_or_title_chk` gained `closed_at IS NOT NULL` so that a
+    purged want can keep its row. The term is only defensible if the rule it
+    came from still holds for every row that can be created or read, so this
+    writes the empty shape straight past the service — the layer named in the
+    model comment is this constraint, and naming it is not measuring it.
+    """
+    from django.db import IntegrityError, transaction
+
+    from apps.listings.models import BookRequest
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            BookRequest.all_objects.create(
+                requester=student,
+                requester_pseudonym=student.person_pseudonym,
+                book=None,
+                free_text_title=None,
+                campus_id=student.campus_id,
+                city_id=student.city_id,
+                status="OPEN",
+            )

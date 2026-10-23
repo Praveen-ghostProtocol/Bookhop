@@ -844,12 +844,32 @@ conclusion about its own prediction.*
 
 ---
 
+### 13.4 `listings/0005` changes a CHECK — one engine can `ALTER` it, one cannot
+
+| | |
+|---|---|
+| **Claim** | `RemoveConstraint` + `AddConstraint` on `book_requests` is engine-neutral, as it is on a table Django owns outright. |
+| **Measured** | **False on SQLite, for §13.1's reason.** SQLite has no `ALTER TABLE … DROP CONSTRAINT` at all, so Django implements both operations by rebuilding the table **from model state** — and `listings/0003` put `book_requests`'s composite FK `(campus_id, city_id) → campuses (id, city_id)` into the table's DDL with raw SQL that model state has never heard of. The pair would have dropped the tenant-identity FK on SQLite only, silently. `book_requests` is the **second** table in `0003`'s `COMPOSITE_FKS`, so §13.1's rule was already known to apply to it. |
+| **Done instead** | `SeparateDatabaseAndState`. **PostgreSQL** gets `ALTER TABLE … DROP CONSTRAINT` / `ADD CONSTRAINT`, which rebuilds nothing. **SQLite** rebuilds, but from **its own existing `CREATE TABLE`** read back from `sqlite_master`, with only the named CHECK's body swapped by a paren-balanced splice, and with every index and trigger replayed from `sqlite_master` rather than from a list somebody has to keep up to date. The splice raises if the constraint name is not found, because a migration that rebuilds a table and changes nothing is worse than one that fails. |
+| **Round-trip — VERIFIED HERE, both engines, both directions** | Forward then `migrate listings 0004` then forward again. **PostgreSQL:** `pg_get_constraintdef` reads back the two-term CHECK after the reverse and the three-term CHECK after the forward, with `book_requests_campus_city_fk` present throughout. **SQLite:** the `CREATE TABLE` keeps `FOREIGN KEY ("campus_id", "city_id") REFERENCES "campuses" ("id", "city_id")` and all six indexes across both directions, and `PRAGMA foreign_key_check` returns empty — so this is **not** a second F46. |
+| **Guarded** | `tests/unit/test_retention_purge.py::test_a_new_want_still_cannot_name_nothing` asserts the side the CHECK did **not** widen, by writing the empty shape straight past the service on whichever engine is running. The widened side is asserted behaviourally by the purge tests in the same file. |
+
+**The CHECK change itself is an escalation, not a settled decision.**
+DATA-MODEL §3 states `(book_id IS NOT NULL OR free_text_title IS NOT NULL)`
+verbatim; the migration implements a third term, `closed_at IS NOT NULL`,
+because COMPLIANCE P16(i) requires the purge to NULL a free-text want's text
+and keep the row, which the two-term CHECK refuses on both engines. Recorded
+here and in the slice note so cto ratifies it or reverts the migration.
+
+---
+
 ---
 
 ## Amendment log
 
 | Date | Change | By |
 |---|---|---|
+| 2026-10-23 | **v1.7 — §13.4, `listings/0005`.** A CHECK change is `ALTER`-able on PostgreSQL and **not expressible at all** on SQLite, so `book_requests` — `0003`'s second composite-FK table — is rebuilt from its own DDL rather than from model state. Round-tripped on both engines: the composite FK and all six indexes survive in both directions and `PRAGMA foreign_key_check` stays empty, so this is not a second F46. The CHECK's third term is a DATA-MODEL §3 amendment raised to cto, not taken silently | backend-developer |
 | 2026-10-22 | **v1.6 — S2 Red Team rework, §13.** `listings/0004` must use `SeparateDatabaseAndState`: Django's SQLite backend implements `AddField` by rebuilding from model state, and `0003`'s composite FK exists only in the database, so a plain `AddField` would have dropped it **on SQLite only**. Duplicate detection was a side effect of a content-addressed filename and is replaced by a real constraint in the same migration, not the next one. And **F46 is wider than recorded**: after its own recovery path, `listing_photos` fails `PRAGMA foreign_key_check`, so every later `ALTER TABLE` on it dies — the table is unmigratable, not merely un-reversed | cto |
 | 2026-10-22 | **v1.5 — S1, §12.** Nine tables, one shared plpgsql body (six now, not five), twelve SQLite triggers, and a privilege layer that is PostgreSQL-only. **One defect measured, and SQLite found it where PostgreSQL could not:** widening `notice_versions.kind`'s CHECK rebuilt the table on SQLite and **silently dropped its append-only triggers**, so for one migration an immutable table was mutable and the engine production runs on would never have said so. Fixed in `accounts/0004` and guarded on both engines by `test_append_only_triggers_exist.py`, because the hazard applies to every trigger-protected table in the system. Also measured: **a `REVOKE` does bind a table's owner — and the owner can `GRANT` it back in one statement**, which is why RED TEAM §1's one-migration fix is necessary and not sufficient. Four S1 deviations in §12.3 | backend-developer |
 | 2026-10-21 | **v1.4 — the first PostgreSQL run (16.15), §10.** Every `UNVERIFIED` label executed: 95 direct assertions with SQLSTATE *and* message text, 0 failures, plus the suite on both engines (571/60 PostgreSQL, 573/58 SQLite). Blocker fixed with `params=None` rather than by doubling `%`, because the doubling failure mode is silent (§10.1). **Three predictions in this document were wrong** — §3.8's exception class (psycopg 3 maps `RaiseException` to `ProgrammingError`, not `InternalError`; the "catch `DatabaseError`" mitigation is what made that cost nothing), §2.11's boolean probe (passing on SQLite for the wrong reason, with the wrong reason recorded here as deliberate), and §2.8's float rejection (a silent **rounding**, not an error) — §10.2. **Two defects found in shipped S0 code, both invisible to SQLite**: `record_audit`'s 4-attempt retry dropped an audit row under 12 concurrent appenders and reported it as a broken chain, and `allow_test_flush` bound a per-connection GUC to a pytest session, which would have failed in S4 teardown exactly as F9 predicted — §10.3. A finding against QA-S0 §7: its nine "skip → run" items have no body to run, and `sqlmigrate` cannot render `RunPython` DDL on either engine — §10.6. Escalations 15–17 added | backend-developer |

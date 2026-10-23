@@ -378,6 +378,38 @@ def test_a_want_names_a_book_or_a_title(seller, book):
     assert services.create_request(seller, free_text_title="Some unknown title").status == "OPEN"
 
 
+def test_the_want_box_is_bounded_on_both_columns(seller):
+    """`COMPLIANCE.md` P16(iii). Asserted at the **service**, both columns.
+
+    The form's `max_length` is not the control: `POST /api/v1/requests` never
+    sees `WantedForm`. One constant, two readers — `web.forms.WantedForm`
+    imports the same two names, so this test and the form cannot disagree
+    about the number.
+
+    **The boundary itself is a row**, not only the far side of it: a bound
+    that rejects at its own limit is an off-by-one nobody notices until a
+    student with a long title cannot record a want.
+    """
+    at_the_bound = "x" * services.MAX_FREE_TEXT_TITLE
+    assert services.create_request(seller, free_text_title=at_the_bound).status == "OPEN"
+    assert (
+        services.create_request(
+            seller, free_text_title="Bounded", course_code="c" * services.MAX_COURSE_CODE
+        ).status
+        == "OPEN"
+    )
+
+    with pytest.raises(ValidationFailed) as too_long:
+        services.create_request(seller, free_text_title="x" * (services.MAX_FREE_TEXT_TITLE + 1))
+    assert "free_text_title" in too_long.value.context["field_errors"]
+
+    with pytest.raises(ValidationFailed) as long_code:
+        services.create_request(
+            seller, free_text_title="Fine", course_code="c" * (services.MAX_COURSE_CODE + 1)
+        )
+    assert "course_code" in long_code.value.context["field_errors"]
+
+
 def test_the_same_want_twice_is_one_want(seller, book):
     """The match rate counts people, not taps."""
     first = services.create_request(seller, book=book)

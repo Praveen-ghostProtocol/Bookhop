@@ -439,10 +439,34 @@ class BookRequest(models.Model):
             models.CheckConstraint(
                 condition=_check_in("status", REQUEST_STATUSES), name="requests_status_chk"
             ),
-            #: DATA-MODEL §3, verbatim. A want that names neither a book nor a
-            #: title is a row that cannot be matched and cannot be read.
+            #: DATA-MODEL §3 plus a third term. A want that names neither a
+            #: book nor a title is a row that cannot be matched and cannot be
+            #: read — which is still true of every row that can be *created*,
+            #: because `create_request` never writes `closed_at`.
+            #:
+            #: **The third term is an escalation, raised in the slice note and
+            #: not yet in DATA-MODEL §3.** P16(i) requires the purge to NULL
+            #: `free_text_title` and `course_code` at `purge_due_at` **and keep
+            #: the row**, because the row without its free text is still R-01's
+            #: demand signal. A free-text want has `book_id IS NULL`, so the
+            #: two-term CHECK makes that purge impossible: measured, not
+            #: predicted — `UPDATE book_requests SET free_text_title = NULL,
+            #: course_code = NULL` raises `IntegrityError:
+            #: requests_book_or_title_chk` on SQLite and on PostgreSQL.
+            #:
+            #: `closed_at IS NOT NULL` is the narrowest term that admits the
+            #: purged shape: `purge_due_at` is only ever set beside `closed_at`
+            #: (`close_request`, `_detach_listing_rows`, `sweep_book_requests`),
+            #: so no OPEN want can reach it. The layer that still refuses an
+            #: empty *new* want is this same constraint, and
+            #: `test_a_new_want_still_cannot_name_nothing` measures it rather
+            #: than naming it.
             models.CheckConstraint(
-                condition=models.Q(book__isnull=False) | models.Q(free_text_title__isnull=False),
+                condition=(
+                    models.Q(book__isnull=False)
+                    | models.Q(free_text_title__isnull=False)
+                    | models.Q(closed_at__isnull=False)
+                ),
                 name="requests_book_or_title_chk",
             ),
         ]

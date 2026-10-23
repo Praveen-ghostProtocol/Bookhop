@@ -21,6 +21,7 @@ from django import forms
 from django.utils.translation import pgettext_lazy as _p
 
 from apps.accounts.services import CONSENT_PURPOSES, REQUIRED_CONSENT_PURPOSES
+from apps.listings.services import MAX_COURSE_CODE, MAX_FREE_TEXT_TITLE
 
 __all__ = [
     "AgeDeclarationForm",
@@ -725,13 +726,17 @@ class WantedForm(_Form):
     )
     title = forms.CharField(
         label=_p("wanted.title.label", "Title of the book"),
-        max_length=300,
+        #: Imported, not retyped. `create_request` enforces the same two
+        #: numbers for `POST /api/v1/requests`, which does not come through
+        #: this form; two copies of one bound is `CLAUDE.md` rule 11's failure
+        #: mode and was COMPLIANCE P16(iii).
+        max_length=MAX_FREE_TEXT_TITLE,
         required=False,
         widget=forms.TextInput(attrs={"enterkeyhint": "next"}),
     )
     course_code = forms.CharField(
         label=_p("wanted.course.label", "Course code, if you know it"),
-        max_length=40,
+        max_length=MAX_COURSE_CODE,
         required=False,
         widget=forms.TextInput(
             attrs={"autocapitalize": "characters", "enterkeyhint": "done"}
