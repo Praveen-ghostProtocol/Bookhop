@@ -264,7 +264,40 @@ def salt(settings):
 
 
 @pytest.fixture
-def signup_campus(db, city, legal_entity):
+def gate_b_open(db, legal_entity):
+    """A live Gate B authorisation — A-35 / B9′. Returns the row.
+
+    **Why this is a fixture and not an autouse default.** Since A-35,
+    `request_magic_link` refuses to create a real (`is_seed=false`) account
+    without a named human's `gate='B'` row, so every test that signs a *new*
+    student up needs one — the same way such a test already needs a campus
+    that accepts a domain. It is **not** autouse, so the condition the guard
+    exists for is still producible: a test that wants "no Gate B row" simply
+    does not request this fixture, which is the only way to produce it —
+    `gate_authorisations` rows cannot be deleted (migration 0002).
+
+    The expiry is far enough out that no test ages into a refusal, and
+    `tests/unit/test_gate_b_account_creation.py` sets its own clock rather
+    than depending on this one.
+    """
+    from apps.core.models import GateAuthorisation
+
+    return GateAuthorisation.objects.create(
+        gate="B", scope_type="GLOBAL", scope_id=None, legal_entity=legal_entity,
+        evidence={
+            "participant_ceiling": 1000,
+            "closed_test_expires_at": "2099-01-01T00:00:00+00:00",
+            "takedown_sop_ref": "SOP-TD-1",
+            "escalation_contact_ref": "A Human <oncall@example.test>",
+            "incident_runbook_ref": "RUNBOOK-1",
+            "notice_version_ids": [1, 2],
+        },
+        authorised_by_human="A Human",
+    )
+
+
+@pytest.fixture
+def signup_campus(db, city, legal_entity, gate_b_open):
     """A closed campus that accepts an email domain, so sign-in is reachable.
 
     `closed_campus` has `email_domains = []`, which is the correct production
@@ -272,6 +305,12 @@ def signup_campus(db, city, legal_entity):
     makes `request_magic_link` refuse every address. A campus that accepts a
     domain is a separate fixture so no test can accidentally rely on the
     default being permissive.
+
+    It depends on `gate_b_open` because self-service signup now needs **two**
+    things and not one: a campus that accepts the address (ADR-002 §4.1(c))
+    and a named human's Gate B authorisation (A-35). A fixture called
+    "signup campus" that could not produce a signup would be a fixture that
+    cannot produce its own condition.
     """
     from apps.core.models import Campus
 

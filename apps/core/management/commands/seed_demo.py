@@ -142,6 +142,14 @@ class Command(BaseCommand):
         """
         from apps.accounts.models import NoticeVersion, User
         from apps.accounts.services import grant_consent
+        from apps.core.scoping import assert_real_account_allowed
+
+        # A-35's permitted side, as a row rather than as a sentence. Every row
+        # this method writes carries `is_seed=True`, and this is the call that
+        # says so to the same function that refuses the other side — so the
+        # seed branch is a live production call site, not a branch only a test
+        # ever reaches.
+        assert_real_account_allowed(is_seed=True)
 
         if "example.ac.in" not in (campus.email_domains or []):
             campus.email_domains = [*(campus.email_domains or []), "example.ac.in"]

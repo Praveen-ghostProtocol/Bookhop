@@ -61,7 +61,7 @@ from apps.core.contact import contact_channels_in
 from apps.core.models import Campus, PurgeLog
 from apps.core.request_context import public_origin
 from apps.core.ratelimit import consume_quota
-from apps.core.services import SYSTEM, enqueue, record_audit
+from apps.core.services import SYSTEM, assert_real_account_allowed, enqueue, record_audit
 
 from .models import (
     CAMPUS_VERIFICATION_METHODS,
@@ -272,6 +272,12 @@ def request_magic_link(email: str, ip, user_agent) -> None:
     with transaction.atomic():
         user = User.all_objects.filter(email=address).first()
         if user is None:
+            # B9′ / A-35. The one path in `apps/**` that creates a real
+            # (`is_seed=false`) account, and until this line nothing refused
+            # one. An existing account — seed or real — signs in regardless:
+            # the gate is on **creation**, so ADR-002 §4.1(c)'s seed actors can
+            # still exercise every slice before the gate opens.
+            assert_real_account_allowed(is_seed=False)
             user = User.all_objects.create(
                 email=address, campus=campus, city_id=campus.city_id,
                 status="PENDING_VERIFICATION",

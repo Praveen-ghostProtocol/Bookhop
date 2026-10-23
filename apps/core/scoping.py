@@ -1,18 +1,27 @@
-"""Tenant scoping and the discovery gate — ADR-002 §2 and §4.
+"""Tenant scoping and the launch gates — ADR-002 §2 and §4, A-35.
 
 One helper, used everywhere. Every service function that reads tenant data
 takes an `actor` and calls `scoped()`. Views and API handlers never touch the
 ORM, so this is the only place scoping can be forgotten, and
 tests/unit/test_scoping.py fails CI if a tenant-scoped model lacks the keys or
 the leading index.
+
+**The gate guards live here, all of them**, which is the point of putting
+`assert_real_account_allowed` in this file rather than in `apps.accounts`:
+`grep -rn "def assert_" apps/` is the measurement CLOSED-TEST.md §1 and A-35
+both used to find that Gate B had no guard, and the third guard should be
+found by the same grep that found its absence.
 """
 
 import logging
+from datetime import datetime, time, timezone as dt_timezone
 
 from django.db import models
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
 from .errors import GateClosed
-from .models import Campus
+from .models import Campus, GateAuthorisation
 
 #: Gate refusals are a security-stream event: they are the audit answer to
 #: "could a real student reach a listing before Gate C?" (ADR-002 §4.2).
@@ -91,6 +100,177 @@ def assert_discovery_open(campus):
         )
         log.info("gate.refused", extra={"campus": slug, "reason": reason})
         raise GateClosed("Listings are not open on this campus yet.", campus=slug, reason=reason)
+
+
+# --- Gate B: one real person holds an account (B9′, A-35) ------------------
+
+#: ADR-002 §4.1(b) scopes Gate C **per campus**. Gate B is *"one real student
+#: holds an account"* (`ops/INCORPORATION-AND-BLOCKERS.md` §3.3) and there is no
+#: campus in that sentence, so the row is GLOBAL. CLOSED-TEST.md §2.6 measured
+#: that `gate='B', scope_type='GLOBAL'` is already expressible against the
+#: existing CHECK constraints: this guard needs no enum change and no migration.
+GATE_B_SCOPE = {"gate": "B", "scope_type": "GLOBAL"}
+
+#: The two bounds A-35 requires the row to carry **and this guard to read**.
+#:
+#: **This is deliberately not an evidence key list for Gate B.** Which evidence
+#: a Gate B row must carry depends on whether the closed test completes
+#: purchases — CLOSED-TEST.md §4 specifies both variants and the founder has
+#: not chosen. A-35 declined to decide it and so does this guard; guessing the
+#: set here and enforcing the guess is how a list gets edited later under
+#: schedule pressure (`CLAUDE.md` rule 13). These two items are *structural*
+#: rather than evidential: without them a gate justified by "twelve known
+#: adults for six weeks" is, in Compliance's words, *"a permanent downgrade
+#: wearing a temporary label"*. `open_discovery.EVIDENCE_KEYS` and
+#: `LEGAL_ENTITY_FIELDS` are therefore **untouched** — they stay Gate C's, and
+#: nothing here is a second copy of them.
+GATE_B_BOUNDS = ("participant_ceiling", "closed_test_expires_at")
+
+
+def _gate_b_refusal(reason, message, detail):
+    """One refusal shape, so the security stream reads like the Gate C one."""
+    log.info("gate.refused", extra={"campus": None, "reason": reason})
+    return GateClosed(message, reason=reason, detail=detail)
+
+
+def _as_aware_datetime(value):
+    """A JSON string as an aware datetime, or None if it is not one.
+
+    A bare date is read as **midnight at the start of that day, UTC**, which
+    expires the test marginally early. That is the fail-closed direction and it
+    is the only reason a date is accepted at all.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        # Django's parsers return None for "not a date shape" but **raise**
+        # ValueError for a well-formed shape that is not a real date, e.g.
+        # "2027-13-45". Both are the same answer to this function, and the
+        # uncaught raise would have been a 500 on a path whose whole job is to
+        # refuse cleanly.
+        parsed = parse_datetime(value)
+        if parsed is None:
+            day = parse_date(value)
+            parsed = datetime.combine(day, time.min) if day is not None else None
+    except ValueError:
+        return None
+    if parsed is None:
+        return None
+    return parsed if timezone.is_aware(parsed) else parsed.replace(tzinfo=dt_timezone.utc)
+
+
+def assert_real_account_allowed(*, is_seed, now=None):
+    """B9′ / A-35. A real account needs a live, signed, bounded, unexpired Gate B row.
+
+    `ops/INCORPORATION-AND-BLOCKERS.md` §3.3 B9′: *"a `gate_authorisations` row
+    with `gate='B'`, and real account creation refused without it"*. Until this
+    function existed nothing refused a real account, and **nothing ever told us**
+    — an absent gate and a clean gate both produce no refusal (A-35).
+
+    **Both sides are rows.** `is_seed=True` returns, with no row and no
+    database read: ADR-002 §4.1(c)'s seed/real split is what makes building
+    before the gate lawful, and it is the reason this takes the flag rather
+    than being called only on the path we happen to remember. `seed_demo` calls
+    it with `True` and `request_magic_link` with `False`, so both branches are
+    live production call sites rather than one branch plus a test.
+
+    Raises `GateClosed`. Every refusal carries a distinct `reason` and a
+    distinct operator `detail`; the tests assert that text, never the exception
+    type alone (`CLAUDE.md` rule 10, sixth disguise).
+
+    **The caller still answers 202** on the magic-link path, exactly as it does
+    for `EmailDomainNotRecognised` — a different response would be an
+    account-enumeration oracle (API-CONTRACT §5.1).
+    """
+    if is_seed:
+        return None
+
+    # Imported here, not at module scope: `open_discovery` imports
+    # `apps.core.services`, which imports this module. One definition of
+    # "is this a name?" (`CLAUDE.md` rule 11) is worth a function-local import.
+    from apps.accounts.models import User
+    from apps.core.management.commands.open_discovery import has_visible_character
+
+    now = now or timezone.now()
+    auth = (
+        GateAuthorisation.objects.filter(revoked_at__isnull=True, **GATE_B_SCOPE)
+        .order_by("-authorised_at")
+        .first()
+    )
+    if auth is None:
+        raise _gate_b_refusal(
+            "no_gate_b_authorisation",
+            "BookHop is not open for sign-ups yet.",
+            "No live gate_authorisations row with gate='B', scope_type='GLOBAL'. "
+            "B9′ (ops/INCORPORATION-AND-BLOCKERS.md §3.3): a named human authorises "
+            "the first real account. No agent writes that row.",
+        )
+
+    if not has_visible_character(auth.authorised_by_human or ""):
+        raise _gate_b_refusal(
+            "gate_b_unsigned",
+            "BookHop is not open for sign-ups yet.",
+            f"gate_authorisations id={auth.id} carries no named human in "
+            "authorised_by_human. A smaller gate is still a named human's signature "
+            "(CLOSED-TEST.md §4.1).",
+        )
+
+    evidence = auth.evidence or {}
+    for key in GATE_B_BOUNDS:
+        if key not in evidence:
+            raise _gate_b_refusal(
+                "gate_b_unbounded",
+                "BookHop is not open for sign-ups yet.",
+                f"gate_authorisations id={auth.id} is missing evidence.{key}. A-35: a "
+                "reduced gate not bounded by the words that justified it is a permanent "
+                "downgrade wearing a temporary label.",
+            )
+
+    expires_at = _as_aware_datetime(evidence["closed_test_expires_at"])
+    if expires_at is None:
+        raise _gate_b_refusal(
+            "gate_b_expiry_unreadable",
+            "BookHop is not open for sign-ups yet.",
+            f"gate_authorisations id={auth.id} has evidence.closed_test_expires_at = "
+            f"{evidence['closed_test_expires_at']!r}, which is not a date or a timestamp. "
+            "A clock that cannot be read is a clock nothing reads.",
+        )
+    if now >= expires_at:
+        raise _gate_b_refusal(
+            "gate_b_expired",
+            "The closed test has ended.",
+            f"gate_authorisations id={auth.id} expired at {expires_at.isoformat()}; it is "
+            f"now {now.isoformat()}. A new named-human row is needed, not an edit — "
+            "gate_authorisations is append-only (migration 0002).",
+        )
+
+    ceiling = evidence["participant_ceiling"]
+    if isinstance(ceiling, bool) or not isinstance(ceiling, int) or ceiling < 1:
+        raise _gate_b_refusal(
+            "gate_b_ceiling_unreadable",
+            "BookHop is not open for sign-ups yet.",
+            f"gate_authorisations id={auth.id} has evidence.participant_ceiling = "
+            f"{ceiling!r}, which is not a positive integer.",
+        )
+
+    # Tombstoned accounts are excluded: a participant who left frees their
+    # place, and counting them would make the ceiling a high-water mark rather
+    # than a headcount.
+    #
+    # ponytail: read-then-create, so two simultaneous sign-ups can both pass at
+    # the ceiling. Ceiling: the test overshoots by at most the number of
+    # concurrent requests — at twelve friends, by one. Upgrade path: a partial
+    # unique index or a SELECT … FOR UPDATE on the authorisation row, the day
+    # the number this bounds is one anybody is counting precisely.
+    taken = User.all_objects.filter(is_seed=False).exclude(status="TOMBSTONED").count()
+    if taken >= ceiling:
+        raise _gate_b_refusal(
+            "gate_b_ceiling_reached",
+            "The closed test is full.",
+            f"gate_authorisations id={auth.id} caps the closed test at {ceiling} "
+            f"participants and {taken} real accounts exist.",
+        )
+    return auth
 
 
 def restrict_when_gate_closed(qs, campus):
@@ -220,6 +400,12 @@ ALL_OBJECTS_ALLOWED = {
     "apps/listings/services.py": (
         "the seller's own rows and every write — no discovery read lives here; "
         "discovery is apps/discovery/** (S3) and is deliberately not listed"
+    ),
+    "apps/core/scoping.py": (
+        "the Gate B participant ceiling (A-35) — it counts real accounts across "
+        "every campus, including the ones a closed gate hides, and counting with "
+        "a gated manager would undercount and under-enforce the cap. Not a read "
+        "of anybody's data: a COUNT(*) with no row ever returned"
     ),
     "apps/listings/jobs.py": "the retention purge (DATA-MODEL §10.2)",
     "apps/listings/staff.py": "the staff moderation surface (API-CONTRACT §5.7)",

@@ -29,6 +29,7 @@ from django.views.decorators.http import require_safe
 from apps.core.api import endpoint, json_response
 from apps.core.errors import (
     EmailDomainNotRecognised,
+    GateClosed,
     NotAuthenticated,
     NotFound,
     RateLimited,
@@ -148,8 +149,14 @@ def magic_link(request, body, user):
         # A malformed address is the caller's own input and is safe to report —
         # it says nothing about whether any account exists.
         raise
-    except (EmailDomainNotRecognised, Suspended):
+    except (EmailDomainNotRecognised, GateClosed, Suspended):
         # Swallowed on purpose. §5.1: the same 202 for every outcome.
+        #
+        # `GateClosed` joins the list with A-35's Gate B guard. It is raised
+        # only when this request would **create** a real account, so a 403 here
+        # would say "no account exists at this address yet" — the enumeration
+        # oracle §5.1 exists to close, arriving by a new door. An existing seed
+        # or real account still gets its link.
         pass
     return 202, {
         "accepted": True,
