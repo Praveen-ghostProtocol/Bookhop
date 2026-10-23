@@ -799,6 +799,56 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-36 — three consequences of building the Gate B guard (2026-10-23, cto)
+>
+> **(a) Gate B must not open before the quarterly rules reminder exists.**
+> `QUARTERLY_RULES_REMINDER` appears **zero times** in `apps/`, `web/`,
+> `tests/`, `templates/` or `locale/` — four hits, all documents. `TASKS.md`
+> schedules it in **S6**; the `notifications` table it writes to is **S3**;
+> and the obligation attaches at **the first real user**, which is the gate
+> just built. As scheduled, the control arrives four slices after the duty.
+>
+> Rather than move a job that has no table to write to, **invert it** (rule
+> 10's fifth disguise): the reminder becomes a **precondition of opening Gate
+> B**, asserted by a test that fails once `notifications` exists and the job
+> does not. A forward-dated obligation nobody is blocked by is one nobody
+> ships. This costs nothing today and cannot be forgotten, because the thing
+> it blocks is the thing the founder wants.
+>
+> **(b) The `gate_authorisations` database floor for `gate='B'` is NOT built,
+> and that is accepted, named, and bounded.** Backend measured the cost before
+> declining: a `gate='B'` trigger turns `test_postgres_catalog.py`'s
+> **exact-equality** assertions red — `set(installed) == EXPECTED_TRIGGERS`
+> and `installed == EXPECTED_FUNCTIONS` — in a file owned by test-qa, plus an
+> `ENGINE-DIVERGENCE` entry its charter requires in the same commit and this
+> task forbade. A three-agent commit, correctly refused by a one-agent task.
+>
+> **Naming the other layer, measured not asserted** (rule 12): the app guard
+> validates every field the floor would — the named human through the *same
+> imported* definition, both bounds present, the expiry parseable and future,
+> the ceiling a positive integer — and fails closed on each. So a junk
+> `gate='B'` row **cannot open the gate**; it can only exist inertly in an
+> append-only table. What the floor buys is the integrity of the legal record,
+> not the refusal. **Revisit when those exact-equality assertions next move
+> for another reason** — it is ~60 lines and should ride along rather than
+> justify its own three-agent commit.
+>
+> **(c) A flaky guard test is a finding, not noise.**
+> `test_the_participant_ceiling_is_read[1-True]` failed in **one of three**
+> full-suite runs here and passes 37/37 in isolation, with **no randomisation
+> plugin installed**, so the ordering is deterministic and the
+> non-determinism is elsewhere. On the guard that enforces a legal gate this
+> is worse than a missing test: a check that fails one run in three is
+> **re-run until green**, which is rule 10's whole subject arriving by a new
+> door. It is routed to backend with the captured parametrisation. **The gate
+> does not count as tested until it is deterministic.**
+>
+> *Also routed, one line, out of scope when found:*
+> `apps/accounts/services.py:1115` defines `_has_visible_character`, a second
+> hand copy of `open_discovery.has_visible_character` whose own docstring
+> admits one definition would be better. They agree today. Rule 11's exact
+> shape; the new guard imports the original rather than adding a third.
+
 > #### A-35 — the Gate B guard, which was specified and never built (2026-10-23, cto)
 >
 > **Privacy & Compliance's closed-test ruling found a gate that does not
@@ -1560,6 +1610,7 @@ four contract guarantees:
 | **A-33** | 2026-10-22 | **`withheld` goes false where the student's own words are substituted** - the disclosure explains a bare line and the line is not bare; leaving it would print "BookHop isn't repeating their words here" above a title. Cost named: the student is no longer told the **record** is unverified, which is a different sentence and joins the design thread. Also ratified: request idempotency **swaps** the typed label for `course_code`, so one book wanted for two courses is now two rows - correct, since the course code is the demand signal the thesis rests on | backend escalation on A-32 | cto |
 | **A-34** | 2026-10-22 | **The gate is asked at the predicate, not only the value.** `title_norm` is a derived copy of seller text outside the sealed set, so `?q=` substring-matched it into an oracle - **10 digits of a phone number recovered in ten signed-in 200s**, out of a column the same response refuses to print, with no listing in existence. `search_books` now matches only rows whose text the actor may read. **F56 folded in**: A-32's idempotency clause re-created F51 on the retry path, terminally. Rule 9 now requires a claim over "every path" to name its measured paths | REDTEAM-S2 re-report F55/F56 | cto |
 | **A-35** | 2026-10-23 | **The Gate B guard was specified, costed at "one function", and never built.** Only two `assert_` guards exist and the DB floor exempts `gate<>'C'` on purpose, so a `gate='B'` row may carry empty evidence and an empty signature - **nothing refuses a real account today.** Rule 10's fifth disguise at gate level: *no gate* and *a clean gate* both produce no refusal. Guard built now (shape-independent); evidence set waits on the founder's shape decision. `campus_mou_ref` is unsatisfiable at this scope | CLOSED-TEST.md | cto |
+| **A-36** | 2026-10-23 | **(a)** The quarterly rules reminder exists **nowhere in code** and is scheduled four slices after the duty attaches, so it becomes a **precondition of opening Gate B**, inverted so it cannot be forgotten. **(b)** The `gate='B'` DB floor is accepted as absent - a trigger reddens an exact-equality catalog assertion in another agent's file; the app guard validates every field the floor would and fails closed, so a junk row cannot open the gate, only exist. Revisit when those assertions next move. **(c)** A guard test that fails 1 run in 3 is a finding: it gets re-run until green | Gate B build | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
