@@ -4665,6 +4665,54 @@ check rather than believe. **Two of the three stale markers were its own.**
 
 ---
 
+## D-072 — The closed friends test is shape 1: nothing completes a purchase
+
+**Date:** 2026-10-23 · **Decider:** founder
+
+Asked directly, answered directly: *"Friends can list, search, browse and
+message, but no purchase completes."*
+
+### What this buys
+
+`evidence/CLOSED-TEST.md` establishes that the Consumer Protection
+(E-Commerce) Rules attach to a marketplace e-commerce entity with **no
+turnover, user-count or transaction threshold anywhere in the instrument** —
+verified against the Gazette English text. At shape 2 a company is required at
+twelve users exactly as at two thousand. At shape 1 the Rules have nothing to
+attach to, **incorporation is not required to run the test**, and the honest
+requirement set is four items rather than ten: a published privacy notice,
+published terms, a named reachable grievance officer, and the in-force
+takedown clocks.
+
+Incorporation is still recommended and still started — it has a four-week lead
+time and the founder carries personal liability either way — but it stops
+being a **blocker on the test**.
+
+### What it costs, and the condition attached
+
+**Shape 1 is a legal position that depends on the product having no
+completion path. That must be enforced, not intended.**
+
+Measured today: `LISTING_TRANSITIONS` permits `RESERVED → CLOSED_TRANSFERRED`
+and `web/views.py:850` already renders a label for it — but **no service
+function calls into either state**, so shape 1 is true right now *by absence*.
+An absence is not a control. The slice that builds reserve-and-complete would
+move this company into shape 2 without anybody deciding to, and the document
+asserting shape 1 would still read true.
+
+So the position becomes data on the authorisation row and a refusal in
+`_transition` — see `API-CONTRACT.md` **A-37**. The legal claim and the code
+then cannot drift apart, which is the whole of rule 9 applied to a founder
+decision rather than to a control.
+
+### Not decided here
+
+Whether the pilot proper is shape 2. This decision governs **the closed test
+only**, and the authorisation row carries a participant ceiling and an expiry
+so it cannot silently become the permanent arrangement.
+
+---
+
 ## D-071 — S2 rework: both trees clean, and two findings nobody asked for
 **Date:** 2026-10-22 · **Decider:** ceo-planning
 **Committed separately:** backend `57c6689`, frontend `f24b133`, from

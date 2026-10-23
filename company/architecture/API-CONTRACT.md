@@ -799,6 +799,55 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-37 — shape 1 is enforced, not intended (2026-10-23, cto)
+>
+> **Founder decision D-072: the closed test completes no purchase.** That is
+> what makes incorporation unnecessary for the test, so it is load-bearing
+> legally, and today it is true only **by absence** — `LISTING_TRANSITIONS`
+> permits `RESERVED → CLOSED_TRANSFERRED`, `web/views.py:850` already renders
+> a label for it, and nothing calls into either state because the slice that
+> would has not been written.
+>
+> **An absence is not a control.** The slice that builds reserve-and-complete
+> would move this company into shape 2 without anyone deciding to, and
+> `CLOSED-TEST.md` would still read true the morning after. This is rule 9
+> aimed at a *founder decision* rather than at a control: the claim must have
+> a conformance test, and the test must assert the boundary the claim makes.
+>
+> **Ruling, three parts.**
+>
+> 1. **The authorisation row carries `completes_purchases` (boolean), beside
+>    `participant_ceiling` and `closed_test_expires_at`.** The legal position
+>    becomes a value a named human signed, not a property of what we have not
+>    got round to building.
+> 2. **`_transition` refuses any move into a completion state while a live
+>    authorisation row says `completes_purchases` is false.** In `_transition`
+>    for A-29 §2's reason — one predicate covers publish, relist, reserve and
+>    every edge a later slice adds. The completion states are derived from the
+>    transition map, **not retyped**: anything reachable only through
+>    `RESERVED`, plus `RESERVED` itself. A later edge is covered on the day it
+>    is added.
+> 3. **The refusal branch is exercised now, by calling it directly** — not by
+>    a test asserting "no path reaches these states", which passes vacuously
+>    today and would keep passing for the wrong reason the moment a path
+>    exists (rule 10's first and fifth disguises together). Assert the
+>    **message text**, and assert the permitted side too: a transition to
+>    `LIVE` still works under the same row, or the guard could be refusing
+>    everything.
+>
+> **The Gate B evidence set for shape 1**, per `CLOSED-TEST.md` §4 and no
+> wider: `authorised_by_human`, `notice_version_ids` covering **PRIVACY and
+> TERMS**, the grievance-officer fields, `takedown_sop_ref`,
+> `escalation_contact_ref`, plus the three bounds. **`cin`,
+> `incorporation_date` and `inc20a_filed_at` are not required at shape 1** and
+> must not be asserted as present — a gate demanding evidence that cannot
+> exist is the `campus_mou_ref` defect repeated, and rule 13's answer is a
+> scope-typed evidence set from **one** definition, not a widened check.
+>
+> **`SELLER_TERMS` is deliberately out of the shape-1 set.** It is the notice
+> that governs selling, and at shape 1 nothing is sold. Adding it would assert
+> a relationship the test does not create.
+
 > #### A-36 — three consequences of building the Gate B guard (2026-10-23, cto)
 >
 > **(a) Gate B must not open before the quarterly rules reminder exists.**
@@ -1611,6 +1660,7 @@ four contract guarantees:
 | **A-34** | 2026-10-22 | **The gate is asked at the predicate, not only the value.** `title_norm` is a derived copy of seller text outside the sealed set, so `?q=` substring-matched it into an oracle - **10 digits of a phone number recovered in ten signed-in 200s**, out of a column the same response refuses to print, with no listing in existence. `search_books` now matches only rows whose text the actor may read. **F56 folded in**: A-32's idempotency clause re-created F51 on the retry path, terminally. Rule 9 now requires a claim over "every path" to name its measured paths | REDTEAM-S2 re-report F55/F56 | cto |
 | **A-35** | 2026-10-23 | **The Gate B guard was specified, costed at "one function", and never built.** Only two `assert_` guards exist and the DB floor exempts `gate<>'C'` on purpose, so a `gate='B'` row may carry empty evidence and an empty signature - **nothing refuses a real account today.** Rule 10's fifth disguise at gate level: *no gate* and *a clean gate* both produce no refusal. Guard built now (shape-independent); evidence set waits on the founder's shape decision. `campus_mou_ref` is unsatisfiable at this scope | CLOSED-TEST.md | cto |
 | **A-36** | 2026-10-23 | **(a)** The quarterly rules reminder exists **nowhere in code** and is scheduled four slices after the duty attaches, so it becomes a **precondition of opening Gate B**, inverted so it cannot be forgotten. **(b)** The `gate='B'` DB floor is accepted as absent - a trigger reddens an exact-equality catalog assertion in another agent's file; the app guard validates every field the floor would and fails closed, so a junk row cannot open the gate, only exist. Revisit when those assertions next move. **(c)** A guard test that fails 1 run in 3 is a finding: it gets re-run until green | Gate B build | cto |
+| **A-37** | 2026-10-23 | **Shape 1 (D-072) is enforced, not intended.** It is true today only by absence - the transition map permits `RESERVED -> CLOSED_TRANSFERRED` and a label already renders - so the slice building reserve-and-complete would move the company into shape 2 with nobody deciding to. `completes_purchases` joins the row; `_transition` refuses completion states **derived from the map, not retyped**; the refusal is exercised by direct call, since "no path reaches these" passes vacuously today. Shape-1 evidence set excludes `cin` and `SELLER_TERMS` | D-072 | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
