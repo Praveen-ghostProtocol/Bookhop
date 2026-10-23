@@ -593,7 +593,40 @@ free_text_title text NULL, campus_id, city_id, course_code NULL,
 status CHECK IN ('OPEN','FULFILLED','WITHDRAWN','EXPIRED'), created_at,
 closed_at, fulfilled_by_transfer_id NULL FK, purge_due_at)`
 
-CHECK `(book_id IS NOT NULL OR free_text_title IS NOT NULL)`.
+CHECK `(book_id IS NOT NULL OR free_text_title IS NOT NULL
+OR closed_at IS NOT NULL)`.
+
+> **Third term added 2026-10-23 (cto), because the two-term version made a
+> ruled control literally unsatisfiable.** P16(i) requires the purge to NULL
+> `free_text_title` and `course_code` at `purge_due_at` while keeping the row,
+> because the row without its free text is still R-01's demand signal. A
+> free-text want has `book_id IS NULL`, so under the old CHECK:
+>
+> - NULL the text → `IntegrityError: requests_book_or_title_chk`, measured on
+>   **both** engines before anything was written;
+> - keep the text → the retention rule does not exist;
+> - delete the row → R-01's measurement is deleted with it.
+>
+> **All three doors were locked.** This is `CLAUDE.md` rule 10's second
+> disguise — *a requirement that cannot be satisfied* — and it did exactly
+> what that rule says such requirements do: it surfaced only when somebody
+> tried to build against it, two slices after it was written.
+>
+> **Why `closed_at IS NOT NULL` and not something looser.** It is the
+> narrowest term admitting the purged shape and nothing else. Every writer of
+> `purge_due_at` on this table sets `closed_at` in the same statement
+> (`close_request`, `_detach_listing_rows`, `sweep_book_requests`), and
+> `create_request` never writes `closed_at` — so **no OPEN want and no new
+> want can reach the new term.** The layer that still refuses an empty new
+> want is this same constraint, and per rule 12 that is measured, not named:
+> `test_a_new_want_still_cannot_name_nothing` writes the empty shape straight
+> past the service and asserts the `IntegrityError` on whichever engine is
+> running.
+>
+> The migration's **reverse** restores the two-term CHECK and will therefore
+> fail loudly, by the constraint's own name, if a purged row already exists.
+> That is the correct failure: a reverse that silently dropped those rows
+> would delete the thing the forward migration exists to preserve.
 
 ---
 
