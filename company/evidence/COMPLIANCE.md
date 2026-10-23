@@ -1,7 +1,7 @@
 # COMPLIANCE.md — Regulatory review
 
-**Owner:** privacy-compliance · **Version:** v1.3 · **All sources accessed:** 2026-10-21
-(v1.3 adds no new source; it rules on an inventory gap against rule text already verified above)
+**Owner:** privacy-compliance · **Version:** v1.4 · **All sources accessed:** 2026-10-21
+(v1.4 adds no new source; it rules on two inventory gaps against rule text already verified above)
 **Handoff:** ceo-planning, cto, red-team, human founder
 
 ---
@@ -55,6 +55,37 @@ code half it could fix and correctly refused to write my ruling for me.
 | 2 | **§6.1 gains P15** — the sweep is a **pilot blocker**, and the only one in this document whose subject is photographs of the inside of students' rooms. | Rows 1–24 all have a clock. Row 25 was the only field in the inventory without one. |
 | 3 | **`tests/contract/test_the_review_copies_expire.py` added** — two `xfail(strict=True)` conformance tests that cannot pass silently and flip to failure the day the sweep ships. | Rule 9: the row is a claim until a test asserts it. Rule 10: a forward-dated check that merely skips can skip forever. |
 | 4 | **Notice finding flagged, not edited** — `erase.*` in `COPY-DECK.md` enumerates what survives deletion and does not enumerate these. Conclusion below: **the copies must go, because the alternative sentence is one no student would accept.** | `tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is` already forces the enumeration to be true. Copy is frontend's; the ruling is mine. |
+
+---
+
+### v1.4 — 2026-10-22 · the want box had no row, and the sentence that counted the boxes was the reason nobody noticed
+
+The backend developer raised `book_requests.free_text_title` and
+`book_requests.course_code`: two fields that have been in the schema since S2
+with no §7 row, and a sentence in §7 claiming *"there are now two free-text
+fields in the system"*. **Both halves of that sentence were wrong.** There were
+three free-text columns a student types into, and **neither of the two the
+sentence counted exists in the schema yet** — `search_events.query_norm` (row
+21) and `support_work_log.note` (row 23) are both specified and unbuilt. The
+sentence counted two fields that are not there and missed every field that is.
+
+| # | Change | Why |
+|---|---|---|
+| 1 | **§7 rows 26 and 27 new** — `book_requests.free_text_title` and `book_requests.course_code`. Basis: **Contract → Consent (s6) under `account`**, and the ruling says why that differs from row 22's refusal. Rows 21 and 23's **truncation** condition **applies and is already breached on one of the two write paths**; their **access-logging** condition is **forward-dated and inverted** rather than asserted. | §7's own standing rule: a field without a row is a compliance defect. A-32 made `free_text_title` carry what the student typed on **every** want, not only the unresolvable ones, and A-32 also renders it back to them — so the box that earned rows 21 and 23 their conditions is now the most-written free-text column in the product. |
+| 2 | **§7 row 28 new** — `data_subject_requests.stated_problem`, found by writing the test rather than by being told. A **fourth** student-typed free-text column with no row. It is the one that already has the control the other three lack (`MAX_STATED_PROBLEM = 2000`, with the reason written at the constant). | The charter metric is *"personal-data fields with no stated purpose or retention period"*. Three of four free-text columns in the live schema had no row. |
+| 3 | **The count sentence is deleted, not corrected**, and replaced by **§7.1, a `table.column` registry** that `tests/contract/test_the_inventory_covers_the_schema.py` asserts **in both directions** against the live schema. | Rule 11. A hand-maintained count drifted the moment a field was added, and the drift is what hid the gap. A number in prose has no reader that can fail; a registry with a test has one. |
+| 4 | **FINDING, and it outranks the rows: the wants survive `erase_account` and the deletion card does not enumerate them.** `_detach_listing_rows` NULLs the FK, keeps `requester_pseudonym`, and **leaves `free_text_title` and `course_code` byte-for-byte**. The eight `erase.retained.*` items name transfers, chat, reports, the email hash, the account, the age check, the audit line and the deletion record. **A want is none of those.** | Identical in shape to row 25's finding four hours earlier, and forced by the same test. Copy is frontend's: **flagged, not written.** |
+| 5 | **SECOND FINDING: `book_requests.purge_due_at` is a retention clock that nothing reads.** `retention.purge` walks six tables; `listings.purge_media` walks `listing_photos`. `PURGE_SKIP_LIST` exists precisely so that an omission is *a decision with a reason* — **`book_requests` is on neither side of that split.** And nothing ever sets `status='EXPIRED'`, so an OPEN want that is never withdrawn has `purge_due_at IS NULL`: **no clock at all.** | Rule 12. Writing *"1 year"* into a row whose remedy does not exist would make this document the thing it warns others about. The row states what the system does; **P16** states what it must do. |
+| 6 | **§6.1 gains P16** and §11's condition set becomes P1–P16. | A free-text box the student's own words go into, retained for ever, undisclosed, on the main journey of the pilot. |
+
+**Not changed, and worth recording because the obvious reading is wrong.**
+`create_request` calls `record_audit(after={"free_text_title": title})`, which
+*looks* like a second copy of the typed text in a table §7 leaves untouched by
+erasure. It is not: `record_audit` stores `after_hash`, never the payload. The
+residual is row 22's shape rather than row 25's — an unsalted hash of a
+low-entropy string stays *confirmable* against a candidate title after the row
+it described is purged. Noted, not blocked; it adds nothing while the row
+survives, which is the actual defect.
 
 ---
 
@@ -2096,6 +2127,7 @@ before the public can sign up.** Conflating them is how a pilot slips a quarter.
 | P13 | **Verify CERT-In primary text, Copyright Rules r.75 text, and TN Shops & Establishments applicability** · **v1.1: CERT-In limb CLOSED** (§5.2, §5.2.1 — direction and FAQ both extracted from the CERT-In PDFs on 2026-10-21). **r.75 and TN Shops still open.** | §5.2, §5.3, §5.4 | privacy-compliance | Two of three items remain commentary-sourced. The evidence standard requires closing them. |
 | P14 | **Do NOT collect PAN or Aadhaar; do NOT record settled sale consideration** | s194-O Explanation; §4.3 | cto + product | A recorded settled price creates a determinable TDS gross amount. |
 | P15 | **`review_listings --photos` copies must expire on a clock, ceiling 24h** — a sweep at the top of every run, covering `gettempdir()` and any `--photos DIR` | §7 row 25; DPDP s8(5), s8(7); r.6(1) | cto + backend | **At pilot every listing is reviewed, so this path runs on every student.** It is the only row in §7 with no retention period, and the data is photographs taken inside students' rooms. Gated by `tests/contract/test_the_review_copies_expire.py`. |
+| P16 | **A want must have a retention that something honours, and the deletion card must say a want is kept.** Four parts, all small: (i) a purge limb that NULLs `book_requests.free_text_title` and `course_code` at `purge_due_at`, **or** `book_requests` named in `PURGE_SKIP_LIST` with a reason — not neither; (ii) a clock on a want that is never withdrawn (set `EXPIRED`, or set `purge_due_at` at creation); (iii) a **bound on `free_text_title` in `create_request`**, not only in `WantedForm` — the API path has none; (iv) a ninth `erase.retained.*` item for wants, in both languages | §7 rows 26–27; DPDP s8(7), r.8(3); **CP (E-Commerce) Rules r.4(3) — binds today** | cto + backend + frontend | **The want box is on the main journey of the pilot** (J4 step 2), A-32 made it store the student's own words on **every** want rather than only the unresolvable ones, and today those words survive account deletion **for ever**, undisclosed. (iv) alone is the r.4(3) exposure and does not wait for 2027. Gated by `tests/contract/test_the_inventory_covers_the_schema.py`. |
 
 ### 6.2 Must be resolved BEFORE PUBLIC LAUNCH (G4) — in addition to all of the above
 
@@ -2159,6 +2191,9 @@ processing logs, minimum **1 year**) and **r.6(1)(e)** (security logs,
 | 23 | **Support instrumentation** — `support_tickets` (`user_pseudonym`, links, channel, timestamps) and `support_work_log` (`staff_id`, `seconds`, `bucket`, `source`, `batch_*`, **`note` free text**) | **D-009's mitigation**: support minutes per transfer (R-13, R-25, D-009's reversal trigger); operating support | **Two data subjects, two bases.** Student limb: Contract / **s7(a)** + consent under `account`. **Staff limb: employment** — this is worker monitoring and is a new category in this inventory | **Identifiers 1 yr; measurement indefinitely.** At 1 yr purge `note` and NULL `user_pseudonym`; **keep `seconds`, `bucket`, `source`, `batch_run_id`, `batch_match_count` indefinitely** — pseudonymous, and the evidence D-009 exists to produce | Purge job for `note` and `user_pseudonym`. **`note` must be manually reviewed on any erasure or access request** — a free-text staff note may name the subject and the purge job cannot see that |
 | 24 | **`PSEUDONYM_SALT`** — the server-side secret outside the database that salts `user_tombstones.email_hash` | **The control that makes row 3's "one-way hash" claim true.** Without it, a sha256 of a predictable institutional email is enumerable from a roll list | Not personal data. A **security safeguard under r.6(1)**, and the precondition of row 3's lawfulness | **As long as any un-purged `email_hash` references its version, and no longer.** Version it; keep at most two versions; retire a version when no live tombstone references it | `shred` the retired version from `/etc/bookhop/env`; log the rotation in `audit_log`. **On confirmed compromise: rotate immediately AND purge every `email_hash` under the compromised version ahead of `purge_due_at`** |
 | 25 | **Moderation working copies of listing photographs** — plaintext files written by `review_listings --photos` to an operator's filesystem, outside the object store | Let the one human control in the pilot queue **see** what it is judging (F50 / R-R6). Nothing else: not archival, not evidence, not training | **s7(a)** + the IT Rules r.3(1)(b) trust-and-safety limb — **the same basis as row 22, and like row 22 it is not a withdrawable consent purpose.** The copy is a *rendering step* within row 9's already-notified purpose, **not a new purpose**, and it stays that way only because it is transient | **The review session. Hard ceiling 24 hours from creation**, whether or not a decision was reached. **Not** "until the operator deletes it" — see the ruling. Row 9's one-year clock does **not** apply: it is the retention of the *record*, and a working copy is not the record | **Automatic.** A sweep of `bookhop-review-*` directories older than 24h, in `tempfile.gettempdir()` and in any `--photos DIR`, run at the top of every `review_listings` invocation. The printed `rm -rf` stays as the fast path, **not as the mechanism.** Erasure reaches these only through the clock, which is why the clock has to be short |
+| 26 | **`book_requests.free_text_title`** — **the student's own words**, typed into the want box. Since **A-32** it is stored whenever the student typed a title, book FK or not, and **rendered back to that student** on `/wanted` in place of a withheld catalogue title | Record what book a student is looking for; match it against supply (`METRICS.md` match rate, R-01); **EC-17** — the staff signal that the catalogue is missing a prescribed title; **and, since A-32, show the student their own want** | Contract → **Consent (s6) under `account`** / s7(a). **Withdrawable — and, unlike row 22, that is correct:** see the ruling below | **`closed_at` + 1 yr** (r.8(3)) once the want is closed. **An OPEN want has no clock** — nothing sets `EXPIRED` — and **nothing reads `purge_due_at` on this table at all.** Stated as the system is, not as it should be: **P16** | **Today: none.** `erase_account` → `_detach_listing_rows` NULLs `requester`, keeps `requester_pseudonym`, sets `purge_due_at` on OPEN rows **and leaves the text byte-for-byte**. No purge handler walks this table and it is not in `PURGE_SKIP_LIST`. **Required: NULL the text at `purge_due_at`, and enumerate the want on the deletion card** |
+| 27 | **`book_requests.course_code`** — free text, whitespace-collapsed and upper-cased, cap 40 **on the form path only**. Load-bearing: **A-33** puts it in the request idempotency key | Which syllabus is driving demand — the product thesis's only direct evidence; part of request identity (A-33), so two wants for two courses are two rows | Same as row 26 | Same as row 26 | Same as row 26. **A-33 does not block purging it:** the idempotency filter only ever matches `status='OPEN'`, and an erased or closed want is never OPEN |
+| 28 | **`data_subject_requests.stated_problem`** — the student's own words about what BookHop holds wrongly about them (**A-29**, s12(1)–(2) correction). Found by writing §7.1's test, not by being reported | Exercise the correction right; evidence that it was exercised and answered inside the 7-day clock | **Legal obligation** (DPDP s12 from 13 May 2027; SPDI r.5(6) today) + s7(a). **Not a consent purpose** — the exercise of a right is not something the subject can be asked to consent to | **1 yr with the row** (row 18's family) | Not user-deletable: it is the record that a right was exercised and answered. **The one free-text column that already has its bound** — `MAX_STATED_PROBLEM = 2000` in `apps/accounts/services.py`, with the reason written at the constant. **That constant is the control rows 26 and 27 are missing** |
 
 #### Row 21 — the recommendation is to collect *less*, and no metric suffers
 
@@ -2458,6 +2493,185 @@ measurement is deleted, not footnoted.*
 
 ---
 
+#### Rows 26–27 — RULING: the basis is consent, the conditions do apply, and **the erasure story is the blocker**
+
+**Three questions were asked. The third answer outranks the first two, so it
+goes first.**
+
+##### (c) Erasure — a want survives deletion, nothing ever purges it, and the card does not say so
+
+Measured, not inferred. `erase_account` → `_detach_listing_rows`:
+
+- `requester` → `NULL`; **`requester_pseudonym` survives**, as it must — the
+  transaction record has to keep referring to someone;
+- an OPEN want → `status='WITHDRAWN'`, `closed_at=now`,
+  `purge_due_at = now + 1 yr`;
+- **`free_text_title` and `course_code` are not touched.**
+
+So after a student deletes their account, BookHop still holds **the sentence
+they typed** and **the course they typed it for**, under a pseudonym, with a
+clock. Two things are then wrong with that, and they compound.
+
+**First, nothing reads the clock.** `apps.accounts.services.purge_expired`
+walks `email_login_tokens`, `idempotency_keys`, `personal_data_access_log`,
+`jobs`, `django_session` and `user_tombstones`. `apps.listings.jobs.purge_media`
+walks `listing_photos`. **No handler walks `book_requests`.** And
+`PURGE_SKIP_LIST` is explicitly *"the explicit skip-list, as data. A table here
+is one the purge job must never touch, **with the reason**, so a reviewer can
+see that the omission is a decision."* `book_requests` is not in it either.
+**The design splits every clocked table into purged-or-deliberately-skipped,
+and this table is on neither side** — which is rule 10's corollary almost
+word for word: where a rule splits a set, both sides are rows.
+
+Worse, the clock is only *started* by withdrawal or erasure. **Nothing in the
+product ever sets `status='EXPIRED'`** — the value is in the CHECK, in
+`DATA-MODEL.md` §3 and in `REQUEST_STATUSES`, and no code path reaches it. An
+OPEN want from a student who neither withdraws it nor deletes their account has
+`purge_due_at IS NULL`: **not a long retention, no retention.** That is the
+charter metric — *"personal-data fields with no stated purpose or retention
+period"* — failing on the main journey of the pilot, and it is the same defect
+row 25 was refused for four hours ago. I refused *"the operator will delete
+it"*; I am not now accepting *"the student will withdraw it"*.
+
+**Second, the deletion card does not enumerate it.** `COPY-DECK.md` v1.4
+withdrew *"Everything else goes now."* and replaced it with an enumeration,
+because `tests/e2e/test_deletion.py::test_the_disclosure_does_not_claim_more_is_deleted_than_is`
+forces the enumeration to be true. `templates/delete_confirm.html` lists eight
+items: transfers, chat, reports, the email hash, the account, the age check,
+the audit line, the deletion record. **A want is none of them.** *"Books that
+changed hands"* is `transfers`; a want is a book that did **not** change hands.
+
+The v1.4 amendment's own words are the test: *"The card asserts only what it
+enumerates, and the list is the assertion."* An enumeration that omits a
+category is not a weaker claim than a totality claim — **it is the same false
+statement, made by omission**, and under CP (E-Commerce) Rules r.4(3) an
+inaccurate representation about the service is an unfair trade practice
+**today**, without waiting for 13 May 2027.
+
+**Two lawful states, exactly as with row 25: the text goes on a clock that
+something actually honours, or the card gains a line.** Unlike row 25, here I
+want **both** — because the want is genuinely useful to us for a year (R-01
+is the measurement that tells us a campus is illiquid) and because there is no
+sentence problem: *"Books you asked for, kept for a year without your name"*
+is a line a student accepts when told. Row 25's test — would you ship the
+disclosing sentence? — passes here, which is exactly why row 25's answer
+(delete the data) is not this row's answer.
+
+> **Copy flagged to design and frontend, not written here.** A ninth
+> `erase.retained.*` item for wants, in both languages. **The §1.2 shape is
+> already set by the existing eight:** mechanism, period, purpose, no
+> reassurance. Mine is a finding about truth, not a draft.
+
+##### (a) Lawful basis — **Consent (s6) under `account`**, and the difference from row 22 is the whole point
+
+**Contract → Consent (s6) under the existing `account` purpose key** / s7(a) as
+the narrow reading. **No new consent key.** A want is created by the student
+asking for a thing; it is the service, not a secondary use of it.
+
+I refused a withdrawable-consent basis for row 22 (`contact_pattern_flag`) on a
+one-line thought experiment: *"the person with the strongest incentive to
+withdraw is the person the flag exists to detect. A safety control whose
+operation the subject can switch off is not a safety control."* **Rows 26 and 27
+are the mirror image and that is why the answer flips.**
+
+- Row 22 is data **about** the student, held **against** their interest, for our
+  r.3(1)(b) duty. Withdrawal would defeat the purpose.
+- Rows 26 and 27 are data **from** the student, held **for** their benefit.
+  Withdrawal defeats nothing — it is the feature. **It is already built:**
+  `DELETE /api/v1/requests/{id}` sets `WITHDRAWN` and starts the clock.
+
+So the test is not "is it free text" or "is it sensitive"; it is **whose
+interest the processing serves, and what breaks if the subject says stop.**
+Nothing breaks here. Consent is the correct basis, it is withdrawable, and the
+withdrawal mechanism shipped before the basis was written down — which is the
+right order to be wrong in.
+
+*Not consistent with row 28, deliberately.* Row 28 is a **right being
+exercised**, and a right is not a purpose the subject can be asked to consent
+to or withdraw from — the record of the correction request must outlive the
+request. Three columns, three bases, and the splitting question is the same one
+each time.
+
+##### (b) Conditions — **truncation applies and is already breached. Access logging applies and has no reader yet, so it is inverted rather than asserted.**
+
+Rows 21 and 23 carry *"truncation, access logging and aggregate-only display"*
+because of a sentence in row 21 I still stand behind: *"a free-text box will
+eventually contain a name, a phone number or a hostel room, because free-text
+boxes always do."* `free_text_title` is a free-text box, it is now written on
+**every** want rather than only the unresolvable ones (A-32), and it is the
+**only** one of the four that is rendered back out of the database to a human.
+The conditions apply. Taken one at a time, because they are not one condition:
+
+**1. Truncation — APPLIES, and it is missing on one of two write paths.** This
+is the finding I did not expect to make. `WantedForm` caps `title` at 300 and
+`course_code` at 40. **`create_request` caps neither**, and
+`POST /api/v1/requests` passes `body.get("free_text_title")` straight through:
+the column is `TextField`, so the only bound on the API path is the request body
+limit. **Two writers, one bound** — rule 11's failure mode exactly, and the
+cheap fix is rule 11's answer: **the bound belongs in `create_request`, which
+both writers already route through, not in the form that only one of them
+uses.** The pattern to copy is twelve lines away in another app and was written
+for this reason: `MAX_STATED_PROBLEM = 2000`, *"a free-text box with no bound is
+a free-text box somebody pastes a database into."* Same sentence, same control,
+same codebase, applied to the correction box and not to the want box.
+
+**2. Access logging — APPLIES, and today there is nothing to log.** The
+condition is about **staff** reading an identifiable student's words; the
+`/wanted` render is the student reading their own, which owes no
+`personal_data_access_log` row and would be noise if it wrote one. **I checked
+for the staff reader and there is none:** `apps/listings/staff.py` does not
+import `BookRequest`, and the EC-17 *"staff signal"* purpose that both `PRD.md`
+and `JOURNEYS.md` claim for this column **is not yet implemented by anything.**
+
+That makes the condition forward-dated, and rule 10 is explicit about what
+happens next: *"a forward-dated test can skip **forever**. From outside, 'not
+yet running' and 'running and passing trivially' are indistinguishable.
+**Invert it.**"* So the condition is written as a **ruled path that must not
+resolve**:
+
+> **No staff or operator code path may read `book_requests.free_text_title` or
+> `course_code` without writing a `personal_data_access_log` row and
+> displaying in aggregate.** The guard is not "the log fires" — there is
+> nothing to fire. The guard is **"`apps/listings/staff.py` does not touch
+> `BookRequest`"**, and it is a *failure* the day that stops being true, which
+> forces the log into the same commit as the first reader.
+
+**3. Aggregate-only display — APPLIES to the staff reader, and NOT to the
+student.** Row 21's aggregate rule exists because *"the real risk here is not
+the regulator; it is a staff member reading what an identifiable student
+searched for."* A-32 is the opposite operation: the student reading their own
+words. **A-32 is right and I am not qualifying it** — *"the gate was never
+meant to stop a student seeing their own words"* is correct, the row is scoped
+to the requester's own pseudonym, and subject access is a **right** (s11), not
+a leak. The condition binds the EC-17 staff view when it is built.
+
+**Conformance (rule 9): `tests/contract/test_the_inventory_covers_the_schema.py`.**
+Five tests, each asserting a control **exists** (so it fails by name) and that
+its property **holds**:
+
+| Test | Asserts | Today |
+|---|---|---|
+| `test_every_free_text_column_has_an_inventory_entry` | §7.1's registry covers the live schema **in both directions** — a column with no entry fails, and an entry for a column that no longer exists fails too, so the registry cannot rot. **Asserts its own reach:** the measured column set is non-empty and every entry resolved | **green** (it is why row 28 exists) |
+| `test_an_erased_want_is_purged_when_its_clock_runs_out` | A due `book_requests` row's text is NULL after both purge handlers run — **and** a not-yet-due row's text survives, because a sweep that only satisfies the first assertion is `DELETE FROM book_requests` | `xfail(strict=True)` |
+| `test_the_want_is_on_one_side_of_the_purge_split` | `book_requests` is either walked by a purge handler or named in `PURGE_SKIP_LIST` **with a reason** | `xfail(strict=True)` |
+| `test_the_deletion_card_enumerates_the_want` | A ninth `erase.retained.*` key for wants exists in the shipped template. Keyed on **a named msgctxt, not a keyword**, so it cannot go green on a reword | `xfail(strict=True)` |
+| `test_the_want_box_has_a_bound_on_every_path` | `create_request` refuses an over-long title — **the service, not the form**, because the form is only one of two writers | `xfail(strict=True)` |
+| `test_no_staff_path_reads_the_want_text` | **Inverted guard.** `apps/listings/staff.py` does not touch `BookRequest`. Green today and **designed to go red** the day the EC-17 staff view lands without its access log | **green** |
+
+Every `xfail` is `strict=True` and on **one subject each**, never on the
+module, so a second defect cannot hide inside the first — and strict means they
+flip to failure the day the fix ships and force their own marks off, which is
+what happened to row 25's pair within the hour.
+
+**Uncertainty: LOW on all three answers.** The basis question is settled by
+whose interest the processing serves. The disclosure ground binds **today**
+under r.4(3) and does not wait for DPDP. The retention grounds (s8(7), r.8(3))
+commence 13 May 2027 and are design-ahead, but the clock has to exist before
+then or the data it would have bounded is already a year old. **Counsel: NO on
+all three.** This is not a question to buy an opinion on.
+
+---
+
 **Standing rules for the CTO, derived from the table:**
 - **Every new personal-data field needs a row here before it ships.** The charter
   metric is "personal-data fields with no stated purpose or retention period".
@@ -2471,11 +2685,82 @@ measurement is deleted, not footnoted.*
   actor key); row 22 follows row 11 (pseudonymised, not deleted, **and disclosed
   in the notice**); row 23 purges `note` and NULLs `user_pseudonym`, keeps the
   timings, **and needs a human to read the notes**; row 24 is a secret, not
-  subject data.
-- **A free-text field is personal data whatever you intended to put in it.**
-  Rows 21 and 23 both introduce one. There are now two free-text fields in the
-  system that a person types without constraint, and both need truncation,
-  access logging and aggregate-only display.
+  subject data. **Rows 26–28, added v1.4:** rows 26 and 27 are pseudonymised
+  here and **then purged at `purge_due_at`** — that purge is **P16** and does
+  not exist yet — and they **must be enumerated on the deletion card**, because
+  a want is not a transfer, a message or a report; row 28 survives untouched,
+  because it is the record that a right was exercised.
+- **A free-text field is personal data whatever you intended to put in it**, and
+  every one of them needs a **bound in the service that writes it**, an
+  **access log on the first staff reader**, and **aggregate-only display to
+  staff**. **There is no count of them in this document and there must not be
+  one.** v1.3 of this section said *"there are now two free-text fields in the
+  system"*; it was a hand-maintained number, it drifted the moment S2 added a
+  field, and **both fields it counted are specified and unbuilt while three
+  built ones had no row**. The question *"how many are there"* is answered by
+  **§7.1 against the live schema**, not by a sentence. Rule 11: ask the
+  property, do not enumerate the cases.
+
+---
+
+### 7.1 Field registry — the inventory's completeness, asserted against the schema
+
+**This block is data, and
+`tests/contract/test_the_inventory_covers_the_schema.py` is its reader.** The
+test measures every free-text column in the live schema and asserts this
+registry covers it **in both directions**: a column with no entry fails by
+name, and an entry naming a column that no longer exists fails too. So the
+registry cannot silently rot, and it cannot be satisfied by being longer than
+the schema.
+
+**Declared ceiling, in the same place as the list** (rule 11). The measured set
+is *"a `TextField` that is nullable and has no `choices`"* — the shape of a box
+something writes prose into. **It does not catch** a non-null `CharField`, a
+`jsonb` column (`data_subject_requests.nominee` is personal data about a third
+party and is governed by A-29, not by this test), a file's contents (row 25),
+or a column that holds personal data in a structured type (`users.campus_id`).
+**The layer that generalises is this table itself** — the standing rule is that
+*every* new personal-data field needs a row, whatever its type; §7.1 mechanises
+only the slice a schema read can see, and a green §7.1 is **not** a claim that
+the inventory is complete, only that no free-text column is missing from it.
+
+Each entry carries its own reason, so that fixing one never silently removes
+the coverage of another.
+
+```inventory
+# column                                  -> row | NOT-PD: reason
+book_requests.free_text_title             -> 26
+book_requests.course_code                 -> 27
+data_subject_requests.stated_problem      -> 28
+users.email                               -> 3
+users.display_name                        -> 1
+users.password                            -> 4
+user_tombstones.email_hash                -> 3
+user_tombstones.salt_version              -> 24
+campus_verifications.email_domain         -> 6
+age_verification_events.note              -> 7
+consents.user_agent                       -> 18
+email_login_tokens.user_agent_family      -> 16
+audit_log.object_id                       -> 17
+audit_log.before_hash                     -> 17
+audit_log.after_hash                      -> 17
+audit_log.request_id                      -> 17
+audit_log.user_agent                      -> 16
+personal_data_access_log.request_id       -> 16
+data_subject_requests.outcome             -> NOT-PD: a CHECK-constrained outcome code, text only by column type; the row it sits on is row 18's family
+jobs.locked_by                            -> NOT-PD: a worker identifier generated by `new_worker_id`, never a person
+jobs.last_error                           -> NOT-PD: a traceback, scrubbed of every payload value by `apps.core.jobs._scrub` before it is stored. If a subject's data reaches it that is a defect in the scrubber, not a missing row here — and the layer that catches it is `retention.purge`'s `jobs` limb
+purge_log.job_run_id                      -> NOT-PD: a job run identifier. Its `purge_due_at` column records the *purged row's* due date, not this row's own clock, so this table is not a subject of §7's retention split
+gate_authorisations.revoked_reason        -> NOT-PD: operational text about a campus gate written by staff, naming a decision and not a person
+legal_entities.*                          -> NOT-PD-SUBJECT: BookHop's own registration data and the contact details of its officers in their statutory capacity, which E-Com r.4(1)(b) and IT Rules r.3(2)(a) require us to **publish**
+books.isbn13                              -> NOT-PD: bibliographic data about a published work, shared by every copy of it
+books.edition_label                       -> NOT-PD: bibliographic; an edition is a property of the book, never of the student holding it
+books.publisher                           -> NOT-PD: bibliographic; the publisher is a company, and not a data principal
+books.origin_country                      -> NOT-PD: bibliographic, and the r.4(10) country-of-origin evidence we are required to show
+prescribed_texts.source_ref               -> NOT-PD: catalogue provenance, a syllabus citation
+listing_photos.storage_key                -> NOT-PD: the locator for row 9's bytes, not the bytes. Row 9 governs the object; this column is what `purge_media` NULLs to prove it purged one
+listing_photos.storage_token              -> NOT-PD: same as `storage_key`
+```
 
 ---
 
@@ -2848,6 +3133,14 @@ is now enforced more strongly than v1.0 contemplated (§4.3.2).
 on the list — a sweep, no new table, no counsel. It is nonetheless a **pilot**
 blocker and not a launch one, because at pilot `LISTING_REVIEW_ALL=true` means
 the path runs on every listing from day one. Everything below reads P1–P15.
+
+**v1.4: the condition set is P1–P16.** P16 is four small parts and no counsel,
+and it is a pilot blocker for the same reason P15 was: the path runs on every
+student from day one. **Part (iv) — one line on the deletion card — is the
+only part that binds *today*,** under CP (E-Commerce) Rules r.4(3); the other
+three are design-ahead for 13 May 2027 and must exist before then, because a
+clock added later does not bound the data it would have bounded. Everything
+below reads P1–P16.
 
 **Pilot: NOT BLOCKED, conditional on P1–P14.** None of P1–P14 is a research
 problem; all are build or appoint or verify tasks with known definitions of
