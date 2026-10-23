@@ -799,6 +799,66 @@ agent knows exactly what it owns.
 >
 > **Slice: S2**, with the listing surface it completes.
 
+> #### A-35 — the Gate B guard, which was specified and never built (2026-10-23, cto)
+>
+> **Privacy & Compliance's closed-test ruling found a gate that does not
+> exist.** `ops/INCORPORATION-AND-BLOCKERS.md` §3.3 B9′ specifies *"a
+> `gate_authorisations` row with `gate='B'`, and real account creation refused
+> without it"*, and costs it at *"one function"*. Measured, and I confirmed it
+> myself: `grep -rn "def assert_"` over `apps/` returns exactly two guards —
+> `assert_discovery_open` and `assert_campus_write`. **There is no third.**
+>
+> And the database floor exempts it **on purpose**:
+> `apps/core/migrations/0005_gate_evidence_complete.py` opens
+> `IF NEW.gate <> 'C' THEN RETURN NEW; END IF;`, reasoning that *"inventing one
+> for the others would be scaffolding for a gate nothing opens."* That was
+> correct when written. It stops being correct the moment one real friend signs
+> up — a `gate='B'` row may today carry `evidence={}` and
+> `authorised_by_human=''`.
+>
+> **This is rule 9 at the level of a gate rather than a control**, and rule
+> 10's fifth disguise one level up: from outside, *"the gate is clean"* and
+> *"there is no gate"* are indistinguishable, because **both produce no
+> refusal.** Every other gate in this system is visible when it refuses. This
+> one has never refused anything, so nothing has ever told us it is absent.
+>
+> **Ruling, in the half that does not depend on an undecided product
+> question.** The guard is built now, because it is required whichever shape
+> the closed test takes:
+>
+> - **A real (`is_seed=false`) account cannot be created unless a live
+>   `gate='B'` authorisation row exists.** Seed accounts are unaffected — the
+>   seed/real split already exists and is what makes building before the gate
+>   lawful.
+> - **The refusal is asserted by message text, not exit status** (rule 10's
+>   sixth disguise), and **both sides are rows**: a seed account still
+>   succeeds with no row, and a real one is refused with one absent.
+> - **The test enumerates every path that creates a `users` row with
+>   `is_seed=false`** and asserts the enumeration is complete. This is the
+>   four-gates-deep lesson restated: the layer was never the problem, the
+>   unwritten set was. A guard on the one path we remember is the same defect
+>   with a smaller blast radius.
+> - **The row must carry `participant_ceiling` and `closed_test_expires_at`,
+>   and the guard must *read* the expiry.** Compliance would not endorse the
+>   reduced gate without them and nor will I: a gate justified by *"twelve
+>   known adults for six weeks"* and not bounded by those words in the row is
+>   a permanent downgrade wearing a temporary label. A clock nothing reads is
+>   a check that cannot fail.
+>
+> **What this ruling deliberately does not decide.** The *evidence set* for a
+> `gate='B'` row depends on whether the closed test completes purchases, which
+> is a founder decision and is open. Compliance's §4 specifies both. The guard
+> and the evidence set are separable, and building the guard first is right
+> because the guard is what makes the evidence set enforceable at all.
+>
+> **Two further findings from that ruling, recorded here and routed:**
+> `campus_mou_ref` is **unsatisfiable** at this scope — no institution means no
+> counterparty, so the only ways past are a false reference or the placeholder
+> deny-list; rule 13 says the fix is a scope-typed evidence set, not a widened
+> `_present()`. And `breach_rehearsal_at` asserts a rehearsal no instrument
+> requires, while the things that *do* bind — a 6-hour CERT-In capability, NTP,
+> 180-day India logs — are asserted nowhere in the gate.
+
 > #### A-34 — the gate moves to the predicate, and the claim names its paths (2026-10-22, cto)
 >
 > **Red Team's re-report makes A-29 §3 false a fourth time, by a route none
@@ -1499,6 +1559,7 @@ four contract guarantees:
 | **A-32** | 2026-10-22 | **`free_text_title` is stored whenever the student typed one, book FK or not; a student's own words are served back to that student.** QA measured a typed title being silently discarded when the ISBN matched somebody else's unverified row - harmless until the gate made the row bare. The CHECK is an OR and every free-text rule keys on `book_id IS NULL`, so nothing downstream shifts. Request idempotency keys on `book_id`+`course_code`, never the typed label. **The gate was never meant to stop a student seeing their own words** | QA rework F51/F52 | cto |
 | **A-33** | 2026-10-22 | **`withheld` goes false where the student's own words are substituted** - the disclosure explains a bare line and the line is not bare; leaving it would print "BookHop isn't repeating their words here" above a title. Cost named: the student is no longer told the **record** is unverified, which is a different sentence and joins the design thread. Also ratified: request idempotency **swaps** the typed label for `course_code`, so one book wanted for two courses is now two rows - correct, since the course code is the demand signal the thesis rests on | backend escalation on A-32 | cto |
 | **A-34** | 2026-10-22 | **The gate is asked at the predicate, not only the value.** `title_norm` is a derived copy of seller text outside the sealed set, so `?q=` substring-matched it into an oracle - **10 digits of a phone number recovered in ten signed-in 200s**, out of a column the same response refuses to print, with no listing in existence. `search_books` now matches only rows whose text the actor may read. **F56 folded in**: A-32's idempotency clause re-created F51 on the retry path, terminally. Rule 9 now requires a claim over "every path" to name its measured paths | REDTEAM-S2 re-report F55/F56 | cto |
+| **A-35** | 2026-10-23 | **The Gate B guard was specified, costed at "one function", and never built.** Only two `assert_` guards exist and the DB floor exempts `gate<>'C'` on purpose, so a `gate='B'` row may carry empty evidence and an empty signature - **nothing refuses a real account today.** Rule 10's fifth disguise at gate level: *no gate* and *a clean gate* both produce no refusal. Guard built now (shape-independent); evidence set waits on the founder's shape decision. `campus_mou_ref` is unsatisfiable at this scope | CLOSED-TEST.md | cto |
 | **A-19** | 2026-10-22 | **F24: `POST /account/correction` added to §3 and §5.1, marked NOT IMPLEMENTED (S2).** §2.5 named it twice — as a Stack S right and as the *justification* for `display_name` sitting in Stack M — and it did not exist, **so the correction right had no path at all.** The M placement stands; **its reasoning may not be quoted as satisfied until the conformance test is green** | QA **F24** | cto |
 | **A-18** | 2026-10-22 | **F22: `"campus"` removed from `/auth/consume`'s `needs`** — unreachable, because the magic link *is* the campus evidence and no link is ever sent to an unrecognised domain. **Removing it exposed the gap it concealed: a campus with empty `email_domains` has no student sign-in path at all** — recorded, not fixed, under ADR-001 §2.5's existing trigger | QA **F22** | cto |
 | **A-17b** | 2026-10-22 | **§2.5 split into Stack M and Stack S** so suspension cannot remove statutory rights | QA erasure pass **P-1** | cto |
