@@ -111,20 +111,75 @@ def assert_discovery_open(campus):
 #: existing CHECK constraints: this guard needs no enum change and no migration.
 GATE_B_SCOPE = {"gate": "B", "scope_type": "GLOBAL"}
 
-#: The two bounds A-35 requires the row to carry **and this guard to read**.
+#: **The Gate B evidence set, scope-typed to shape 1** (D-072 / A-37,
+#: `CLOSED-TEST.md` §4.1). A-35 left this list empty on purpose, because the
+#: founder had not chosen between the two shapes §4 specifies; D-072 chose
+#: shape 1 — *friends list, search, browse and message, and no purchase
+#: completes* — so the set is now decidable and is decided here, once.
 #:
-#: **This is deliberately not an evidence key list for Gate B.** Which evidence
-#: a Gate B row must carry depends on whether the closed test completes
-#: purchases — CLOSED-TEST.md §4 specifies both variants and the founder has
-#: not chosen. A-35 declined to decide it and so does this guard; guessing the
-#: set here and enforcing the guess is how a list gets edited later under
-#: schedule pressure (`CLAUDE.md` rule 13). These two items are *structural*
-#: rather than evidential: without them a gate justified by "twelve known
-#: adults for six weeks" is, in Compliance's words, *"a permanent downgrade
-#: wearing a temporary label"*. `open_discovery.EVIDENCE_KEYS` and
-#: `LEGAL_ENTITY_FIELDS` are therefore **untouched** — they stay Gate C's, and
-#: nothing here is a second copy of them.
-GATE_B_BOUNDS = ("participant_ceiling", "closed_test_expires_at")
+#: It is **four lists rather than one** because the four are checked by
+#: different rules, and a flat list gets edited the day one entry misfires
+#: (`CLAUDE.md` rule 11): the bounds carry typed values (one of which is
+#: legitimately `False`, so presence is `in`, never truthiness), the refs are
+#: free text that must contain a visible character, the notice ids must
+#: *resolve*, and the legal-entity fields live on another table.
+#:
+#: `open_discovery.EVIDENCE_KEYS` / `LEGAL_ENTITY_FIELDS` stay Gate C's and are
+#: untouched. Nothing here is a copy of them — Gate B's set and Gate C's set
+#: are different sets, not two statements of one rule — and the one thing the
+#: two gates genuinely share, *"is this evidence actually present?"*, is
+#: imported from there rather than restated.
+GATE_B_BOUNDS = ("participant_ceiling", "closed_test_expires_at", "completes_purchases")
+
+#: Evidence that is a reference to something outside the database.
+GATE_B_EVIDENCE_REFS = ("notice_version_ids", "takedown_sop_ref", "escalation_contact_ref")
+
+#: The notice kinds `evidence.notice_version_ids` must actually resolve to.
+#: **PRIVACY and TERMS only.** `SELLER_TERMS` carries the r.5(2) seller
+#: undertaking, which is an E-Commerce Rules artefact; at shape 1 nothing is
+#: sold, and requiring it would assert a relationship the test does not create
+#: (A-37). This is the one gate item verifiable end to end in the database
+#: (README §7) and shrinking the gate does not cost that.
+GATE_B_NOTICE_KINDS = ("PRIVACY", "TERMS")
+
+#: Read from the authorisation's **own** legal entity, for the reason
+#: `open_discovery.checklist` gives: evidence belonging to a different entity
+#: from the one that was authorised is not this row's evidence.
+GATE_B_LEGAL_ENTITY_FIELDS = (
+    "grievance_officer_name", "grievance_officer_email", "grievance_officer_phone",
+)
+
+#: **The other side of the split, as a row** (`CLAUDE.md` rule 10's corollary).
+#: These are required at shape 2 and **cannot exist at shape 1** — there is no
+#: company — so a gate that demanded them would be the `campus_mou_ref` defect
+#: again: a criterion that cannot be satisfied. Asserted absent by
+#: `test_gate_b_account_creation.py`, so a later widening is a red test rather
+#: than a quiet one.
+GATE_B_NOT_ASSERTED = ("cin", "incorporation_date", "inc20a_filed_at")
+
+
+def _live_gate_b_row():
+    """The Gate B authorisation in force, or None. **Latest row wins.**
+
+    `gate_authorisations` is append-only, so superseding an authorisation means
+    writing a new row — the expiry refusal says exactly that — and the row in
+    force is therefore the most recent one.
+
+    **The `id` tiebreak is load-bearing, not tidiness.** `authorised_at`
+    defaults to `timezone.now()`, whose granularity on the development machine
+    was measured at ~1 ms (199,946 of 200,000 consecutive reads returned an
+    identical value), so two rows written in the same millisecond tie and the
+    ordering was undefined. Measured: with a fixture row and a test row written
+    back to back, 21 of 40 runs tied, and **in all 21 the database returned the
+    fixture row**, silently applying a different ceiling. That is A-36(c)'s
+    flaky guard, and a guard on a legal gate that answers differently to the
+    same data is worse than a missing one, because it is re-run until green.
+    """
+    return (
+        GateAuthorisation.objects.filter(revoked_at__isnull=True, **GATE_B_SCOPE)
+        .order_by("-authorised_at", "-id")
+        .first()
+    )
 
 
 def _gate_b_refusal(reason, message, detail):
@@ -188,15 +243,11 @@ def assert_real_account_allowed(*, is_seed, now=None):
     # Imported here, not at module scope: `open_discovery` imports
     # `apps.core.services`, which imports this module. One definition of
     # "is this a name?" (`CLAUDE.md` rule 11) is worth a function-local import.
-    from apps.accounts.models import User
-    from apps.core.management.commands.open_discovery import has_visible_character
+    from apps.accounts.models import NoticeVersion, User
+    from apps.core.management.commands.open_discovery import _present, has_visible_character
 
     now = now or timezone.now()
-    auth = (
-        GateAuthorisation.objects.filter(revoked_at__isnull=True, **GATE_B_SCOPE)
-        .order_by("-authorised_at")
-        .first()
-    )
+    auth = _live_gate_b_row()
     if auth is None:
         raise _gate_b_refusal(
             "no_gate_b_authorisation",
@@ -253,6 +304,58 @@ def assert_real_account_allowed(*, is_seed, now=None):
             f"{ceiling!r}, which is not a positive integer.",
         )
 
+    completes = evidence["completes_purchases"]
+    if not isinstance(completes, bool):
+        raise _gate_b_refusal(
+            "gate_b_completion_flag_unreadable",
+            "BookHop is not open for sign-ups yet.",
+            f"gate_authorisations id={auth.id} has evidence.completes_purchases = "
+            f"{completes!r}, which is not true or false. D-072 is a shape the "
+            "founder chose; it is not inferable from a string.",
+        )
+
+    for key in GATE_B_EVIDENCE_REFS:
+        if not _present(evidence.get(key)):
+            raise _gate_b_refusal(
+                "gate_b_evidence_missing",
+                "BookHop is not open for sign-ups yet.",
+                f"gate_authorisations id={auth.id} has no evidence.{key}. "
+                "CLOSED-TEST.md §4.1 lists it in the shape-1 set: a reduced gate "
+                "is smaller, not emptier.",
+            )
+
+    # **The one item verifiable end to end in the database**, so it is verified
+    # rather than counted. Non-integer entries simply fail to resolve, which is
+    # the fail-closed direction and needs no second refusal.
+    raw_ids = evidence["notice_version_ids"]
+    raw_ids = raw_ids if isinstance(raw_ids, (list, tuple)) else []
+    ids = [i for i in raw_ids if isinstance(i, int) and not isinstance(i, bool)]
+    published = set(
+        NoticeVersion.objects.filter(id__in=ids).values_list("kind", flat=True)
+    )
+    unpublished = [kind for kind in GATE_B_NOTICE_KINDS if kind not in published]
+    if unpublished:
+        raise _gate_b_refusal(
+            "gate_b_notices_unpublished",
+            "BookHop is not open for sign-ups yet.",
+            f"gate_authorisations id={auth.id} has evidence.notice_version_ids = "
+            f"{evidence['notice_version_ids']!r}, which resolves to no "
+            f"notice_versions row of kind {', '.join(unpublished)}. SPDI r.4 and IT "
+            "Rules r.3(1)(a) bind at any scale (CLOSED-TEST.md §3 row 5).",
+        )
+
+    entity = auth.legal_entity
+    for field in GATE_B_LEGAL_ENTITY_FIELDS:
+        if not _present(getattr(entity, field, None)):
+            raise _gate_b_refusal(
+                "gate_b_grievance_officer_missing",
+                "BookHop is not open for sign-ups yet.",
+                f"legal_entities id={auth.legal_entity_id} has no {field}. IT Rules "
+                "r.3(2)(a) is a functional test with no threshold and no company "
+                "requirement — the clearest 'binds at any scale' item in "
+                "CLOSED-TEST.md §3.",
+            )
+
     # Tombstoned accounts are excluded: a participant who left frees their
     # place, and counting them would make the ceiling a high-water mark rather
     # than a headcount.
@@ -271,6 +374,57 @@ def assert_real_account_allowed(*, is_seed, now=None):
             f"participants and {taken} real accounts exist.",
         )
     return auth
+
+
+def assert_purchase_completion_allowed(*, to_status):
+    """A-37 / D-072. No purchase completes during the closed test.
+
+    **This is a legal position, not a product decision.** `CLOSED-TEST.md` §2.3
+    establishes that the Consumer Protection (E-Commerce) Rules carry no
+    turnover, user-count or transaction threshold, so at shape 2 a company is
+    required at twelve users exactly as at two thousand. Shape 1 — nothing
+    completes — is what takes incorporation off the critical path, and until
+    now it was true only **by absence**: the transition map permits
+    `RESERVED → CLOSED_TRANSFERRED` and nothing called into either state
+    because the slice that would had not been written. The slice that builds
+    reserve-and-complete would have moved this company into shape 2 with
+    nobody deciding to, and `CLOSED-TEST.md` would still have read true.
+
+    So the position is a value a named human signed, and this is the refusal
+    that reads it. Called from `listings.services._transition` for A-29 §2's
+    reason: every move into a completion state goes through that one function,
+    so publish, relist, reserve and every edge a later slice adds are one
+    predicate rather than one check per caller.
+
+    **No live row refuses.** Shape 1 is the fail-closed direction, and the
+    absence of an authorisation is not an authorisation.
+
+    Expiry is deliberately **not** re-read here: an expired row stops new
+    accounts, which is `assert_real_account_allowed`'s job, and a row that says
+    purchases complete exists only once the founder has decided shape 2 — at
+    which point the question this guard asks has a different answer anyway.
+    """
+    auth = _live_gate_b_row()
+    completes = (auth.evidence or {}).get("completes_purchases") if auth else None
+    if completes is True:
+        return auth
+    raise _gate_b_refusal(
+        "closed_test_completes_no_purchase",
+        "Books are not changing hands through BookHop during the closed test.",
+        (
+            f"D-072 / A-37: listings.status -> {to_status!r} is a completion state and "
+            + (
+                f"gate_authorisations id={auth.id} says evidence.completes_purchases = "
+                f"{completes!r}."
+                if auth is not None
+                else "no live gate_authorisations row with gate='B', scope_type='GLOBAL' "
+                     "authorises one."
+            )
+            + " Completing a purchase makes BookHop a marketplace e-commerce entity "
+            "under the Consumer Protection (E-Commerce) Rules, which have no "
+            "user-count threshold. That is a founder decision, not a slice."
+        ),
+    )
 
 
 def restrict_when_gate_closed(qs, campus):

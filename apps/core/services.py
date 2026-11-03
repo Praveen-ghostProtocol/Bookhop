@@ -28,6 +28,7 @@ from .request_context import current_request
 from .scoping import (  # re-exported: API-CONTRACT §3 lists these on apps.core.services
     SYSTEM,
     assert_discovery_open,
+    assert_purchase_completion_allowed,
     assert_real_account_allowed,
     restrict_when_gate_closed,
     scoped,
@@ -37,6 +38,7 @@ from .scoping import (  # re-exported: API-CONTRACT §3 lists these on apps.core
 __all__ = [
     "SYSTEM",
     "assert_discovery_open",
+    "assert_purchase_completion_allowed",
     "assert_real_account_allowed",
     "visible_campus_ids",
     "scoped",
