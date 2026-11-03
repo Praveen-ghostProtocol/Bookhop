@@ -197,6 +197,7 @@ def gate_b(legal_entity, *, human="A Human", **evidence):
         "completes_purchases": False,
         "takedown_sop_ref": "SOP-TD-1",
         "escalation_contact_ref": "A Human <oncall@example.test>",
+        "incident_runbook_ref": "RUNBOOK-1",
         "notice_version_ids": published_notice_ids(),
     }
     payload.update(evidence)

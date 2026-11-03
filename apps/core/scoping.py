@@ -132,7 +132,16 @@ GATE_B_SCOPE = {"gate": "B", "scope_type": "GLOBAL"}
 GATE_B_BOUNDS = ("participant_ceiling", "closed_test_expires_at", "completes_purchases")
 
 #: Evidence that is a reference to something outside the database.
-GATE_B_EVIDENCE_REFS = ("notice_version_ids", "takedown_sop_ref", "escalation_contact_ref")
+#:
+#: **`incident_runbook_ref` was missing from this tuple for one commit** while
+#: `CLOSED-TEST.md` §4.1 listed it as required, which is the plainest form of
+#: `CLAUDE.md` rule 9's defect: a document naming a control the code does not
+#: have. `test_the_required_set_is_the_documents_set` now derives the whole set
+#: from §4.1's own table, so the two cannot disagree again without a red test.
+GATE_B_EVIDENCE_REFS = (
+    "notice_version_ids", "takedown_sop_ref", "escalation_contact_ref",
+    "incident_runbook_ref",
+)
 
 #: The notice kinds `evidence.notice_version_ids` must actually resolve to.
 #: **PRIVACY and TERMS only.** `SELLER_TERMS` carries the r.5(2) seller
@@ -145,9 +154,31 @@ GATE_B_NOTICE_KINDS = ("PRIVACY", "TERMS")
 #: Read from the authorisation's **own** legal entity, for the reason
 #: `open_discovery.checklist` gives: evidence belonging to a different entity
 #: from the one that was authorised is not this row's evidence.
-GATE_B_LEGAL_ENTITY_FIELDS = (
+#:
+#: **Two tuples, not one, because they are two obligations under two
+#: instruments** and the refusal has to say which (`CLAUDE.md` rule 11 — a flat
+#: list gets edited when one entry misfires, so each entry carries its own
+#: match rule). Collapsing them would give an operator reading
+#: `gate_b_grievance_officer_missing` in the security log the wrong statute to
+#: go and read.
+GATE_B_GRIEVANCE_FIELDS = (
     "grievance_officer_name", "grievance_officer_email", "grievance_officer_phone",
 )
+
+#: CERT-In Directions 2022, Direction (v). **`cert_in_poc_*` was missing from
+#: the gate for one commit** although §4.1 lists it and the columns have
+#: existed since migration 0001 — §4.1 is explicit that it *"replaces
+#: `breach_rehearsal_at`"* because *"the obligation is the 6-hour
+#: capability"*, and a 6-hour reporting capability with no named point of
+#: contact is not a capability.
+GATE_B_CERT_IN_FIELDS = (
+    "cert_in_poc_name", "cert_in_poc_email", "cert_in_poc_phone",
+)
+
+#: One name for every `legal_entities` column Gate B reads, since the document
+#: test and any future reader want the whole set and neither should rebuild it
+#: by concatenating halves.
+GATE_B_LEGAL_ENTITY_FIELDS = GATE_B_GRIEVANCE_FIELDS + GATE_B_CERT_IN_FIELDS
 
 #: **The other side of the split, as a row** (`CLAUDE.md` rule 10's corollary).
 #: These are required at shape 2 and **cannot exist at shape 1** — there is no
@@ -155,7 +186,14 @@ GATE_B_LEGAL_ENTITY_FIELDS = (
 #: again: a criterion that cannot be satisfied. Asserted absent by
 #: `test_gate_b_account_creation.py`, so a later widening is a red test rather
 #: than a quiet one.
-GATE_B_NOT_ASSERTED = ("cin", "incorporation_date", "inc20a_filed_at")
+GATE_B_NOT_ASSERTED = (
+    "cin", "incorporation_date", "inc20a_filed_at",
+    # §4.1's "Not asserted" row names this fourth, and §1.1 is the finding
+    # that it is **unsatisfiable at this scope**: there is no campus MOU for a
+    # test among personal friends. It belongs on this side of the split for the
+    # same reason as the other three.
+    "campus_mou_ref",
+)
 
 
 def _live_gate_b_row():
@@ -344,17 +382,37 @@ def assert_real_account_allowed(*, is_seed, now=None):
             "Rules r.3(1)(a) bind at any scale (CLOSED-TEST.md §3 row 5).",
         )
 
+    # **Two loops, each naming its own instrument.** The refusal code is what
+    # an operator greps for and what the security log carries, so a missing
+    # CERT-In point of contact must not report itself as a grievance-officer
+    # problem and send someone to the wrong statute.
     entity = auth.legal_entity
-    for field in GATE_B_LEGAL_ENTITY_FIELDS:
-        if not _present(getattr(entity, field, None)):
-            raise _gate_b_refusal(
-                "gate_b_grievance_officer_missing",
-                "BookHop is not open for sign-ups yet.",
-                f"legal_entities id={auth.legal_entity_id} has no {field}. IT Rules "
-                "r.3(2)(a) is a functional test with no threshold and no company "
-                "requirement — the clearest 'binds at any scale' item in "
-                "CLOSED-TEST.md §3.",
-            )
+    for fields, reason, basis in (
+        (
+            GATE_B_GRIEVANCE_FIELDS,
+            "gate_b_grievance_officer_missing",
+            "IT Rules r.3(2)(a) is a functional test with no threshold and no "
+            "company requirement — the clearest 'binds at any scale' item in "
+            "CLOSED-TEST.md §3.",
+        ),
+        (
+            GATE_B_CERT_IN_FIELDS,
+            "gate_b_cert_in_poc_missing",
+            "CERT-In Directions 2022 bind 'service providers, intermediaries, "
+            "data centres, body corporate' with no scale threshold "
+            "(CLOSED-TEST.md §2.4). §4.1 requires this in place of a breach "
+            "rehearsal because the obligation is the 6-hour reporting "
+            "capability, and a capability with no named point of contact is "
+            "not one.",
+        ),
+    ):
+        for field in fields:
+            if not _present(getattr(entity, field, None)):
+                raise _gate_b_refusal(
+                    reason,
+                    "BookHop is not open for sign-ups yet.",
+                    f"legal_entities id={auth.legal_entity_id} has no {field}. {basis}",
+                )
 
     # Tombstoned accounts are excluded: a participant who left frees their
     # place, and counting them would make the ceiling a high-water mark rather

@@ -187,6 +187,12 @@ def legal_entity(db):
         grievance_officer_name="A Human",
         grievance_officer_email="grievance@example.test",
         grievance_officer_phone="+910000000000",
+        # CLOSED-TEST.md §4.1 requires these at Gate B in place of a breach
+        # rehearsal. The columns have existed since migration 0001 and nothing
+        # read them until the gate did.
+        cert_in_poc_name="A Human",
+        cert_in_poc_email="certin@example.test",
+        cert_in_poc_phone="+910000000001",
     )
 
 
