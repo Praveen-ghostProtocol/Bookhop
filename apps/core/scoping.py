@@ -392,9 +392,22 @@ def assert_purchase_completion_allowed(*, to_status):
 
     So the position is a value a named human signed, and this is the refusal
     that reads it. Called from `listings.services._transition` for A-29 §2's
-    reason: every move into a completion state goes through that one function,
-    so publish, relist, reserve and every edge a later slice adds are one
-    predicate rather than one check per caller.
+    reason: every *transition* goes through that one function, so reserve,
+    relist and every edge a later slice adds are one predicate rather than one
+    check per caller.
+
+    **It is not true that every write of `listings.status` goes through
+    `_transition`, and an earlier draft of this docstring said it was.**
+    `tests/unit/test_purchase_completion_gate.py` enumerates the writers and
+    found three others on its first run: `create_listing` inserts at `DRAFT`,
+    `seed_demo._seed_listings` inserts demo rows at a literal status, and
+    `accounts.services._detach_listing_rows` withdraws an erased seller's open
+    listings without consulting any state machine, deliberately, because an
+    erasure must not be refusable. None of the three can write a completion
+    status and all three are asserted unable to — which is the enumeration
+    doing the work the sentence above was doing on trust (`CLAUDE.md` rule 9:
+    a claim quantified over "every path" names the paths it was measured
+    against).
 
     **No live row refuses.** Shape 1 is the fail-closed direction, and the
     absence of an authorisation is not an authorisation.

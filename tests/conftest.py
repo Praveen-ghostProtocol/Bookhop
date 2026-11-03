@@ -264,7 +264,7 @@ def salt(settings):
 
 
 @pytest.fixture
-def gate_b_open(db, legal_entity):
+def gate_b_open(db, legal_entity, privacy_notice, terms_notice):
     """A live Gate B authorisation — A-35 / B9′. Returns the row.
 
     **Why this is a fixture and not an autouse default.** Since A-35,
@@ -290,7 +290,18 @@ def gate_b_open(db, legal_entity):
             "takedown_sop_ref": "SOP-TD-1",
             "escalation_contact_ref": "A Human <oncall@example.test>",
             "incident_runbook_ref": "RUNBOOK-1",
-            "notice_version_ids": [1, 2],
+            # **Real primary keys, and they did not used to be.** This read
+            # `[1, 2]` while A-35's guard counted the list without resolving
+            # it; D-072's guard resolves it, and two hardcoded integers that
+            # happened to match nothing became 75 failures in one commit. The
+            # ids now come from rows this fixture published, so the evidence
+            # the gate reads is evidence that exists.
+            "notice_version_ids": [privacy_notice.id, terms_notice.id],
+            # Shape 1: the closed test completes no purchase (D-072). Every
+            # test that reserves or completes a transfer therefore expects a
+            # refusal, and `test_purchase_completion_gate.py` owns both sides
+            # of that split.
+            "completes_purchases": False,
         },
         authorised_by_human="A Human",
     )
@@ -327,6 +338,23 @@ def privacy_notice(db):
     return NoticeVersion.objects.create(
         kind="PRIVACY", version="2026-11-01.1", locale="en",
         body_md="# Privacy\n\nTest notice.", sha256="0" * 64,
+    )
+
+
+@pytest.fixture
+def terms_notice(db):
+    """A published `TERMS` version — `GATE_B_NOTICE_KINDS`' second half.
+
+    Separate from `privacy_notice` for the reason `seller_terms_notice` gives:
+    a fixture that published one notice of every kind would make the Gate B
+    evidence check true by accident, and the condition it has to be able to
+    **withhold** is "one of the two required kinds is unpublished".
+    """
+    from apps.accounts.models import NoticeVersion
+
+    return NoticeVersion.objects.create(
+        kind="TERMS", version="2026-11-01.1", locale="en",
+        body_md="# Terms\n\nTest notice.", sha256="3" * 64,
     )
 
 

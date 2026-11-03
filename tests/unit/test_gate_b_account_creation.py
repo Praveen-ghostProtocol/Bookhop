@@ -25,6 +25,7 @@ Three things are asserted here and the third is the one that cost four gates:
 """
 
 import ast
+import hashlib
 import json
 import re
 import uuid
@@ -34,7 +35,11 @@ from pathlib import Path
 import pytest
 
 from apps.core.errors import GateClosed
-from apps.core.scoping import GATE_B_BOUNDS, assert_real_account_allowed
+from apps.core.scoping import (
+    GATE_B_BOUNDS,
+    GATE_B_NOTICE_KINDS,
+    assert_real_account_allowed,
+)
 
 APPS = Path(__file__).resolve().parents[2] / "apps"
 
@@ -146,10 +151,54 @@ def test_the_gate_b_guard_exists_by_name():
 # --- 2. behaviour, by message text, both sides of every split --------------
 
 
+def published_notice_ids():
+    """`GATE_B_NOTICE_KINDS` as real rows, so `notice_version_ids` resolves.
+
+    **This is the fixture half of rule 10's third disguise.** D-072's guard
+    does not count the list, it *resolves* it — and the moment it did,
+    `tests/conftest.py`'s hardcoded `[1, 2]` stopped matching anything and took
+    75 tests down with it. A helper that published no notices could only ever
+    produce the refused side of this split.
+
+    `get_or_create` because more than one row per test calls it, and
+    `notice_versions` is unique on `(kind, version, locale)` and immutable.
+    """
+    from apps.accounts.models import NoticeVersion
+
+    return [
+        NoticeVersion.objects.get_or_create(
+            kind=kind, version="gate-b-evidence.1", locale="en",
+            defaults={
+                "body_md": f"# {kind}",
+                "sha256": hashlib.sha256(kind.encode()).hexdigest(),
+            },
+        )[0].id
+        for kind in GATE_B_NOTICE_KINDS
+    ]
+
+
 def gate_b(legal_entity, *, human="A Human", **evidence):
+    """A row carrying the **whole** shape-1 evidence set, minus what a caller
+    removes with `_ABSENT`.
+
+    The default has to be a *passing* row or every test below measures the
+    wrong thing: a helper whose default was already short of the evidence set
+    would make `test_a_live_row_lets_a_real_account_through` fail for a reason
+    that has nothing to do with what it asserts.
+    """
     from apps.core.models import GateAuthorisation
 
-    payload = {"participant_ceiling": 12, "closed_test_expires_at": "2027-01-01T00:00:00+00:00"}
+    payload = {
+        "participant_ceiling": 12,
+        "closed_test_expires_at": "2027-01-01T00:00:00+00:00",
+        # D-072 shape 1. `False` is a *value*, so the guard tests presence with
+        # `in` and not truthiness — which is why this key sits in
+        # `GATE_B_BOUNDS` rather than in the refs loop.
+        "completes_purchases": False,
+        "takedown_sop_ref": "SOP-TD-1",
+        "escalation_contact_ref": "A Human <oncall@example.test>",
+        "notice_version_ids": published_notice_ids(),
+    }
     payload.update(evidence)
     for key, value in list(payload.items()):
         if value is _ABSENT:

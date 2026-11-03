@@ -378,6 +378,14 @@ DYNAMIC_GETATTR = {
         "`LEGAL_ENTITY_FIELDS`, a literal tuple of that table's own columns. "
         "`LegalEntity` has no field in `SELLER_WRITTEN_TEXT`"
     ),
+    ("apps/core/scoping.py", "assert_real_account_allowed", "entity"): (
+        "the same receiver and the same argument as the `checklist` pin above: "
+        "a `legal_entities` row, with the names coming from "
+        "`GATE_B_LEGAL_ENTITY_FIELDS`, a literal tuple of that table's own "
+        "columns. Gate B reads three of the columns Gate C reads ten of, so "
+        "this is the ratified shape rather than a new one — and `LegalEntity` "
+        "still has no field in `SELLER_WRITTEN_TEXT`"
+    ),
 }
 
 

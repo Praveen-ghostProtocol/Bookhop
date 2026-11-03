@@ -44,7 +44,12 @@ from apps.core.errors import (
     ValidationFailed,
     VersionConflict,
 )
-from apps.core.scoping import assert_discovery_open, restrict_when_gate_closed, scoped
+from apps.core.scoping import (
+    assert_discovery_open,
+    assert_purchase_completion_allowed,
+    restrict_when_gate_closed,
+    scoped,
+)
 from apps.core.services import record_audit
 
 from .images import ImageRejected, strip_metadata
@@ -110,6 +115,33 @@ TERMINAL_STATUSES = frozenset(s for s, to in LISTING_TRANSITIONS.items() if not 
 #: differently: the first refuses the write, the second refuses the read for a
 #: row that reached the status some other way.
 BUYER_REACHABLE_STATUSES = frozenset({"LIVE", "RESERVED", "CLOSED_TRANSFERRED"})
+
+#: **D-072 / A-37.** The statuses a listing is in once a sale has been agreed
+#: or done. `assert_purchase_completion_allowed` refuses every move into one of
+#: them while the closed test runs at shape 1.
+#:
+#: **`RESERVED` is in the set, and that is the whole question.** `CLOSED-TEST.md`
+#: §2.3's finding is not about delivery — it is *"whether a sale happens at
+#: all"*, because CPA 2019 s2(16) attaches to the *"buying or selling of
+#: goods"*. An accepted offer concludes a contract of sale under the Sale of
+#: Goods Act whether or not the book has moved, so a gate that let a listing
+#: reach `RESERVED` and stopped at `CLOSED_TRANSFERRED` would be guarding
+#: delivery while the thing the document rules on had already happened. §4.1's
+#: *"required if any book changes hands"* reads the other way; the two are
+#: reconciled on the fail-closed side, and **the narrower reading is Q-CT1's
+#: neighbour and goes to counsel with it, not into this constant.**
+#:
+# ponytail: a list, because there is no property here to ask. "Is this status
+# one in which a sale has been concluded?" is a legal characterisation of each
+# state, not a graph property of `LISTING_TRANSITIONS` — `TERMINAL_STATUSES`
+# derives cleanly and this cannot, since `WITHDRAWN` and `REJECTED` are equally
+# terminal and are not sales, while `RESERVED` is a sale and is not terminal.
+# **Ceiling, declared here rather than discovered later: a status added to
+# `LISTING_STATUSES` is not added to this set by anything.** The layer that
+# catches that omission is `tests/unit/test_purchase_completion_gate.py`, which
+# fails the build when a new status appears in the schema and is classified in
+# neither this set nor the test's own explicit not-a-completion list.
+COMPLETION_STATUSES = frozenset({"RESERVED", "CLOSED_TRANSFERRED"})
 
 #: J2-staff step 4/5. `moderate_listing` takes one of these.
 MODERATION_ACTIONS = {"REVIEW_PASS": "LIVE", "REVIEW_REJECT": "REJECTED",
@@ -450,6 +482,21 @@ def _transition(listing, to_status, expected, *, actor, action, extra=None):
             from_status=listing.status,
             to_status=to_status,
         )
+    # **D-072 / A-37, and it goes AFTER A-29's check for a measured reason.**
+    # Put before it, this guard refuses first for `RESERVED` and
+    # `CLOSED_TRANSFERRED` — and `test_no_buyer_reachable_status_is_reachable_on_an_unverified_book`
+    # went red on both, because A-29's control had stopped being *reachable*
+    # for two of the three statuses it quantifies over. That is `CLAUDE.md`
+    # rule 12's earned case verbatim: *a control stopped measuring the moment
+    # its subject became real*. The cost of this order is that an unverified
+    # book reports the A-29 refusal rather than the (also true) D-072 one,
+    # which is the cheaper error to hold: A-29 is per-listing and fixable by
+    # staff, D-072 is global and fixable only by the founder, and a seller
+    # whose book was never checked is told the thing they can act on.
+    # Both layers stay measurable — D-072's own tests use a staff-verified
+    # book, which is what every real listing is.
+    if to_status in COMPLETION_STATUSES:
+        assert_purchase_completion_allowed(to_status=to_status)
     now = timezone.now()
     fields = {"status": to_status, "version": listing.version + 1}
     if to_status == "LIVE" and listing.published_at is None:
