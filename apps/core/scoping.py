@@ -131,6 +131,23 @@ GATE_B_SCOPE = {"gate": "B", "scope_type": "GLOBAL"}
 #: imported from there rather than restated.
 GATE_B_BOUNDS = ("participant_ceiling", "closed_test_expires_at", "completes_purchases")
 
+#: **OPEN: A-37 and `CLOSED-TEST.md` 4.1 disagree, and this code follows 4.1.**
+#: A-37 enumerates the shape-1 set as *"per `CLOSED-TEST.md` 4 **and no
+#: wider**"* and then lists `authorised_by_human`, `notice_version_ids`, the
+#: grievance-officer fields, `takedown_sop_ref`, `escalation_contact_ref` and
+#: the three bounds - **omitting `incident_runbook_ref` and
+#: `cert_in_poc_name`/`_email`/`_phone`, which 4.1's table marks required.**
+#: So the contract's enumeration is not in fact "per 4" and the two homes of
+#: one rule disagree, which is `CLAUDE.md` rule 11's recorded defect exactly.
+#:
+#: Reading them is the fail-closed side and 2.4 grades CERT-In as binding
+#: *"without a company"* at any scale, so the control stays and is **not**
+#: reverted to match the narrower list - rule 12: never remove a remedy to
+#: close a paperwork gap. But the code is wider than a frozen contract says,
+#: which is not ours to ratify: **this needs an A-38 amendment deciding whether
+#: A-37's enumeration or 4.1's table governs**, and it is escalated rather
+#: than resolved here. Listed in the slice note.
+#:
 #: Evidence that is a reference to something outside the database.
 #:
 #: **`incident_runbook_ref` was missing from this tuple for one commit** while

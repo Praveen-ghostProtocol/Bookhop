@@ -50,7 +50,11 @@ import pytest
 from apps.core.errors import GateClosed, TransitionNotAllowed
 from apps.listings import services
 from apps.listings.models import LISTING_STATUSES, Listing
-from apps.listings.services import COMPLETION_STATUSES
+from apps.listings.services import (
+    COMPLETION_STATUSES,
+    SALE_AGREED_STATUS,
+    _completion_statuses,
+)
 
 # One definition of "a listing, correctly shaped" (`CLAUDE.md` rule 11). A
 # second copy of those seven kwargs here would drift the day the contract adds
@@ -212,17 +216,67 @@ def test_every_listing_status_is_classified_as_a_completion_or_not():
     assert not COMPLETION_STATUSES & NOT_A_COMPLETION
 
 
-def test_the_statuses_the_document_names_are_both_in_the_set():
-    """Rule 9: the control is asserted at the boundary **the document claims**.
+def test_the_statuses_the_document_names_are_pinned():
+    """Rule 9: the control is asserted at the boundary **the documents claim**.
 
-    §2.3's finding is *"whether a sale happens at all"*, not whether a book is
-    delivered, so `RESERVED` — an accepted offer, which concludes a contract of
-    sale whether or not the book has moved — is inside the gate. A future
-    narrowing to `CLOSED_TRANSFERRED` alone is a legal decision and goes to
-    counsel beside Q-CT1; it is not a refactor, and this assertion is here so
-    that it cannot be made as one.
+    `COMPLETION_STATUSES` is derived from `LISTING_TRANSITIONS` (A-37 2 of 3),
+    and a derivation is the right shape but the wrong thing to leave
+    unpinned: the derived set can **shrink** on a map edit, which is the
+    fail-open direction. `CLOSED-TEST.md` §2.3's finding is *"whether a sale
+    happens at all"*, not whether a book is delivered, so `RESERVED` — an
+    accepted offer, which concludes a contract of sale whether or not the book
+    has moved — is inside the gate. A narrowing to `CLOSED_TRANSFERRED` alone
+    is a legal decision that goes to counsel beside Q-CT1; this is here so it
+    cannot arrive as a refactor.
     """
     assert COMPLETION_STATUSES == {"RESERVED", "CLOSED_TRANSFERRED"}
+    assert SALE_AGREED_STATUS in COMPLETION_STATUSES
+
+
+def test_the_derivation_covers_an_edge_added_later():
+    """**A-37's own clause, measured:** *"a later edge is covered on the day it
+    is added."*
+
+    This is the whole reason the contract says *derived from the transition
+    map, not retyped*, and it is the one property a hand-written set cannot
+    have. A slice that adds `RESERVED -> PAID` gets `PAID` guarded without
+    editing `apps/listings/services.py`.
+    """
+    later = {k: set(v) for k, v in services.LISTING_TRANSITIONS.items()}
+    later["RESERVED"] = later["RESERVED"] | {"PAID"}
+    later["PAID"] = set()
+    assert _completion_statuses(later) == {"RESERVED", "CLOSED_TRANSFERRED", "PAID"}
+
+
+def test_the_derivation_can_shrink_which_is_why_it_is_pinned():
+    """The failure mode the pin exists for, exercised rather than described.
+
+    An edge straight from `LIVE` to `CLOSED_TRANSFERRED` makes a completed
+    transfer reachable without agreeing a sale, so the derivation stops
+    classifying it as a completion state and the gate silently narrows to one
+    status. Nothing in the derivation can notice that; only
+    `test_the_statuses_the_document_names_are_pinned` does, which is
+    `CLAUDE.md` rule 12 — name the other layer **and measure it in the same
+    pass**.
+    """
+    shortcut = {k: set(v) for k, v in services.LISTING_TRANSITIONS.items()}
+    shortcut["LIVE"] = shortcut["LIVE"] | {"CLOSED_TRANSFERRED"}
+    assert _completion_statuses(shortcut) == {"RESERVED"}, (
+        "if this no longer shrinks, the pin above is guarding nothing and the "
+        "two tests have become one"
+    )
+
+
+def test_an_ambiguous_map_raises_rather_than_walking_from_the_wrong_place():
+    """The derivation needs exactly one creation status. Two would make the
+    walk's starting point arbitrary and could drop states out of the gate, so
+    it refuses loudly — rule 10's sixth disguise asks for the message text, not
+    the exit status.
+    """
+    with pytest.raises(RuntimeError, match="statuses with no inbound edge"):
+        _completion_statuses({"A": set(), "B": set()})
+    with pytest.raises(RuntimeError, match="statuses with no inbound edge"):
+        _completion_statuses({"A": {"A"}})
 
 
 # --- 4. behaviour, both sides of every split, by message text -------------

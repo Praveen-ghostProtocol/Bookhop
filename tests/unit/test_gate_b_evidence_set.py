@@ -68,11 +68,18 @@ CLOSED_TEST = ROOT / "company" / "evidence" / "CLOSED-TEST.md"
 #: exactly this one and no second column crept in.
 DOCUMENTED_COLUMNS = {"authorised_by_human"}
 
-#: In the code and **not** in §4.1, with the reason, because an assertion that
-#: the two sets are equal would otherwise fail on it and get edited. D-072 is a
-#: founder decision taken after §4.1 was written; §2.3 is the analysis that
-#: makes it the load-bearing one.
-CODE_ONLY_EVIDENCE = {"completes_purchases"}
+#: Evidence the gate reads that §4.1 does not list, each with the decision that
+#: put it there. **Empty, and that is the point.** It held
+#: `completes_purchases` for one commit, which was one hand-made copy of a rule
+#: that already had two homes — so §4.1 was amended (2026-11-04) to carry the
+#: row, and the copy went away rather than being maintained. `CLAUDE.md`
+#: rule 11: one definition, many readers.
+#:
+#: An empty allow-list still does work: `test_the_required_set_is_the_documents_set`
+#: asserts the difference **equals** this set, so the next item added to the
+#: gate without a document row fails there and has to be either documented or
+#: registered here with its decision.
+CODE_ONLY_EVIDENCE = set()
 
 
 # --- the document's table, as data ----------------------------------------

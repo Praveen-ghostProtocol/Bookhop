@@ -1,6 +1,7 @@
 # CLOSED-TEST.md — what a closed test among known adults actually requires
 
-**Owner:** privacy-compliance · **Version:** v1.0 · **Written:** 2026-10-23
+**Owner:** privacy-compliance · **Version:** v1.1 · **Written:** 2026-10-23
+**Amended:** 2026-11-04 (§4.1, `completes_purchases` — see the amendment in that section)
 **Question answered:** the founder wants to put BookHop in front of ~12 of
 their own friends, not a campus. What binds, and how much of the ten-field
 discovery gate is overkill for it?
@@ -365,7 +366,29 @@ no enum or CHECK change needed** (§2.6).
 | `incident_runbook_ref` | evidence | With the above. A written runbook, not a rehearsal. |
 | `participant_ceiling` | evidence | **New, and one of the two that make this defensible rather than merely smaller.** An integer. |
 | `closed_test_expires_at` | evidence | **New, and the more important of the two.** |
+| `completes_purchases` | evidence | **Added by A-37 after v1.0 of this file; see the amendment below.** Boolean. §2.3's route out of the E-Commerce Rules is the factual one — *no sale, no e-commerce* — so the shape has to be a value a named human signed, not a property of what has not been built yet. `false` is a **value**, so the gate tests presence and never truthiness. |
 | **Not asserted** | — | `cin`, `incorporation_date`, `inc20a_filed_at`, `campus_mou_ref`. `counsel_engagement_ref` **recommended, not required**. |
+
+> **AMENDMENT 2026-11-04 — `completes_purchases` joins the table, and v1.0 of
+> this section could not have named it.**
+>
+> §4 was written on 2026-10-23 with the founder's choice between shape 1 and
+> shape 2 **still open**: §2.3 analysed both and said explicitly that picking
+> one was *"Product's call, not mine"*. The founder picked shape 1 the same day
+> (`decisions/DECISIONS.md` D-072), and `API-CONTRACT.md` A-37 made it a
+> control rather than an intention — *"an absence is not a control"* — adding
+> the boolean to the authorisation row beside the two bounds above.
+>
+> **So this is not a correction of v1.0; it is the row v1.0 deliberately left
+> undecided, filled in.** It is recorded here rather than only in the contract
+> because `tests/unit/test_gate_b_evidence_set.py` derives the required set
+> from **this table** and compares it with the code: an item the gate reads and
+> this table does not list was carried in a test-side allow-list, which is one
+> more hand-made copy of a rule that already has two homes (`CLAUDE.md`
+> rule 11). That allow-list is now empty.
+>
+> **Accepted.** No other row changes, and nothing here widens the gate: the
+> boolean was already being read.
 
 **Why the last two items are not optional.** `ops/INCORPORATION-AND-BLOCKERS.md`
 §3.3 already warns that Gate B *"is a holding position and not a destination"*

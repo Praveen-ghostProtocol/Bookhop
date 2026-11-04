@@ -116,32 +116,71 @@ TERMINAL_STATUSES = frozenset(s for s, to in LISTING_TRANSITIONS.items() if not 
 #: row that reached the status some other way.
 BUYER_REACHABLE_STATUSES = frozenset({"LIVE", "RESERVED", "CLOSED_TRANSFERRED"})
 
-#: **D-072 / A-37.** The statuses a listing is in once a sale has been agreed
-#: or done. `assert_purchase_completion_allowed` refuses every move into one of
-#: them while the closed test runs at shape 1.
-#:
-#: **`RESERVED` is in the set, and that is the whole question.** `CLOSED-TEST.md`
-#: §2.3's finding is not about delivery — it is *"whether a sale happens at
-#: all"*, because CPA 2019 s2(16) attaches to the *"buying or selling of
-#: goods"*. An accepted offer concludes a contract of sale under the Sale of
-#: Goods Act whether or not the book has moved, so a gate that let a listing
-#: reach `RESERVED` and stopped at `CLOSED_TRANSFERRED` would be guarding
-#: delivery while the thing the document rules on had already happened. §4.1's
-#: *"required if any book changes hands"* reads the other way; the two are
-#: reconciled on the fail-closed side, and **the narrower reading is Q-CT1's
-#: neighbour and goes to counsel with it, not into this constant.**
-#:
-# ponytail: a list, because there is no property here to ask. "Is this status
-# one in which a sale has been concluded?" is a legal characterisation of each
-# state, not a graph property of `LISTING_TRANSITIONS` — `TERMINAL_STATUSES`
-# derives cleanly and this cannot, since `WITHDRAWN` and `REJECTED` are equally
-# terminal and are not sales, while `RESERVED` is a sale and is not terminal.
-# **Ceiling, declared here rather than discovered later: a status added to
-# `LISTING_STATUSES` is not added to this set by anything.** The layer that
-# catches that omission is `tests/unit/test_purchase_completion_gate.py`, which
-# fails the build when a new status appears in the schema and is classified in
-# neither this set nor the test's own explicit not-a-completion list.
-COMPLETION_STATUSES = frozenset({"RESERVED", "CLOSED_TRANSFERRED"})
+#: **A-37 2 of 3's pivot.** The status at which a sale is agreed, and the one
+#: name the derivation below needs. `CLOSED-TEST.md` 2.3's finding is not about
+#: delivery - it is *"whether a sale happens at all"*, because CPA 2019 s2(16)
+#: attaches to the *"buying or selling of goods"*, and an accepted offer
+#: concludes a contract of sale under the Sale of Goods Act whether or not the
+#: book has moved. 4.1's *"required if any book changes hands"* reads the other
+#: way; the two are reconciled on the fail-closed side, and **the narrower
+#: reading is Q-CT1's neighbour and goes to counsel with it, not in here.**
+SALE_AGREED_STATUS = "RESERVED"
+
+
+def _completion_statuses(transitions, pivot=SALE_AGREED_STATUS):
+    """A-37 2 of 3, verbatim: *"anything reachable only through `RESERVED`,
+    plus `RESERVED` itself"*, **derived from the transition map, not retyped**.
+
+    A status is a completion state when the map offers no way to reach it
+    without entering `pivot`. So the walk is the obvious one run on a graph
+    with `pivot` deleted, and whatever is then unreachable from the creation
+    status is what only a concluded sale can produce. `pivot` never enters the
+    walk, so *"plus `RESERVED` itself"* needs no special case.
+
+    **This replaces a hand-written `frozenset({"RESERVED",
+    "CLOSED_TRANSFERRED"})`, and the comment that shipped beside it was wrong
+    on the facts.** It said there was no property to ask and that a sale was a
+    legal characterisation rather than a graph property. A-37 had already
+    stated the property and the contract is explicit that it is not to be
+    retyped; `CLAUDE.md` rule 9's corollary says that when an explanation and a
+    measurement disagree you delete the explanation.
+
+    What the derivation buys is A-37's own clause: *"a later edge is covered on
+    the day it is added."* A slice that adds `RESERVED -> PAID` gets `PAID`
+    guarded without touching this module, which a list could not do -
+    `test_the_derivation_covers_an_edge_added_later` is that claim measured
+    rather than asserted.
+
+    The entry point is derived too, for the same reason: hardcoding `"DRAFT"`
+    would reintroduce the retyped name one line further down. Exactly one
+    status may have no way in, and an ambiguous map raises here rather than
+    silently walking from the wrong place and shrinking the gate - the
+    fail-open direction, so it is the one that must be loud.
+    """
+    entries = set(transitions) - {t for tos in transitions.values() for t in tos}
+    if len(entries) != 1:
+        raise RuntimeError(
+            f"LISTING_TRANSITIONS has {len(entries)} statuses with no inbound edge "
+            f"({sorted(entries)}); A-37's derivation needs exactly one creation "
+            "status to walk from. Fix the map or re-read A-37 2 of 3 before "
+            "touching this."
+        )
+    reachable, stack = set(), [entries.pop()]
+    while stack:
+        status = stack.pop()
+        if status in reachable or status == pivot:
+            continue
+        reachable.add(status)
+        stack.extend(transitions.get(status, ()))
+    return frozenset(set(transitions) - reachable)
+
+
+#: **D-072 / A-37.** The statuses a listing is in once a sale has been agreed or
+#: done. `assert_purchase_completion_allowed` refuses every move into one of
+#: them while the closed test runs at shape 1. Pinned to the two statuses the
+#: documents name by `test_purchase_completion_gate.py`, so a map edit that
+#: changes the derivation is a red test rather than a quietly re-scoped gate.
+COMPLETION_STATUSES = _completion_statuses(LISTING_TRANSITIONS)
 
 #: J2-staff step 4/5. `moderate_listing` takes one of these.
 MODERATION_ACTIONS = {"REVIEW_PASS": "LIVE", "REVIEW_REJECT": "REJECTED",
